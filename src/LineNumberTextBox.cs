@@ -97,6 +97,14 @@ namespace LockNote
 
         public new bool Focus() { return rtb.Focus(); }
 
+        public void InsertAtCursor(string text)
+        {
+            int pos = rtb.SelectionStart;
+            rtb.Text = rtb.Text.Insert(pos, text);
+            rtb.SelectionStart = pos + text.Length;
+            rtb.SelectionLength = 0;
+        }
+
         // ── Gutter painting ──
 
         void OnGutterPaint(object sender, PaintEventArgs e)
