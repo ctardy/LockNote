@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Windows.Forms;
@@ -25,8 +26,13 @@ namespace LockNote
     {
         BufferedPanel gutter;
         RichTextBox rtb;
+        Timer highlightTimer;
+        bool suppressEvents;
+        string lastHighlightedWord;
+        List<int> highlightPositions = new List<int>();
 
         const int GutterPadding = 6;
+        const int MinHighlightLength = 2;
 
         public event EventHandler ContentChanged;
 
@@ -56,7 +62,13 @@ namespace LockNote
             rtb.TextChanged += (s, e) =>
             {
                 gutter.Invalidate();
-                if (ContentChanged != null) ContentChanged(this, EventArgs.Empty);
+                if (!suppressEvents)
+                {
+                    // Text changed by user — clear stale highlights
+                    highlightPositions.Clear();
+                    lastHighlightedWord = null;
+                    if (ContentChanged != null) ContentChanged(this, EventArgs.Empty);
+                }
             };
             rtb.VScroll += (s, e) => gutter.Invalidate();
             rtb.Resize += (s, e) => gutter.Invalidate();
@@ -96,6 +108,11 @@ namespace LockNote
             Theme.ApplyToContextMenu(ctx);
 
             gutter.Paint += OnGutterPaint;
+
+            highlightTimer = new Timer();
+            highlightTimer.Interval = 200;
+            highlightTimer.Tick += delegate { highlightTimer.Stop(); ApplyOccurrenceHighlights(); };
+            rtb.SelectionChanged += delegate { OnSelectionChanged(); };
 
             Controls.Add(rtb);
             Controls.Add(gutter);
@@ -284,6 +301,85 @@ namespace LockNote
                 if (text != null)
                     rtb.SelectedText = text;
             }
+        }
+
+        // ── Occurrence highlighting ──
+
+        void OnSelectionChanged()
+        {
+            if (suppressEvents) return;
+            highlightTimer.Stop();
+            highlightTimer.Start();
+        }
+
+        void ApplyOccurrenceHighlights()
+        {
+            string selectedText = rtb.SelectedText;
+
+            // Trim trailing newlines that RichTextBox may include
+            if (selectedText != null)
+                selectedText = selectedText.TrimEnd('\r', '\n');
+
+            // Determine if we should highlight
+            bool shouldHighlight = selectedText != null
+                && selectedText.Length >= MinHighlightLength
+                && selectedText.IndexOf('\n') < 0
+                && selectedText.IndexOf('\r') < 0
+                && selectedText.Trim().Length == selectedText.Length;
+
+            string word = shouldHighlight ? selectedText : null;
+
+            // Skip if same word is already highlighted
+            if (word == lastHighlightedWord
+                || (word != null && lastHighlightedWord != null && word == lastHighlightedWord))
+                return;
+
+            suppressEvents = true;
+            int savedSelStart = rtb.SelectionStart;
+            int savedSelLength = rtb.SelectionLength;
+
+            // Remove previous highlights
+            ClearHighlights();
+
+            if (word != null)
+            {
+                // Find all occurrences
+                string text = rtb.Text;
+                int idx = 0;
+                while (idx < text.Length)
+                {
+                    idx = text.IndexOf(word, idx, StringComparison.OrdinalIgnoreCase);
+                    if (idx < 0) break;
+                    // Skip the current selection itself
+                    if (idx != savedSelStart)
+                    {
+                        highlightPositions.Add(idx);
+                        rtb.Select(idx, word.Length);
+                        rtb.SelectionBackColor = Theme.MatchHighlight;
+                    }
+                    idx += word.Length;
+                }
+                lastHighlightedWord = word;
+            }
+
+            // Restore selection
+            rtb.Select(savedSelStart, savedSelLength);
+            suppressEvents = false;
+        }
+
+        void ClearHighlights()
+        {
+            if (highlightPositions.Count > 0 && lastHighlightedWord != null)
+            {
+                int wordLen = lastHighlightedWord.Length;
+                for (int i = 0; i < highlightPositions.Count; i++)
+                {
+                    rtb.Select(highlightPositions[i], wordLen);
+                    rtb.SelectionBackColor = rtb.BackColor;
+                }
+                highlightPositions.Clear();
+            }
+            lastHighlightedWord = null;
         }
 
         // ── Gutter painting ──

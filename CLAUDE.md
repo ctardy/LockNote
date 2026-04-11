@@ -37,8 +37,19 @@ src/
 ├── Program.cs              Entry point, .tmp swap, password flow
 ├── Storage.cs              Binary marker, read/write encrypted payload
 ├── Crypto.cs               AES-256-CBC + HMAC-SHA256, PBKDF2
+├── Settings.cs             User settings (theme, save-on-close)
+├── Theme.cs                Dark/light theme system, color palette
 ├── EditorForm.cs           Main editor window, menus, shortcuts
+├── LineNumberTextBox.cs    RichTextBox with line numbers + occurrence highlighting
+├── SearchBar.cs            Ctrl+F find panel
+├── TabBar.cs               Tab strip for multi-note support
+├── TabStore.cs             Tab serialization/deserialization
+├── NoteTab.cs              Single note tab model
 ├── CreatePasswordDialog.cs Password creation (entry + confirm)
 ├── UnlockDialog.cs         Password prompt (5 attempts max)
-└── SearchBar.cs            Ctrl+F find panel
+├── CloseConfirmDialog.cs   Save-on-close confirmation dialog
+├── GoToLineDialog.cs       Ctrl+G go-to-line dialog
+├── RenameTabDialog.cs      Tab rename dialog
+├── SettingsDialog.cs       Settings UI (theme, behavior)
+└── Updater.cs              Auto-update check via GitHub releases
 ```

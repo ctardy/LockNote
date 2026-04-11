@@ -38,6 +38,7 @@ namespace LockNote
         public static Color ButtonText;
         public static Color ButtonSecondary;
         public static Color ErrorText;
+        public static Color MatchHighlight;
 
         static Theme()
         {
@@ -73,6 +74,7 @@ namespace LockNote
                 ButtonText       = Color.White;
                 ButtonSecondary  = Color.FromArgb(60, 60, 60);
                 ErrorText        = Color.FromArgb(244, 71, 71);
+                MatchHighlight   = Color.FromArgb(80, 80, 0);
             }
             else
             {
@@ -100,6 +102,7 @@ namespace LockNote
                 ButtonText       = Color.White;
                 ButtonSecondary  = Color.FromArgb(225, 225, 225);
                 ErrorText        = Color.FromArgb(200, 40, 40);
+                MatchHighlight   = Color.FromArgb(255, 255, 0);
             }
         }
 
