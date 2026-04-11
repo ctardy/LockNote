@@ -52,6 +52,7 @@ namespace LockNote
 
             var menuEdit = new ToolStripMenuItem("Edit");
             menuEdit.DropDownItems.Add("Find\tCtrl+F", null, (s, e) => searchBar.ShowAndFocus());
+            menuEdit.DropDownItems.Add("Go to line\tCtrl+G", null, (s, e) => GoToLine());
             menuEdit.DropDownItems.Add("Select all\tCtrl+A", null, (s, e) => txtEditor.SelectAll());
             menuEdit.DropDownItems.Add("Insert timestamp\tF5", null, (s, e) => InsertTimestamp());
 
@@ -131,11 +132,12 @@ namespace LockNote
                 {
                     case Keys.S: Save(); e.SuppressKeyPress = true; break;
                     case Keys.F: searchBar.ShowAndFocus(); e.SuppressKeyPress = true; break;
+                    case Keys.G: GoToLine(); e.SuppressKeyPress = true; break;
                     case Keys.Q: Close(); e.SuppressKeyPress = true; break;
                 }
             }
 
-            if (e.KeyCode == Keys.F5)
+            if (e.KeyCode == Keys.F5 && !e.Control && !e.Alt)
             {
                 InsertTimestamp();
                 e.SuppressKeyPress = true;
@@ -165,6 +167,19 @@ namespace LockNote
             {
                 MessageBox.Show("Save failed:\n" + ex.Message,
                     "LockNote", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        void GoToLine()
+        {
+            int current = txtEditor.GetCurrentLineNumber();
+            int total = txtEditor.GetTotalLines();
+            using (var dlg = new GoToLineDialog(current, total))
+            {
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    txtEditor.GoToLine(dlg.LineNumber);
+                }
             }
         }
 
