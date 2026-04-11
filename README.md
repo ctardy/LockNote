@@ -76,6 +76,11 @@ build.cmd
 - Clickable URL detection (opens in default browser)
 - Drag & drop text files into the editor
 - Select all (`Ctrl+A`)
+- Multiple tabs: organize notes in separate tabs within a single encrypted file
+- Tab operations: new tab (`Ctrl+T`), close tab (`Ctrl+W`), rename (double-click)
+- Tab navigation: `Ctrl+Tab` / `Ctrl+Shift+Tab` to switch between tabs
+- Per-tab modified indicator
+- Tab menu in menu bar
 
 ### Security
 - AES-256-CBC encryption with HMAC-SHA256 authentication
@@ -103,6 +108,10 @@ build.cmd
 | `Ctrl+Q` | Quit |
 | `Ctrl+Shift+V` | Paste as plain text |
 | `Ctrl+Shift+K` | Delete current line |
+| `Ctrl+T` | New tab |
+| `Ctrl+W` | Close tab |
+| `Ctrl+Tab` | Next tab |
+| `Ctrl+Shift+Tab` | Previous tab |
 | `F5` | Insert timestamp |
 
 ---
@@ -119,6 +128,24 @@ LockNote appends encrypted data after a binary marker at the end of its own `.ex
 │       (16 KB)        │(16 B)  │        (variable)            │
 └──────────────────────┴────────┴──────────────────────────────┘
 ```
+
+### Multi-tab storage
+
+Multiple notes are stored in a single encrypted payload using a delimiter-based format:
+
+```
+[LOCKNOTE_SETTINGS]
+...settings...
+[/LOCKNOTE_SETTINGS]
+[LOCKNOTE_TABS]
+[TAB:Note 1]
+content...
+[TAB:Passwords]
+content...
+[/LOCKNOTE_TABS]
+```
+
+Legacy single-note payloads (from versions before the tab system) are automatically migrated to the multi-tab format on first save.
 
 ### Cryptography
 
@@ -161,13 +188,19 @@ src/
 ├── SearchBar.cs            Ctrl+F find panel
 ├── GoToLineDialog.cs       Ctrl+G go-to-line dialog
 ├── SettingsDialog.cs       Settings dialog (close behavior)
-└── CloseConfirmDialog.cs   Unsaved changes prompt
+├── CloseConfirmDialog.cs   Unsaved changes prompt
+├── NoteTab.cs              Tab data model
+├── TabStore.cs             Multi-tab serialization format
+├── TabBar.cs               Custom owner-drawn tab bar
+├── RenameTabDialog.cs      Tab rename dialog
+└── Updater.cs              Auto-updater (GitHub releases)
 
 tests/
 ├── TestFramework.cs        Minimal test framework (no NuGet)
 ├── CryptoTests.cs          Encryption/decryption round-trip tests
 ├── SettingsTests.cs        Settings serialization tests
 ├── StorageTests.cs         Binary marker read/write tests
+├── TabStoreTests.cs        Tab serialization/deserialization tests
 └── TestMain.cs             Test runner entry point
 ```
 
@@ -175,7 +208,7 @@ tests/
 
 ## Testing
 
-Run the test suite (29 tests covering Crypto, Settings, and Storage):
+Run the test suite (47 tests covering Crypto, Settings, Storage, and TabStore):
 
 ```cmd
 test.cmd
