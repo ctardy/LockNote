@@ -97,6 +97,29 @@ namespace LockNote
 
         public new bool Focus() { return rtb.Focus(); }
 
+        public int GetCurrentLineNumber()
+        {
+            return rtb.GetLineFromCharIndex(rtb.SelectionStart) + 1;
+        }
+
+        public int GetTotalLines()
+        {
+            int total = rtb.Lines.Length;
+            return total > 0 ? total : 1;
+        }
+
+        public void GoToLine(int lineNumber)
+        {
+            int idx = rtb.GetFirstCharIndexFromLine(lineNumber - 1);
+            if (idx >= 0)
+            {
+                rtb.SelectionStart = idx;
+                rtb.SelectionLength = 0;
+                rtb.ScrollToCaret();
+                rtb.Focus();
+            }
+        }
+
         // ── Gutter painting ──
 
         void OnGutterPaint(object sender, PaintEventArgs e)
