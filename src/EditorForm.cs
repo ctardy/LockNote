@@ -69,7 +69,12 @@ namespace LockNote
             menuEdit.DropDownItems.Add("Select all\tCtrl+A", null, (s, e) => txtEditor.SelectAll());
             menuEdit.DropDownItems.Add("Insert timestamp\tF5", null, (s, e) => InsertTimestamp());
 
-            menuStrip.Items.AddRange(new ToolStripItem[] { menuFile, menuView, menuEdit });
+            var menuHelp = new ToolStripMenuItem("Help");
+            menuHelp.DropDownItems.Add("Check for updates", null, (s, e) => Updater.CheckForUpdate(exePath, this));
+            menuHelp.DropDownItems.Add(new ToolStripSeparator());
+            menuHelp.DropDownItems.Add(string.Format("About LockNote v{0}", Updater.CurrentVersion));
+
+            menuStrip.Items.AddRange(new ToolStripItem[] { menuFile, menuView, menuEdit, menuHelp });
             MainMenuStrip = menuStrip;
             Theme.ApplyToMenuStrip(menuStrip);
 
@@ -113,6 +118,7 @@ namespace LockNote
             KeyPreview = true;
             KeyDown += OnKeyDown;
             FormClosing += OnFormClosing;
+            Shown += (s, e) => Updater.CheckOnStartup(exePath, this);
 
             UpdateStatusBar();
         }

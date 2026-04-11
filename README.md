@@ -226,4 +226,6 @@ See the [open issues](../../issues) for planned features, organized by theme:
 
 ## License
 
-[MIT](LICENSE) — Christophe Tardy
+[MIT](LICENSE) — Created by [UITGuard](https://uitguard.com)
+
+Free to use, modify, and redistribute without restriction.

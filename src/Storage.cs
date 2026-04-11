@@ -30,6 +30,16 @@ namespace LockNote
         static readonly byte[] Marker = BuildMarker();
 
         /// <summary>
+        /// Returns a copy of the binary marker (used by Updater to migrate data).
+        /// </summary>
+        public static byte[] GetMarkerForUpdate()
+        {
+            byte[] copy = new byte[Marker.Length];
+            Buffer.BlockCopy(Marker, 0, copy, 0, Marker.Length);
+            return copy;
+        }
+
+        /// <summary>
         /// Returns the path to the .tmp staging file in %LOCALAPPDATA%\LockNote\.
         /// The filename is derived from a hash of the exe path so multiple instances
         /// don't collide. This keeps the .tmp hidden from the user.
