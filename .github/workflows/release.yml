@@ -13,9 +13,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build with csc.exe
+      - name: Build
         shell: cmd
         run: build.cmd
+
+      - name: Run tests
+        shell: cmd
+        run: test.cmd
 
       - name: Show output
         shell: bash
