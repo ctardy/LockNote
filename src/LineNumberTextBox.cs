@@ -5,12 +5,25 @@ using System.Windows.Forms;
 
 namespace LockNote
 {
+    /// <summary>Panel with double buffering to prevent flicker.</summary>
+    class BufferedPanel : Panel
+    {
+        public BufferedPanel()
+        {
+            SetStyle(
+                ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer |
+                ControlStyles.UserPaint,
+                true);
+        }
+    }
+
     /// <summary>
     /// A RichTextBox with a line number gutter on the left.
     /// </summary>
     class LineNumberTextBox : UserControl
     {
-        Panel gutter;
+        BufferedPanel gutter;
         RichTextBox rtb;
 
         const int GutterPadding = 6;
@@ -33,7 +46,7 @@ namespace LockNote
                 EnableAutoDragDrop = false
             };
 
-            gutter = new Panel
+            gutter = new BufferedPanel
             {
                 Dock = DockStyle.Left,
                 Width = 50,
