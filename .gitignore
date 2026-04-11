@@ -1,0 +1,17 @@
+# Build output
+/target
+build/
+*.exe
+*.pdb
+
+# IDE
+.vs/
+.vscode/
+*.suo
+*.user
+*.sln
+*.csproj
+
+# OS
+Thumbs.db
+Desktop.ini

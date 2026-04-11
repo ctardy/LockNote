@@ -1,0 +1,49 @@
+[package]
+name = "locknote"
+version = "1.0.1"
+edition = "2021"
+description = "Self-contained encrypted notepad for Windows"
+authors = ["Chris Tardy"]
+license = "MIT"
+
+[features]
+default = ["public"]
+public = []
+
+[dependencies]
+# Crypto
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+hmac = "0.12"
+sha2 = "0.10"
+pbkdf2 = { version = "0.12", features = ["hmac"] }
+rand = "0.9"
+zeroize = { version = "1", features = ["derive"] }
+
+# GUI (native Windows)
+native-windows-gui = "1.0"
+native-windows-derive = "1.0"
+
+# System
+clipboard-win = "5"
+ureq = "3"
+serde_json = "1"
+winreg = "0.55"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+# Windows API
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_Shell",
+    "Win32_Graphics_Gdi",
+] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

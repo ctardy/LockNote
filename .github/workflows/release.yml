@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        shell: cmd
+        run: build.cmd
+
+      - name: Run tests
+        shell: cmd
+        run: test.cmd
+
+      - name: Show output
+        shell: bash
+        run: ls -la LockNote.exe
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir staging
+          cp LockNote.exe staging/
+          cp README.md staging/
+          cp LICENSE staging/
+          cd staging
+          7z a ../LockNote-windows-x64.zip .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LockNote-windows-x64
+          path: LockNote-windows-x64.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/LockNote-windows-x64/LockNote-windows-x64.zip
