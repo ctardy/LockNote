@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
@@ -11,12 +12,13 @@ namespace LockNote
     {
         LineNumberTextBox txtEditor;
         SearchBar searchBar;
+        TabBar tabBar;
         StatusStrip statusStrip;
         ToolStripStatusLabel lblStats;
         string exePath;
         string password;
-        string savedText;
-        bool modified;
+        List<NoteTab> tabs;
+        int activeTabIndex;
         Settings settings;
         bool hasPendingTmp;
 
@@ -27,7 +29,10 @@ namespace LockNote
 
             string noteText;
             settings = Settings.ParseFrom(rawText, out noteText);
-            savedText = noteText;
+
+            tabs = TabStore.Parse(noteText);
+            activeTabIndex = Math.Min(settings.ActiveTab, tabs.Count - 1);
+            if (activeTabIndex < 0) activeTabIndex = 0;
 
             Theme.SetMode(settings.ThemeMode);
 
@@ -37,48 +42,56 @@ namespace LockNote
             Icon = SystemIcons.Shield;
             BackColor = Theme.Background;
 
-            // ── Menu ──
+            // -- Menu --
             var menuStrip = new MenuStrip();
 
             var menuFile = new ToolStripMenuItem("File");
-            menuFile.DropDownItems.Add("Save\tCtrl+S", null, (s, e) => Save());
-            menuFile.DropDownItems.Add("Change password", null, (s, e) => ChangePassword());
+            menuFile.DropDownItems.Add("Save\tCtrl+S", null, delegate { Save(); });
+            menuFile.DropDownItems.Add("Change password", null, delegate { ChangePassword(); });
             menuFile.DropDownItems.Add(new ToolStripSeparator());
-            menuFile.DropDownItems.Add("Settings", null, (s, e) => OpenSettings());
+            menuFile.DropDownItems.Add("Settings", null, delegate { OpenSettings(); });
             menuFile.DropDownItems.Add(new ToolStripSeparator());
-            menuFile.DropDownItems.Add("Quit\tCtrl+Q", null, (s, e) => Close());
+            menuFile.DropDownItems.Add("Quit\tCtrl+Q", null, delegate { Close(); });
 
             var menuView = new ToolStripMenuItem("View");
             var menuAlwaysOnTop = new ToolStripMenuItem("Always on top");
             menuAlwaysOnTop.CheckOnClick = true;
-            menuAlwaysOnTop.Click += (s, e) => { TopMost = menuAlwaysOnTop.Checked; };
+            menuAlwaysOnTop.Click += delegate { TopMost = menuAlwaysOnTop.Checked; };
             menuView.DropDownItems.Add(menuAlwaysOnTop);
 
+            var menuTab = new ToolStripMenuItem("Tab");
+            menuTab.DropDownItems.Add("New tab\tCtrl+T", null, delegate { AddNewTab(); });
+            menuTab.DropDownItems.Add("Close tab\tCtrl+W", null, delegate { CloseTab(activeTabIndex); });
+            menuTab.DropDownItems.Add("Rename tab", null, delegate { RenameTab(activeTabIndex); });
+            menuTab.DropDownItems.Add(new ToolStripSeparator());
+            menuTab.DropDownItems.Add("Next tab\tCtrl+Tab", null, delegate { SwitchToTab(activeTabIndex < tabs.Count - 1 ? activeTabIndex + 1 : 0); });
+            menuTab.DropDownItems.Add("Previous tab\tCtrl+Shift+Tab", null, delegate { SwitchToTab(activeTabIndex > 0 ? activeTabIndex - 1 : tabs.Count - 1); });
+
             var menuEdit = new ToolStripMenuItem("Edit");
-            menuEdit.DropDownItems.Add("Cut\tCtrl+X", null, (s, e) => txtEditor.Cut());
-            menuEdit.DropDownItems.Add("Copy\tCtrl+C", null, (s, e) => txtEditor.Copy());
-            menuEdit.DropDownItems.Add("Paste\tCtrl+V", null, (s, e) => txtEditor.Paste());
-            menuEdit.DropDownItems.Add("Paste plain text\tCtrl+Shift+V", null, (s, e) => txtEditor.PastePlainText());
+            menuEdit.DropDownItems.Add("Cut\tCtrl+X", null, delegate { txtEditor.Cut(); });
+            menuEdit.DropDownItems.Add("Copy\tCtrl+C", null, delegate { txtEditor.Copy(); });
+            menuEdit.DropDownItems.Add("Paste\tCtrl+V", null, delegate { txtEditor.Paste(); });
+            menuEdit.DropDownItems.Add("Paste plain text\tCtrl+Shift+V", null, delegate { txtEditor.PastePlainText(); });
             menuEdit.DropDownItems.Add(new ToolStripSeparator());
-            menuEdit.DropDownItems.Add("Find\tCtrl+F", null, (s, e) => searchBar.ShowAndFocus());
-            menuEdit.DropDownItems.Add("Go to line\tCtrl+G", null, (s, e) => GoToLine());
+            menuEdit.DropDownItems.Add("Find\tCtrl+F", null, delegate { searchBar.ShowAndFocus(); });
+            menuEdit.DropDownItems.Add("Go to line\tCtrl+G", null, delegate { GoToLine(); });
             menuEdit.DropDownItems.Add(new ToolStripSeparator());
-            menuEdit.DropDownItems.Add("Duplicate line\tCtrl+D", null, (s, e) => txtEditor.DuplicateLine());
-            menuEdit.DropDownItems.Add("Delete line\tCtrl+Shift+K", null, (s, e) => txtEditor.DeleteLine());
+            menuEdit.DropDownItems.Add("Duplicate line\tCtrl+D", null, delegate { txtEditor.DuplicateLine(); });
+            menuEdit.DropDownItems.Add("Delete line\tCtrl+Shift+K", null, delegate { txtEditor.DeleteLine(); });
             menuEdit.DropDownItems.Add(new ToolStripSeparator());
-            menuEdit.DropDownItems.Add("Select all\tCtrl+A", null, (s, e) => txtEditor.SelectAll());
-            menuEdit.DropDownItems.Add("Insert timestamp\tF5", null, (s, e) => InsertTimestamp());
+            menuEdit.DropDownItems.Add("Select all\tCtrl+A", null, delegate { txtEditor.SelectAll(); });
+            menuEdit.DropDownItems.Add("Insert timestamp\tF5", null, delegate { InsertTimestamp(); });
 
             var menuHelp = new ToolStripMenuItem("Help");
-            menuHelp.DropDownItems.Add("Check for updates", null, (s, e) => Updater.CheckForUpdate(exePath, this));
+            menuHelp.DropDownItems.Add("Check for updates", null, delegate { Updater.CheckForUpdate(exePath, this); });
             menuHelp.DropDownItems.Add(new ToolStripSeparator());
             menuHelp.DropDownItems.Add(string.Format("About LockNote v{0}", Updater.CurrentVersion));
 
-            menuStrip.Items.AddRange(new ToolStripItem[] { menuFile, menuView, menuEdit, menuHelp });
+            menuStrip.Items.AddRange(new ToolStripItem[] { menuFile, menuView, menuTab, menuEdit, menuHelp });
             MainMenuStrip = menuStrip;
             Theme.ApplyToMenuStrip(menuStrip);
 
-            // ── Editor ──
+            // -- Editor --
             txtEditor = new LineNumberTextBox
             {
                 Dock = DockStyle.Fill,
@@ -87,22 +100,27 @@ namespace LockNote
                 TextBackColor = Theme.EditorBackground,
                 GutterBackColor = Theme.GutterBackground,
                 GutterForeColor = Theme.GutterText,
-                ContentText = noteText
+                ContentText = tabs[activeTabIndex].Content
             };
-            txtEditor.ContentChanged += (s, e) =>
+            txtEditor.ContentChanged += delegate
             {
-                if (!modified)
-                {
-                    modified = true;
-                    Text = "LockNote *";
-                }
+                tabs[activeTabIndex].Content = txtEditor.ContentText;
+                UpdateTitle();
+                UpdateTabBar();
                 UpdateStatusBar();
             };
 
-            // ── Search bar ──
+            // -- Search bar --
             searchBar = new SearchBar(txtEditor);
 
-            // ── Status bar ──
+            // -- Tab bar --
+            tabBar = new TabBar();
+            tabBar.ActiveTabChanged += delegate(object s, TabEventArgs ev) { SwitchToTab(ev.TabIndex); };
+            tabBar.TabCloseRequested += delegate(object s, TabEventArgs ev) { CloseTab(ev.TabIndex); };
+            tabBar.TabRenameRequested += delegate(object s, TabEventArgs ev) { RenameTab(ev.TabIndex); };
+            tabBar.NewTabRequested += delegate { AddNewTab(); };
+
+            // -- Status bar --
             statusStrip = new StatusStrip();
             lblStats = new ToolStripStatusLabel();
             lblStats.Spring = true;
@@ -112,15 +130,39 @@ namespace LockNote
 
             Controls.Add(txtEditor);
             Controls.Add(searchBar);
+            Controls.Add(tabBar);
             Controls.Add(statusStrip);
             Controls.Add(menuStrip);
 
             KeyPreview = true;
             KeyDown += OnKeyDown;
             FormClosing += OnFormClosing;
-            Shown += (s, e) => Updater.CheckOnStartup(exePath, this);
+            Shown += delegate { Updater.CheckOnStartup(exePath, this); };
 
+            UpdateTabBar();
             UpdateStatusBar();
+        }
+
+        void UpdateTabBar()
+        {
+            var names = new List<string>();
+            var modified = new List<bool>();
+            for (int i = 0; i < tabs.Count; i++)
+            {
+                names.Add(tabs[i].Name);
+                modified.Add(tabs[i].Modified);
+            }
+            tabBar.SetTabs(names, modified, activeTabIndex);
+        }
+
+        void UpdateTitle()
+        {
+            bool anyModified = false;
+            for (int i = 0; i < tabs.Count; i++)
+            {
+                if (tabs[i].Modified) { anyModified = true; break; }
+            }
+            Text = anyModified ? "LockNote *" : "LockNote";
         }
 
         void UpdateStatusBar()
@@ -151,11 +193,51 @@ namespace LockNote
             lblStats.Text = string.Format("{0} words  |  {1} chars  |  {2} lines", words, chars, lines);
         }
 
-        void MarkClean()
+        void SwitchToTab(int index)
         {
-            modified = false;
-            savedText = txtEditor.ContentText;
-            Text = "LockNote";
+            if (index < 0 || index >= tabs.Count || index == activeTabIndex) return;
+            tabs[activeTabIndex].Content = txtEditor.ContentText;
+            activeTabIndex = index;
+            txtEditor.ContentText = tabs[activeTabIndex].Content;
+            UpdateTabBar();
+            UpdateStatusBar();
+            UpdateTitle();
+        }
+
+        void AddNewTab()
+        {
+            int num = TabStore.NextTabNumber(tabs);
+            tabs.Add(new NoteTab("Note " + num, ""));
+            SwitchToTab(tabs.Count - 1);
+        }
+
+        void CloseTab(int index)
+        {
+            if (tabs.Count <= 1) return;
+            tabs.RemoveAt(index);
+            if (activeTabIndex >= tabs.Count) activeTabIndex = tabs.Count - 1;
+            else if (activeTabIndex > index) activeTabIndex--;
+            else if (activeTabIndex == index)
+            {
+                if (activeTabIndex >= tabs.Count) activeTabIndex = tabs.Count - 1;
+            }
+            txtEditor.ContentText = tabs[activeTabIndex].Content;
+            UpdateTabBar();
+            UpdateTitle();
+            UpdateStatusBar();
+        }
+
+        void RenameTab(int index)
+        {
+            if (index < 0 || index >= tabs.Count) return;
+            using (var dlg = new RenameTabDialog(tabs[index].Name))
+            {
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    tabs[index].Name = dlg.TabName;
+                    UpdateTabBar();
+                }
+            }
         }
 
         void OnKeyDown(object sender, KeyEventArgs e)
@@ -166,6 +248,7 @@ namespace LockNote
                 {
                     case Keys.V: txtEditor.PastePlainText(); e.SuppressKeyPress = true; return;
                     case Keys.K: txtEditor.DeleteLine(); e.SuppressKeyPress = true; return;
+                    case Keys.Tab: SwitchToTab(activeTabIndex > 0 ? activeTabIndex - 1 : tabs.Count - 1); e.SuppressKeyPress = true; return;
                 }
             }
 
@@ -178,6 +261,9 @@ namespace LockNote
                     case Keys.G: GoToLine(); e.SuppressKeyPress = true; break;
                     case Keys.D: txtEditor.DuplicateLine(); e.SuppressKeyPress = true; break;
                     case Keys.Q: Close(); e.SuppressKeyPress = true; break;
+                    case Keys.T: AddNewTab(); e.SuppressKeyPress = true; break;
+                    case Keys.W: CloseTab(activeTabIndex); e.SuppressKeyPress = true; break;
+                    case Keys.Tab: SwitchToTab(activeTabIndex < tabs.Count - 1 ? activeTabIndex + 1 : 0); e.SuppressKeyPress = true; break;
                 }
             }
 
@@ -198,13 +284,19 @@ namespace LockNote
             try
             {
                 Cursor = Cursors.WaitCursor;
-                string payload = settings.PrependTo(txtEditor.ContentText);
+                tabs[activeTabIndex].Content = txtEditor.ContentText;
+                settings.ActiveTab = activeTabIndex;
+                string tabData = TabStore.Serialize(tabs);
+                string payload = settings.PrependTo(tabData);
                 byte[] encrypted = Crypto.Encrypt(payload, password);
                 Storage.WriteData(exePath, encrypted);
                 Array.Clear(encrypted, 0, encrypted.Length);
 
+                for (int i = 0; i < tabs.Count; i++)
+                    tabs[i].MarkClean();
                 hasPendingTmp = true;
-                MarkClean();
+                UpdateTitle();
+                UpdateTabBar();
             }
             catch (Exception ex)
             {
@@ -272,11 +364,19 @@ namespace LockNote
             Theme.ApplyToControls(searchBar.Controls);
             Theme.ApplyToMenuStrip(MainMenuStrip as MenuStrip);
             Theme.ApplyToStatusStrip(statusStrip);
+            tabBar.BackColor = Theme.Background;
+            tabBar.Invalidate();
         }
 
         void OnFormClosing(object sender, FormClosingEventArgs e)
         {
-            if (modified)
+            bool anyModified = false;
+            for (int i = 0; i < tabs.Count; i++)
+            {
+                if (tabs[i].Modified) { anyModified = true; break; }
+            }
+
+            if (anyModified)
             {
                 switch (settings.SaveOnClose)
                 {
@@ -318,10 +418,7 @@ namespace LockNote
 
             txtEditor.Clear();
             password = null;
-            savedText = null;
 
-            // Spawn a hidden cmd that waits for the exe lock to be released,
-            // then moves .tmp over .exe — result: always a single file.
             if (hasPendingTmp)
             {
                 string tmpPath = Storage.GetTmpPath(exePath);
@@ -329,7 +426,6 @@ namespace LockNote
                 {
                     var psi = new ProcessStartInfo();
                     psi.FileName = "cmd.exe";
-                    // ping is more reliable than timeout in a hidden window
                     psi.Arguments = string.Format(
                         "/c ping -n 3 127.0.0.1 >nul & move /y \"{0}\" \"{1}\"",
                         tmpPath, exePath);

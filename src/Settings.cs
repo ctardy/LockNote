@@ -23,11 +23,13 @@ namespace LockNote
         /// </summary>
         public CloseAction SaveOnClose { get; set; }
         public AppTheme ThemeMode { get; set; }
+        public int ActiveTab { get; set; }
 
         public Settings()
         {
             SaveOnClose = CloseAction.Ask;
             ThemeMode = AppTheme.Dark;
+            ActiveTab = 0;
         }
 
         /// <summary>
@@ -78,6 +80,12 @@ namespace LockNote
                     if (val == "light") s.ThemeMode = AppTheme.Light;
                     else s.ThemeMode = AppTheme.Dark;
                 }
+                else if (key == "active_tab")
+                {
+                    int tabIdx;
+                    if (int.TryParse(val, out tabIdx))
+                        s.ActiveTab = tabIdx;
+                }
             }
 
             return s;
@@ -96,6 +104,7 @@ namespace LockNote
             else if (SaveOnClose == CloseAction.Never) val = "never";
             sb.AppendLine("save_on_close=" + val);
             sb.AppendLine("theme=" + (ThemeMode == AppTheme.Light ? "light" : "dark"));
+            sb.AppendLine("active_tab=" + ActiveTab);
 
             sb.AppendLine(HeaderEnd);
             sb.Append(noteText);
