@@ -1,0 +1,19 @@
+# Build output
+*.exe
+*.exe.tmp
+*.pdb
+
+# IDE
+.vs/
+.vscode/
+*.suo
+*.user
+*.sln
+*.csproj
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Claude Code
+.claude/last-post-work-commit
