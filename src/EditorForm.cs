@@ -45,6 +45,7 @@ namespace LockNote
             var menuEdit = new ToolStripMenuItem("Edit");
             menuEdit.DropDownItems.Add("Find\tCtrl+F", null, (s, e) => searchBar.ShowAndFocus());
             menuEdit.DropDownItems.Add("Select all\tCtrl+A", null, (s, e) => txtEditor.SelectAll());
+            menuEdit.DropDownItems.Add("Insert timestamp\tF5", null, (s, e) => InsertTimestamp());
 
             menuStrip.Items.AddRange(new ToolStripItem[] { menuFile, menuEdit });
             MainMenuStrip = menuStrip;
@@ -89,6 +90,17 @@ namespace LockNote
                     case Keys.Q: Close(); e.SuppressKeyPress = true; break;
                 }
             }
+
+            if (e.KeyCode == Keys.F5)
+            {
+                InsertTimestamp();
+                e.SuppressKeyPress = true;
+            }
+        }
+
+        void InsertTimestamp()
+        {
+            txtEditor.InsertAtCursor(DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
         }
 
         void Save()
