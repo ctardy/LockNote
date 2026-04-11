@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Drawing;
 using System.Windows.Forms;
 
@@ -25,9 +26,11 @@ namespace LockNote
                 WordWrap = false,
                 AcceptsTab = true,
                 ScrollBars = RichTextBoxScrollBars.Both,
-                DetectUrls = false,
+                DetectUrls = true,
                 MaxLength = 0,
-                ShortcutsEnabled = true
+                ShortcutsEnabled = true,
+                AllowDrop = true,
+                EnableAutoDragDrop = false
             };
 
             gutter = new Panel
@@ -44,6 +47,39 @@ namespace LockNote
             };
             rtb.VScroll += (s, e) => gutter.Invalidate();
             rtb.Resize += (s, e) => gutter.Invalidate();
+
+            // URL click — open in default browser
+            rtb.LinkClicked += (s, e) =>
+            {
+                try { Process.Start(e.LinkText); } catch { }
+            };
+
+            // Drag & drop text files
+            rtb.DragEnter += (s, e) =>
+            {
+                if (e.Data.GetDataPresent(DataFormats.FileDrop) || e.Data.GetDataPresent(DataFormats.Text))
+                    e.Effect = DragDropEffects.Copy;
+            };
+            rtb.DragDrop += OnDragDrop;
+
+            // Context menu
+            var ctx = new ContextMenuStrip();
+            ctx.Items.Add("Cut\tCtrl+X", null, (s, e) => Cut());
+            ctx.Items.Add("Copy\tCtrl+C", null, (s, e) => Copy());
+            ctx.Items.Add("Paste\tCtrl+V", null, (s, e) => Paste());
+            ctx.Items.Add("Paste plain text\tCtrl+Shift+V", null, (s, e) => PastePlainText());
+            ctx.Items.Add(new ToolStripSeparator());
+            ctx.Items.Add("Select all\tCtrl+A", null, (s, e) => SelectAll());
+            ctx.Opening += (s, e) =>
+            {
+                bool hasSelection = rtb.SelectionLength > 0;
+                bool hasClipboard = Clipboard.ContainsText();
+                ctx.Items[0].Enabled = hasSelection; // Cut
+                ctx.Items[1].Enabled = hasSelection; // Copy
+                ctx.Items[2].Enabled = hasClipboard; // Paste
+                ctx.Items[3].Enabled = hasClipboard; // Paste plain
+            };
+            rtb.ContextMenuStrip = ctx;
 
             gutter.Paint += OnGutterPaint;
 
@@ -123,6 +159,103 @@ namespace LockNote
                 rtb.SelectionLength = 0;
                 rtb.ScrollToCaret();
                 rtb.Focus();
+            }
+        }
+
+        // ── Clipboard ──
+
+        public void Cut()
+        {
+            if (rtb.SelectionLength > 0) rtb.Cut();
+        }
+
+        public void Copy()
+        {
+            if (rtb.SelectionLength > 0) rtb.Copy();
+        }
+
+        public void Paste()
+        {
+            if (Clipboard.ContainsText())
+                PastePlainText();
+        }
+
+        public void PastePlainText()
+        {
+            if (!Clipboard.ContainsText()) return;
+            string text = Clipboard.GetText(TextDataFormat.UnicodeText);
+            if (text == null) text = Clipboard.GetText();
+            if (text != null)
+            {
+                rtb.SelectedText = text;
+            }
+        }
+
+        // ── Line operations ──
+
+        public void DuplicateLine()
+        {
+            int line = rtb.GetLineFromCharIndex(rtb.SelectionStart);
+            int start = rtb.GetFirstCharIndexFromLine(line);
+            int nextStart = rtb.GetFirstCharIndexFromLine(line + 1);
+            string lineText;
+            if (nextStart < 0)
+            {
+                // Last line — no trailing newline
+                lineText = rtb.Text.Substring(start);
+                rtb.SelectionStart = rtb.TextLength;
+                rtb.SelectionLength = 0;
+                rtb.SelectedText = "\n" + lineText;
+            }
+            else
+            {
+                lineText = rtb.Text.Substring(start, nextStart - start);
+                rtb.SelectionStart = nextStart;
+                rtb.SelectionLength = 0;
+                rtb.SelectedText = lineText;
+            }
+        }
+
+        public void DeleteLine()
+        {
+            int line = rtb.GetLineFromCharIndex(rtb.SelectionStart);
+            int start = rtb.GetFirstCharIndexFromLine(line);
+            int nextStart = rtb.GetFirstCharIndexFromLine(line + 1);
+            if (nextStart < 0)
+            {
+                // Last line
+                if (start > 0) start--; // include the preceding newline
+                rtb.Select(start, rtb.TextLength - start);
+            }
+            else
+            {
+                rtb.Select(start, nextStart - start);
+            }
+            rtb.SelectedText = "";
+        }
+
+        // ── Drag & drop ──
+
+        void OnDragDrop(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+                if (files != null && files.Length > 0)
+                {
+                    try
+                    {
+                        string content = System.IO.File.ReadAllText(files[0]);
+                        rtb.SelectedText = content;
+                    }
+                    catch { }
+                }
+            }
+            else if (e.Data.GetDataPresent(DataFormats.Text))
+            {
+                string text = (string)e.Data.GetData(DataFormats.Text);
+                if (text != null)
+                    rtb.SelectedText = text;
             }
         }
 

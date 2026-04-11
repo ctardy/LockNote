@@ -52,8 +52,17 @@ namespace LockNote
             menuView.DropDownItems.Add(menuAlwaysOnTop);
 
             var menuEdit = new ToolStripMenuItem("Edit");
+            menuEdit.DropDownItems.Add("Cut\tCtrl+X", null, (s, e) => txtEditor.Cut());
+            menuEdit.DropDownItems.Add("Copy\tCtrl+C", null, (s, e) => txtEditor.Copy());
+            menuEdit.DropDownItems.Add("Paste\tCtrl+V", null, (s, e) => txtEditor.Paste());
+            menuEdit.DropDownItems.Add("Paste plain text\tCtrl+Shift+V", null, (s, e) => txtEditor.PastePlainText());
+            menuEdit.DropDownItems.Add(new ToolStripSeparator());
             menuEdit.DropDownItems.Add("Find\tCtrl+F", null, (s, e) => searchBar.ShowAndFocus());
             menuEdit.DropDownItems.Add("Go to line\tCtrl+G", null, (s, e) => GoToLine());
+            menuEdit.DropDownItems.Add(new ToolStripSeparator());
+            menuEdit.DropDownItems.Add("Duplicate line\tCtrl+D", null, (s, e) => txtEditor.DuplicateLine());
+            menuEdit.DropDownItems.Add("Delete line\tCtrl+Shift+K", null, (s, e) => txtEditor.DeleteLine());
+            menuEdit.DropDownItems.Add(new ToolStripSeparator());
             menuEdit.DropDownItems.Add("Select all\tCtrl+A", null, (s, e) => txtEditor.SelectAll());
             menuEdit.DropDownItems.Add("Insert timestamp\tF5", null, (s, e) => InsertTimestamp());
 
@@ -138,13 +147,23 @@ namespace LockNote
 
         void OnKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Control)
+            if (e.Control && e.Shift)
+            {
+                switch (e.KeyCode)
+                {
+                    case Keys.V: txtEditor.PastePlainText(); e.SuppressKeyPress = true; return;
+                    case Keys.K: txtEditor.DeleteLine(); e.SuppressKeyPress = true; return;
+                }
+            }
+
+            if (e.Control && !e.Shift)
             {
                 switch (e.KeyCode)
                 {
                     case Keys.S: Save(); e.SuppressKeyPress = true; break;
                     case Keys.F: searchBar.ShowAndFocus(); e.SuppressKeyPress = true; break;
                     case Keys.G: GoToLine(); e.SuppressKeyPress = true; break;
+                    case Keys.D: txtEditor.DuplicateLine(); e.SuppressKeyPress = true; break;
                     case Keys.Q: Close(); e.SuppressKeyPress = true; break;
                 }
             }

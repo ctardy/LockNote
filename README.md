@@ -69,7 +69,12 @@ build.cmd
 - Find text (`Ctrl+F`) with wrap-around search
 - Go to line (`Ctrl+G`)
 - Insert timestamp (`F5` — inserts `yyyy-MM-dd HH:mm`)
+- Duplicate line (`Ctrl+D`) and delete line (`Ctrl+Shift+K`)
 - Word, character, and line count in status bar
+- Cut / Copy / Paste / Paste plain text (`Ctrl+Shift+V`)
+- Right-click context menu with clipboard operations
+- Clickable URL detection (opens in default browser)
+- Drag & drop text files into the editor
 - Select all (`Ctrl+A`)
 
 ### Security
@@ -93,8 +98,11 @@ build.cmd
 | `Ctrl+S` | Save (encrypt & write) |
 | `Ctrl+F` | Find text |
 | `Ctrl+G` | Go to line |
+| `Ctrl+D` | Duplicate current line |
 | `Ctrl+A` | Select all |
 | `Ctrl+Q` | Quit |
+| `Ctrl+Shift+V` | Paste as plain text |
+| `Ctrl+Shift+K` | Delete current line |
 | `F5` | Insert timestamp |
 
 ---
