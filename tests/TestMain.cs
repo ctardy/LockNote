@@ -10,7 +10,8 @@ namespace LockNote.Tests
             {
                 typeof(CryptoTests),
                 typeof(SettingsTests),
-                typeof(StorageTests)
+                typeof(StorageTests),
+                typeof(TabStoreTests)
             });
         }
     }
