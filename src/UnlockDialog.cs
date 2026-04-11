@@ -28,25 +28,27 @@ namespace LockNote
             StartPosition = FormStartPosition.CenterScreen;
             MaximizeBox = false;
             MinimizeBox = false;
-            ClientSize = new Size(340, 120);
+            ClientSize = new Size(340, 130);
 
-            var lbl = new Label { Text = "Password:", Location = new Point(12, 15), AutoSize = true };
-            txtPass = new TextBox { Location = new Point(12, 35), Width = 310, PasswordChar = '*' };
-            lblAttempts = new Label { Text = "", Location = new Point(12, 65), AutoSize = true, ForeColor = Color.Red };
+            var lbl = new Label { Text = "Password:", Location = new Point(20, 18), AutoSize = true };
+            txtPass = new TextBox { Location = new Point(20, 40), Width = 300, PasswordChar = '*' };
+            lblAttempts = new Label { Text = "", Location = new Point(20, 68), AutoSize = true, ForeColor = Theme.ErrorText };
 
             btnOK = new Button
             {
-                Text = "OK",
+                Text = "Unlock",
                 DialogResult = DialogResult.None,
-                Location = new Point(166, 85),
-                Width = 75
+                Location = new Point(164, 90),
+                Width = 80,
+                Height = 30
             };
             btnCancel = new Button
             {
                 Text = "Cancel",
                 DialogResult = DialogResult.Cancel,
-                Location = new Point(247, 85),
-                Width = 75
+                Location = new Point(250, 90),
+                Width = 80,
+                Height = 30
             };
 
             AcceptButton = btnOK;
@@ -58,6 +60,8 @@ namespace LockNote
             worker.RunWorkerCompleted += OnDecryptCompleted;
 
             btnOK.Click += (s, e) => StartDecrypt();
+
+            Theme.ApplyToDialog(this);
         }
 
         void StartDecrypt()
@@ -73,7 +77,7 @@ namespace LockNote
 
             btnOK.Enabled = false;
             txtPass.Enabled = false;
-            lblAttempts.ForeColor = Color.Gray;
+            lblAttempts.ForeColor = Theme.TextSecondary;
             lblAttempts.Text = "Decrypting...";
             Cursor = Cursors.WaitCursor;
 
@@ -91,7 +95,7 @@ namespace LockNote
             Cursor = Cursors.Default;
             btnOK.Enabled = true;
             txtPass.Enabled = true;
-            lblAttempts.ForeColor = Color.Red;
+            lblAttempts.ForeColor = Theme.ErrorText;
 
             string result = (string)e.Result;
 

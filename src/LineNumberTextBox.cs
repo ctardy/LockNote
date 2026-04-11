@@ -80,6 +80,7 @@ namespace LockNote
                 ctx.Items[3].Enabled = hasClipboard; // Paste plain
             };
             rtb.ContextMenuStrip = ctx;
+            Theme.ApplyToContextMenu(ctx);
 
             gutter.Paint += OnGutterPaint;
 
@@ -118,6 +119,19 @@ namespace LockNote
         }
 
         public int ContentLength { get { return rtb.TextLength; } }
+
+        public Color GutterBackColor
+        {
+            get { return gutter.BackColor; }
+            set { gutter.BackColor = value; }
+        }
+
+        Color gutterForeColor = Color.FromArgb(130, 130, 130);
+        public Color GutterForeColor
+        {
+            get { return gutterForeColor; }
+            set { gutterForeColor = value; gutter.Invalidate(); }
+        }
 
         public void SelectAll() { rtb.SelectAll(); }
 
@@ -305,7 +319,7 @@ namespace LockNote
             string text = number.ToString();
             SizeF size = g.MeasureString(text, rtb.Font);
             float x = gutter.Width - size.Width - GutterPadding;
-            using (var brush = new SolidBrush(Color.FromArgb(130, 130, 130)))
+            using (var brush = new SolidBrush(gutterForeColor))
             {
                 g.DrawString(text, rtb.Font, brush, x, y);
             }

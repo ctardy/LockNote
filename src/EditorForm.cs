@@ -29,10 +29,13 @@ namespace LockNote
             settings = Settings.ParseFrom(rawText, out noteText);
             savedText = noteText;
 
+            Theme.SetMode(settings.ThemeMode);
+
             Text = "LockNote";
             ClientSize = new Size(700, 500);
             StartPosition = FormStartPosition.CenterScreen;
             Icon = SystemIcons.Shield;
+            BackColor = Theme.Background;
 
             // ── Menu ──
             var menuStrip = new MenuStrip();
@@ -68,14 +71,17 @@ namespace LockNote
 
             menuStrip.Items.AddRange(new ToolStripItem[] { menuFile, menuView, menuEdit });
             MainMenuStrip = menuStrip;
+            Theme.ApplyToMenuStrip(menuStrip);
 
             // ── Editor ──
             txtEditor = new LineNumberTextBox
             {
                 Dock = DockStyle.Fill,
-                EditorFont = new Font("Consolas", 11f),
-                TextForeColor = Color.Black,
-                TextBackColor = Color.White,
+                EditorFont = Theme.EditorFont,
+                TextForeColor = Theme.EditorText,
+                TextBackColor = Theme.EditorBackground,
+                GutterBackColor = Theme.GutterBackground,
+                GutterForeColor = Theme.GutterText,
                 ContentText = noteText
             };
             txtEditor.ContentChanged += (s, e) =>
@@ -97,6 +103,7 @@ namespace LockNote
             lblStats.Spring = true;
             lblStats.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
             statusStrip.Items.Add(lblStats);
+            Theme.ApplyToStatusStrip(statusStrip);
 
             Controls.Add(txtEditor);
             Controls.Add(searchBar);
@@ -236,10 +243,29 @@ namespace LockNote
             {
                 if (dlg.ShowDialog(this) == DialogResult.OK)
                 {
+                    bool themeChanged = (settings.ThemeMode != dlg.Result.ThemeMode);
                     settings = dlg.Result;
+                    if (themeChanged)
+                    {
+                        Theme.SetMode(settings.ThemeMode);
+                        ApplyTheme();
+                    }
                     Save();
                 }
             }
+        }
+
+        void ApplyTheme()
+        {
+            BackColor = Theme.Background;
+            txtEditor.TextForeColor = Theme.EditorText;
+            txtEditor.TextBackColor = Theme.EditorBackground;
+            txtEditor.GutterBackColor = Theme.GutterBackground;
+            txtEditor.GutterForeColor = Theme.GutterText;
+            searchBar.BackColor = Theme.Surface;
+            Theme.ApplyToControls(searchBar.Controls);
+            Theme.ApplyToMenuStrip(MainMenuStrip as MenuStrip);
+            Theme.ApplyToStatusStrip(statusStrip);
         }
 
         void OnFormClosing(object sender, FormClosingEventArgs e)

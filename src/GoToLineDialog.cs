@@ -52,6 +52,8 @@ namespace LockNote
             CancelButton = btnCancel;
             Controls.AddRange(new Control[] { lbl, txtLine, btnOK, btnCancel });
 
+            Theme.ApplyToDialog(this);
+
             btnOK.Click += (s, e) =>
             {
                 int line;

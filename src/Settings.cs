@@ -22,10 +22,12 @@ namespace LockNote
         ///   Never  = discard without asking
         /// </summary>
         public CloseAction SaveOnClose { get; set; }
+        public AppTheme ThemeMode { get; set; }
 
         public Settings()
         {
             SaveOnClose = CloseAction.Ask;
+            ThemeMode = AppTheme.Dark;
         }
 
         /// <summary>
@@ -71,6 +73,11 @@ namespace LockNote
                     else if (val == "never") s.SaveOnClose = CloseAction.Never;
                     else s.SaveOnClose = CloseAction.Ask;
                 }
+                else if (key == "theme")
+                {
+                    if (val == "light") s.ThemeMode = AppTheme.Light;
+                    else s.ThemeMode = AppTheme.Dark;
+                }
             }
 
             return s;
@@ -88,6 +95,7 @@ namespace LockNote
             if (SaveOnClose == CloseAction.Always) val = "always";
             else if (SaveOnClose == CloseAction.Never) val = "never";
             sb.AppendLine("save_on_close=" + val);
+            sb.AppendLine("theme=" + (ThemeMode == AppTheme.Light ? "light" : "dark"));
 
             sb.AppendLine(HeaderEnd);
             sb.Append(noteText);
@@ -100,5 +108,11 @@ namespace LockNote
         Ask,
         Always,
         Never
+    }
+
+    enum AppTheme
+    {
+        Dark,
+        Light
     }
 }

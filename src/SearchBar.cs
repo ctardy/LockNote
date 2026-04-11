@@ -14,16 +14,17 @@ namespace LockNote
         {
             target = targetTextBox;
             Visible = false;
-            Height = 30;
+            Height = 32;
             Dock = DockStyle.Top;
-            BackColor = SystemColors.Control;
+            BackColor = Theme.Surface;
 
-            var lbl = new Label { Text = "Find:", Location = new Point(6, 7), AutoSize = true };
-            txtSearch = new TextBox { Location = new Point(50, 4), Width = 240 };
-            var btnNext = new Button { Text = "Next", Location = new Point(296, 3), Width = 60, Height = 24 };
-            var btnClose = new Button { Text = "X", Location = new Point(362, 3), Width = 28, Height = 24, FlatStyle = FlatStyle.Flat };
+            var lbl = new Label { Text = "Find:", Location = new Point(8, 8), AutoSize = true, ForeColor = Theme.TextPrimary };
+            txtSearch = new TextBox { Location = new Point(50, 5), Width = 240 };
+            var btnNext = new Button { Text = "Next", Location = new Point(296, 4), Width = 60, Height = 24 };
+            var btnClose = new Button { Text = "X", Location = new Point(362, 4), Width = 28, Height = 24 };
 
             Controls.AddRange(new Control[] { lbl, txtSearch, btnNext, btnClose });
+            Theme.ApplyToControls(Controls);
 
             btnNext.Click += (s, e) => FindNext();
             txtSearch.KeyDown += (s, e) =>
