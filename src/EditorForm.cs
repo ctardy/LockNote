@@ -10,6 +10,8 @@ namespace LockNote
     {
         LineNumberTextBox txtEditor;
         SearchBar searchBar;
+        StatusStrip statusStrip;
+        ToolStripStatusLabel lblStats;
         string exePath;
         string password;
         string savedText;
@@ -58,18 +60,54 @@ namespace LockNote
                 TextBackColor = Color.White,
                 ContentText = noteText
             };
-            txtEditor.ContentChanged += (s, e) => UpdateTitle();
+            txtEditor.ContentChanged += (s, e) => { UpdateTitle(); UpdateStatusBar(); };
 
             // ── Search bar ──
             searchBar = new SearchBar(txtEditor);
 
+            // ── Status bar ──
+            statusStrip = new StatusStrip();
+            lblStats = new ToolStripStatusLabel();
+            lblStats.Spring = true;
+            lblStats.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
+            statusStrip.Items.Add(lblStats);
+
             Controls.Add(txtEditor);
             Controls.Add(searchBar);
+            Controls.Add(statusStrip);
             Controls.Add(menuStrip);
 
             KeyPreview = true;
             KeyDown += OnKeyDown;
             FormClosing += OnFormClosing;
+
+            UpdateStatusBar();
+        }
+
+        void UpdateStatusBar()
+        {
+            string text = txtEditor.ContentText;
+            int chars = text.Length;
+            int words = 0;
+            bool inWord = false;
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (char.IsWhiteSpace(text[i]))
+                {
+                    inWord = false;
+                }
+                else if (!inWord)
+                {
+                    inWord = true;
+                    words++;
+                }
+            }
+            int lines = 1;
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (text[i] == '\n') lines++;
+            }
+            lblStats.Text = string.Format("{0} words  |  {1} chars  |  {2} lines", words, chars, lines);
         }
 
         void UpdateTitle()
