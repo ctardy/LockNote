@@ -82,9 +82,9 @@ namespace LockNote
                 }
                 else if (key == "active_tab")
                 {
-                    int tabNum;
-                    if (int.TryParse(val, out tabNum))
-                        s.ActiveTab = tabNum;
+                    int tabIdx;
+                    if (int.TryParse(val, out tabIdx))
+                        s.ActiveTab = tabIdx;
                 }
             }
 
