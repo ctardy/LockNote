@@ -42,11 +42,17 @@ namespace LockNote
             menuFile.DropDownItems.Add(new ToolStripSeparator());
             menuFile.DropDownItems.Add("Quit\tCtrl+Q", null, (s, e) => Close());
 
+            var menuView = new ToolStripMenuItem("View");
+            var menuAlwaysOnTop = new ToolStripMenuItem("Always on top");
+            menuAlwaysOnTop.CheckOnClick = true;
+            menuAlwaysOnTop.Click += (s, e) => { TopMost = menuAlwaysOnTop.Checked; };
+            menuView.DropDownItems.Add(menuAlwaysOnTop);
+
             var menuEdit = new ToolStripMenuItem("Edit");
             menuEdit.DropDownItems.Add("Find\tCtrl+F", null, (s, e) => searchBar.ShowAndFocus());
             menuEdit.DropDownItems.Add("Select all\tCtrl+A", null, (s, e) => txtEditor.SelectAll());
 
-            menuStrip.Items.AddRange(new ToolStripItem[] { menuFile, menuEdit });
+            menuStrip.Items.AddRange(new ToolStripItem[] { menuFile, menuView, menuEdit });
             MainMenuStrip = menuStrip;
 
             // ── Editor ──
