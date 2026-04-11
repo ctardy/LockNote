@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -68,7 +69,15 @@ namespace LockNote
                 TextBackColor = Color.White,
                 ContentText = noteText
             };
-            txtEditor.ContentChanged += (s, e) => { UpdateTitle(); UpdateStatusBar(); };
+            txtEditor.ContentChanged += (s, e) =>
+            {
+                if (!modified)
+                {
+                    modified = true;
+                    Text = "LockNote *";
+                }
+                UpdateStatusBar();
+            };
 
             // ── Search bar ──
             searchBar = new SearchBar(txtEditor);
@@ -97,10 +106,17 @@ namespace LockNote
             string text = txtEditor.ContentText;
             int chars = text.Length;
             int words = 0;
+            int lines = 1;
             bool inWord = false;
-            for (int i = 0; i < text.Length; i++)
+            for (int i = 0; i < chars; i++)
             {
-                if (char.IsWhiteSpace(text[i]))
+                char c = text[i];
+                if (c == '\n')
+                {
+                    lines++;
+                    inWord = false;
+                }
+                else if (char.IsWhiteSpace(c))
                 {
                     inWord = false;
                 }
@@ -110,18 +126,14 @@ namespace LockNote
                     words++;
                 }
             }
-            int lines = 1;
-            for (int i = 0; i < text.Length; i++)
-            {
-                if (text[i] == '\n') lines++;
-            }
             lblStats.Text = string.Format("{0} words  |  {1} chars  |  {2} lines", words, chars, lines);
         }
 
-        void UpdateTitle()
+        void MarkClean()
         {
-            modified = (txtEditor.ContentText != savedText);
-            Text = modified ? "LockNote *" : "LockNote";
+            modified = false;
+            savedText = txtEditor.ContentText;
+            Text = "LockNote";
         }
 
         void OnKeyDown(object sender, KeyEventArgs e)
@@ -153,20 +165,23 @@ namespace LockNote
         {
             try
             {
+                Cursor = Cursors.WaitCursor;
                 string payload = settings.PrependTo(txtEditor.ContentText);
                 byte[] encrypted = Crypto.Encrypt(payload, password);
                 Storage.WriteData(exePath, encrypted);
                 Array.Clear(encrypted, 0, encrypted.Length);
 
-                savedText = txtEditor.ContentText;
-                modified = false;
                 hasPendingTmp = true;
-                Text = "LockNote";
+                MarkClean();
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Save failed:\n" + ex.Message,
                     "LockNote", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
             }
         }
 
@@ -210,9 +225,6 @@ namespace LockNote
 
         void OnFormClosing(object sender, FormClosingEventArgs e)
         {
-            // Recheck in case the event didn't propagate
-            modified = (txtEditor.ContentText != savedText);
-
             if (modified)
             {
                 switch (settings.SaveOnClose)

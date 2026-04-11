@@ -1,3 +1,5 @@
+using System;
+using System.ComponentModel;
 using System.Drawing;
 using System.Windows.Forms;
 
@@ -7,9 +9,12 @@ namespace LockNote
     {
         TextBox txtPass;
         Label lblAttempts;
+        Button btnOK;
+        Button btnCancel;
         byte[] encryptedData;
         int attempts;
         const int MaxAttempts = 5;
+        BackgroundWorker worker;
 
         public string Password { get; private set; }
         public string DecryptedText { get; private set; }
@@ -29,14 +34,14 @@ namespace LockNote
             txtPass = new TextBox { Location = new Point(12, 35), Width = 310, PasswordChar = '*' };
             lblAttempts = new Label { Text = "", Location = new Point(12, 65), AutoSize = true, ForeColor = Color.Red };
 
-            var btnOK = new Button
+            btnOK = new Button
             {
                 Text = "OK",
-                DialogResult = DialogResult.OK,
+                DialogResult = DialogResult.None,
                 Location = new Point(166, 85),
                 Width = 75
             };
-            var btnCancel = new Button
+            btnCancel = new Button
             {
                 Text = "Cancel",
                 DialogResult = DialogResult.Cancel,
@@ -48,33 +53,76 @@ namespace LockNote
             CancelButton = btnCancel;
             Controls.AddRange(new Control[] { lbl, txtPass, lblAttempts, btnOK, btnCancel });
 
-            btnOK.Click += (s, e) =>
+            worker = new BackgroundWorker();
+            worker.DoWork += OnDecryptWork;
+            worker.RunWorkerCompleted += OnDecryptCompleted;
+
+            btnOK.Click += (s, e) => StartDecrypt();
+        }
+
+        void StartDecrypt()
+        {
+            if (worker.IsBusy) return;
+
+            string pwd = txtPass.Text;
+            if (pwd.Length == 0)
             {
-                string result = Crypto.Decrypt(encryptedData, txtPass.Text);
-                if (result == null)
+                lblAttempts.Text = "Password cannot be empty.";
+                return;
+            }
+
+            btnOK.Enabled = false;
+            txtPass.Enabled = false;
+            lblAttempts.ForeColor = Color.Gray;
+            lblAttempts.Text = "Decrypting...";
+            Cursor = Cursors.WaitCursor;
+
+            worker.RunWorkerAsync(pwd);
+        }
+
+        void OnDecryptWork(object sender, DoWorkEventArgs e)
+        {
+            string pwd = (string)e.Argument;
+            e.Result = Crypto.Decrypt(encryptedData, pwd);
+        }
+
+        void OnDecryptCompleted(object sender, RunWorkerCompletedEventArgs e)
+        {
+            Cursor = Cursors.Default;
+            btnOK.Enabled = true;
+            txtPass.Enabled = true;
+            lblAttempts.ForeColor = Color.Red;
+
+            string result = (string)e.Result;
+
+            if (result == null)
+            {
+                attempts++;
+                if (attempts >= MaxAttempts)
                 {
-                    attempts++;
-                    if (attempts >= MaxAttempts)
-                    {
-                        MessageBox.Show("Maximum number of attempts reached.", "LockNote",
-                            MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        DialogResult = DialogResult.Cancel;
-                        return;
-                    }
-                    lblAttempts.Text = string.Format("Wrong password ({0}/{1})", attempts, MaxAttempts);
-                    DialogResult = DialogResult.None;
-                    txtPass.SelectAll();
-                    txtPass.Focus();
+                    MessageBox.Show("Maximum number of attempts reached.", "LockNote",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    DialogResult = DialogResult.Cancel;
                     return;
                 }
-                Password = txtPass.Text;
-                DecryptedText = result;
-            };
+                lblAttempts.Text = string.Format("Wrong password ({0}/{1})", attempts, MaxAttempts);
+                txtPass.SelectAll();
+                txtPass.Focus();
+                return;
+            }
+
+            Password = txtPass.Text;
+            DecryptedText = result;
+            DialogResult = DialogResult.OK;
         }
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing && txtPass != null) txtPass.Clear();
+            if (disposing)
+            {
+                if (txtPass != null) txtPass.Clear();
+                if (worker != null) worker.Dispose();
+            }
             base.Dispose(disposing);
         }
     }
