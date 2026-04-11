@@ -87,17 +87,29 @@ impl CreatePasswordDialog {
     pub fn show(min_length: u32) -> Option<String> {
         let _pal = theme::current();
 
+        // --- Center on screen ---
+        #[link(name = "user32")]
+        extern "system" {
+            fn GetSystemMetrics(index: i32) -> i32;
+        }
+        let win_w: i32 = 440;
+        let win_h: i32 = 400;
+        let screen_w = unsafe { GetSystemMetrics(0) }; // SM_CXSCREEN
+        let screen_h = unsafe { GetSystemMetrics(1) }; // SM_CYSCREEN
+        let pos_x = (screen_w - win_w) / 2;
+        let pos_y = (screen_h - win_h) / 2;
+
         // --- Build window ---
         let mut window = Default::default();
         nwg::Window::builder()
-            .size((400, 300))
-            .position((300, 200))
-            .title("Create Password")
+            .size((win_w, win_h))
+            .position((pos_x, pos_y))
+            .title("LockNote")
             .flags(nwg::WindowFlags::WINDOW | nwg::WindowFlags::VISIBLE)
             .build(&mut window)
             .expect("Failed to build CreatePasswordDialog window");
 
-        // --- Font ---
+        // --- Fonts ---
         let mut font = Default::default();
         nwg::Font::builder()
             .family("Segoe UI")
@@ -105,13 +117,63 @@ impl CreatePasswordDialog {
             .build(&mut font)
             .expect("Failed to build font");
 
+        let mut font_title = Default::default();
+        nwg::Font::builder()
+            .family("Segoe UI")
+            .size(24)
+            .weight(700)
+            .build(&mut font_title)
+            .expect("Failed to build title font");
+
+        let mut font_desc = Default::default();
+        nwg::Font::builder()
+            .family("Segoe UI")
+            .size(15)
+            .build(&mut font_desc)
+            .expect("Failed to build description font");
+
+        let content_w: i32 = 390;
+        let margin: i32 = 25;
+
+        // --- Welcome title ---
+        let mut lbl_title = Default::default();
+        nwg::Label::builder()
+            .text("Welcome to LockNote")
+            .parent(&window)
+            .position((margin, 18))
+            .size((content_w, 30))
+            .font(Some(&font_title))
+            .build(&mut lbl_title)
+            .expect("Failed to build title label");
+
+        // --- Description ---
+        let mut lbl_desc = Default::default();
+        nwg::Label::builder()
+            .text("Your notes are encrypted and stored inside this \
+                   executable.\nChoose a password to protect them.")
+            .parent(&window)
+            .position((margin, 55))
+            .size((content_w, 40))
+            .font(Some(&font_desc))
+            .build(&mut lbl_desc)
+            .expect("Failed to build description label");
+
+        // --- Separator line (thin frame) ---
+        let mut separator = Default::default();
+        nwg::Frame::builder()
+            .parent(&window)
+            .position((margin, 102))
+            .size((content_w, 1))
+            .build(&mut separator)
+            .expect("Failed to build separator");
+
         // --- Password label ---
         let mut lbl_password = Default::default();
         nwg::Label::builder()
             .text("Password:")
             .parent(&window)
-            .position((20, 15))
-            .size((360, 20))
+            .position((margin, 115))
+            .size((content_w, 20))
             .font(Some(&font))
             .build(&mut lbl_password)
             .expect("Failed to build label");
@@ -120,10 +182,11 @@ impl CreatePasswordDialog {
         let mut txt_password = Default::default();
         nwg::TextInput::builder()
             .parent(&window)
-            .position((20, 40))
-            .size((360, 25))
+            .position((margin, 140))
+            .size((content_w, 28))
             .password(Some('*'))
             .font(Some(&font))
+            .focus(true)
             .build(&mut txt_password)
             .expect("Failed to build password input");
 
@@ -132,9 +195,9 @@ impl CreatePasswordDialog {
         nwg::Label::builder()
             .text("")
             .parent(&window)
-            .position((20, 72))
-            .size((360, 20))
-            .font(Some(&font))
+            .position((margin, 174))
+            .size((content_w, 20))
+            .font(Some(&font_desc))
             .build(&mut lbl_strength)
             .expect("Failed to build strength label");
 
@@ -142,16 +205,16 @@ impl CreatePasswordDialog {
         let mut strength_bar_bg = Default::default();
         nwg::Frame::builder()
             .parent(&window)
-            .position((20, 95))
-            .size((360, 12))
+            .position((margin, 196))
+            .size((content_w, 10))
             .build(&mut strength_bar_bg)
             .expect("Failed to build strength bar bg");
 
         let mut strength_bar = Default::default();
         nwg::Frame::builder()
             .parent(&window)
-            .position((20, 95))
-            .size((0, 12))
+            .position((margin, 196))
+            .size((0, 10))
             .build(&mut strength_bar)
             .expect("Failed to build strength bar");
 
@@ -160,8 +223,8 @@ impl CreatePasswordDialog {
         nwg::Label::builder()
             .text("Confirm password:")
             .parent(&window)
-            .position((20, 120))
-            .size((360, 20))
+            .position((margin, 218))
+            .size((content_w, 20))
             .font(Some(&font))
             .build(&mut lbl_confirm)
             .expect("Failed to build confirm label");
@@ -170,8 +233,8 @@ impl CreatePasswordDialog {
         let mut txt_confirm = Default::default();
         nwg::TextInput::builder()
             .parent(&window)
-            .position((20, 145))
-            .size((360, 25))
+            .position((margin, 243))
+            .size((content_w, 28))
             .password(Some('*'))
             .font(Some(&font))
             .build(&mut txt_confirm)
@@ -182,30 +245,30 @@ impl CreatePasswordDialog {
         nwg::Label::builder()
             .text("")
             .parent(&window)
-            .position((20, 180))
-            .size((360, 20))
+            .position((margin, 280))
+            .size((content_w, 20))
             .font(Some(&font))
             .build(&mut lbl_error)
             .expect("Failed to build error label");
 
-        // --- OK button ---
+        // --- Create button ---
         let mut btn_ok = Default::default();
         nwg::Button::builder()
-            .text("OK")
+            .text("Create")
             .parent(&window)
-            .position((190, 220))
-            .size((85, 30))
+            .position((220, 320))
+            .size((90, 32))
             .font(Some(&font))
             .build(&mut btn_ok)
-            .expect("Failed to build OK button");
+            .expect("Failed to build Create button");
 
         // --- Cancel button ---
         let mut btn_cancel = Default::default();
         nwg::Button::builder()
             .text("Cancel")
             .parent(&window)
-            .position((290, 220))
-            .size((85, 30))
+            .position((325, 320))
+            .size((90, 32))
             .font(Some(&font))
             .build(&mut btn_cancel)
             .expect("Failed to build Cancel button");
@@ -262,9 +325,9 @@ impl CreatePasswordDialog {
                         lbl_strength.set_text(label);
 
                         // Resize the strength bar
-                        let bar_w = (360 * pct / 100) as i32;
-                        strength_bar.set_position(20, 95);
-                        strength_bar.set_size(bar_w as u32, 12);
+                        let bar_w = (390 * pct / 100) as i32;
+                        strength_bar.set_position(25, 196);
+                        strength_bar.set_size(bar_w as u32, 10);
                     }
                 }
                 _ => {}
