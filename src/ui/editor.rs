@@ -435,15 +435,23 @@ impl EditorForm {
             .expect("Failed to build status bar");
 
         // ── Tray icon ──
+        let mut tray_icon_res = nwg::Icon::default();
+        nwg::Icon::builder()
+            .source_system(Some(nwg::OemIcon::Information))
+            .build(&mut tray_icon_res)
+            .expect("Failed to build tray icon resource");
+
         let mut tray_icon = nwg::TrayNotification::default();
         nwg::TrayNotification::builder()
             .parent(&window)
+            .icon(Some(&tray_icon_res))
             .tip(Some("LockNote"))
             .build(&mut tray_icon)
             .expect("Failed to build tray icon");
 
         let mut tray_menu = nwg::Menu::default();
         nwg::Menu::builder()
+            .parent(&window)
             .popup(true)
             .build(&mut tray_menu)
             .expect("Failed to build tray menu");
@@ -788,8 +796,19 @@ impl EditorForm {
 
     /// Open settings dialog.
     fn on_settings(&self) {
-        // TODO: show SettingsDialog when implemented
-        nwg::modal_info_message(&self.window, "Settings", "Settings dialog not yet implemented.");
+        let current = self.settings.borrow().clone();
+        if let Some(changes) = super::dialogs::settings_dialog::SettingsDialog::show(&current) {
+            let mut settings = self.settings.borrow_mut();
+            settings.save_on_close = changes.save_on_close;
+            settings.theme = changes.theme;
+            settings.min_password_length = changes.min_password_length;
+            settings.minimize_to_tray = changes.minimize_to_tray;
+            settings.font_family = changes.font_family.clone();
+            settings.font_size = changes.font_size;
+            // Apply theme change immediately
+            drop(settings);
+            self.mark_modified();
+        }
     }
 
     // =====================================================================
@@ -871,16 +890,16 @@ impl EditorForm {
     fn on_duplicate_line(&self) {
         let text = self.get_content();
         let sel = self.editor.selection();
-        let sel_start = sel.start;
+        let sel_start = (sel.start as usize).min(text.len());
 
         // Find line boundaries
-        let line_start = text[..sel_start as usize]
+        let line_start = text[..sel_start]
             .rfind('\n')
             .map(|p| p + 1)
             .unwrap_or(0);
-        let line_end = text[sel_start as usize..]
+        let line_end = text[sel_start..]
             .find('\n')
-            .map(|p| sel_start as usize + p)
+            .map(|p| sel_start + p)
             .unwrap_or(text.len());
 
         let line = &text[line_start..line_end];
@@ -900,15 +919,15 @@ impl EditorForm {
     fn on_delete_line(&self) {
         let text = self.get_content();
         let sel = self.editor.selection();
-        let sel_start = sel.start;
+        let sel_start = (sel.start as usize).min(text.len());
 
-        let line_start = text[..sel_start as usize]
+        let line_start = text[..sel_start]
             .rfind('\n')
             .map(|p| p + 1)
             .unwrap_or(0);
-        let line_end = text[sel_start as usize..]
+        let line_end = text[sel_start..]
             .find('\n')
-            .map(|p| sel_start as usize + p + 1) // include the newline
+            .map(|p| sel_start + p + 1) // include the newline
             .unwrap_or(text.len());
 
         // If deleting last line (no trailing \n), also remove preceding \n
@@ -938,16 +957,16 @@ impl EditorForm {
 
         let text = self.get_content();
         let sel = self.editor.selection();
-        let sel_start = sel.start;
-        let sel_end = sel.end;
+        let sel_start = (sel.start as usize).min(text.len());
+        let sel_end = (sel.end as usize).min(text.len());
         let new_text = format!(
             "{}{}{}",
-            &text[..sel_start as usize],
+            &text[..sel_start],
             timestamp,
-            &text[sel_end as usize..]
+            &text[sel_end..]
         );
         self.editor.set_text(&new_text);
-        let new_pos = sel_start + timestamp.len() as u32;
+        let new_pos = sel_start as u32 + timestamp.len() as u32;
         self.editor.set_selection(new_pos..new_pos);
         self.mark_modified();
     }
@@ -1125,13 +1144,9 @@ impl EditorForm {
 
         // Clear sensitive data from memory
         {
+            use zeroize::Zeroize;
             let mut pw = self.password.borrow_mut();
-            // Overwrite password bytes
-            let pw_bytes = unsafe { pw.as_mut_vec() };
-            for b in pw_bytes.iter_mut() {
-                *b = 0;
-            }
-            pw.clear();
+            pw.zeroize();
         }
 
         // Clear editor text

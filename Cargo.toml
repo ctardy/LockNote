@@ -10,6 +10,12 @@ license = "MIT"
 default = ["public"]
 public = []
 
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = [
+    'cfg(feature, values("pro", "tabs", "vault", "totp", "compression", "i18n", "auto-lock", "clipboard-guard", "auto-save", "global-hotkey"))',
+]
+
 [dependencies]
 # Crypto
 aes = "0.8"

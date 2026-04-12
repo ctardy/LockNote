@@ -70,13 +70,13 @@ static DARK_PALETTE: ThemePalette = ThemePalette {
     border:            Color::new(60, 60, 60),
     text_primary:      Color::new(220, 220, 220),
     text_secondary:    Color::new(150, 150, 150),
-    text_muted:        Color::new(110, 110, 110),
+    text_muted:        Color::new(140, 140, 140),   // RGAA: ≥4.5:1 on dark bg
     accent:            Color::new(86, 156, 214),
     accent_hover:      Color::new(120, 180, 230),
     editor_background: Color::new(30, 30, 30),
     editor_text:       Color::new(220, 220, 220),
     gutter_background: Color::new(30, 30, 30),
-    gutter_text:       Color::new(110, 110, 110),
+    gutter_text:       Color::new(140, 140, 140),   // RGAA: ≥4.5:1 on dark bg
     status_background: Color::new(0, 122, 204),
     status_text:       Color::new(255, 255, 255),
     menu_background:   Color::new(37, 37, 38),
@@ -98,13 +98,13 @@ static LIGHT_PALETTE: ThemePalette = ThemePalette {
     border:            Color::new(210, 210, 210),
     text_primary:      Color::new(30, 30, 30),
     text_secondary:    Color::new(100, 100, 100),
-    text_muted:        Color::new(150, 150, 150),
+    text_muted:        Color::new(110, 110, 110),   // RGAA: ≥4.5:1 on light bg
     accent:            Color::new(0, 120, 212),
     accent_hover:      Color::new(0, 90, 180),
     editor_background: Color::new(255, 255, 255),
     editor_text:       Color::new(30, 30, 30),
     gutter_background: Color::new(243, 243, 243),
-    gutter_text:       Color::new(150, 150, 150),
+    gutter_text:       Color::new(110, 110, 110),   // RGAA: ≥4.5:1 on light bg
     status_background: Color::new(0, 122, 204),
     status_text:       Color::new(255, 255, 255),
     menu_background:   Color::new(243, 243, 243),

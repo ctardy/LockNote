@@ -215,7 +215,10 @@ impl Settings {
         }
 
         // Find header end (after the header line)
-        let header_start = input.find(HEADER).unwrap();
+        let header_start = match input.find(HEADER) {
+            Some(pos) => pos,
+            None => return (Self::default_public(), input.to_string()),
+        };
         let after_header = header_start + HEADER.len();
 
         // Find footer
@@ -621,5 +624,39 @@ mod tests {
         let (parsed_settings, parsed_note) = Settings::parse(&combined);
         assert_eq!(parsed_settings.theme, settings.theme);
         assert_eq!(parsed_note, note_content);
+    }
+
+    #[test]
+    fn test_parse_leading_whitespace_before_header() {
+        // Edge case: whitespace before header should not panic
+        let input = "   \n  [LOCKNOTE_SETTINGS]\ntheme=light\n[/LOCKNOTE_SETTINGS]\nNote";
+        let (s, note) = Settings::parse(input);
+        assert_eq!(s.theme, ThemeChoice::Light);
+        assert_eq!(note, "Note");
+    }
+
+    #[test]
+    fn test_parse_only_whitespace() {
+        let input = "   \n  \n  ";
+        let (s, note) = Settings::parse(input);
+        assert_eq!(s, Settings::default_public());
+        assert_eq!(note, input);
+    }
+
+    #[test]
+    fn test_parse_unicode_note_content() {
+        let note = "Café ☕ 日本語 Привет 🔒📝";
+        let s = Settings::default_public();
+        let serialized = s.serialize(note);
+        let (_, parsed_note) = Settings::parse(&serialized);
+        assert_eq!(parsed_note, note);
+    }
+
+    #[test]
+    fn test_parse_empty_settings_block() {
+        let input = "[LOCKNOTE_SETTINGS]\n[/LOCKNOTE_SETTINGS]\nJust a note";
+        let (s, note) = Settings::parse(input);
+        assert_eq!(s, Settings::default_public());
+        assert_eq!(note, "Just a note");
     }
 }
