@@ -13,23 +13,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Rust (GNU toolchain)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
       - name: Build
         shell: cmd
-        run: build.cmd
+        run: scripts\build.cmd
 
       - name: Run tests
         shell: cmd
-        run: test.cmd
-
-      - name: Show output
-        shell: bash
-        run: ls -la LockNote.exe
+        run: cargo test
 
       - name: Package
         shell: bash
         run: |
           mkdir staging
-          cp LockNote.exe staging/
+          cp build/LockNote.exe staging/
           cp README.md staging/
           cp LICENSE staging/
           cd staging
