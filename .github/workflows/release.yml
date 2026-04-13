@@ -34,6 +34,7 @@ jobs:
           cp README.md staging/
           cp LICENSE staging/
           cd staging
+          sha256sum LockNote.exe > SHA256SUMS.txt
           7z a ../LockNote-windows-x64.zip .
 
       - name: Upload artifact

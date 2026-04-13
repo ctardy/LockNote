@@ -7,6 +7,11 @@ fn main() {
         }
         let mut res = winres::WindowsResource::new();
         res.set_icon("assets/icon.ico");
+        res.set("ProductName", "LockNote");
+        res.set("FileDescription", "LockNote — Encrypted notepad for Windows");
+        res.set("CompanyName", "uitguard.com");
+        res.set("LegalCopyright", "\u{00A9} 2026 Chris Tardy — uitguard.com");
+        res.set("OriginalFilename", "LockNote.exe");
         if let Err(e) = res.compile() {
             eprintln!("Warning: could not compile Windows resources: {}", e);
         }

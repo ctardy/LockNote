@@ -5,6 +5,8 @@ edition = "2021"
 description = "Self-contained encrypted notepad for Windows"
 authors = ["Chris Tardy"]
 license = "MIT"
+homepage = "https://uitguard.com"
+repository = "https://github.com/ctardy/LockNote"
 
 [features]
 default = ["public"]
