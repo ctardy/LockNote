@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-const CURRENT_VERSION: &str = "1.0.1";
+const CURRENT_VERSION: &str = "1.1.0";
 const GITHUB_REPO: &str = "ctardy/LockNote";
 
 /// Semantic version for comparison.
@@ -219,7 +219,7 @@ mod tests {
     #[test]
     fn current_version_valid() {
         let v = SemVer::current();
-        assert_eq!(v, SemVer { major: 1, minor: 0, patch: 1 });
+        assert_eq!(v, SemVer { major: 1, minor: 1, patch: 0 });
     }
 
     #[test]
@@ -321,7 +321,7 @@ mod tests {
 
     #[test]
     fn current_version_matches_cargo() {
-        assert_eq!(current_version(), "1.0.1");
+        assert_eq!(current_version(), "1.1.0");
     }
 
     #[test]
