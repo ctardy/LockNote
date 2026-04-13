@@ -43,6 +43,8 @@ impl CloseConfirmDialog {
             .build(&mut window)
             .expect("Failed to build CloseConfirmDialog window");
 
+        super::apply_dialog_theme(&window);
+
         let mut font = Default::default();
         nwg::Font::builder()
             .family("Segoe UI")
@@ -167,5 +169,47 @@ mod tests {
     fn close_action_variants() {
         assert_ne!(CloseAction::Save, CloseAction::DontSave);
         assert_ne!(CloseAction::DontSave, CloseAction::Cancel);
+    }
+
+    #[test]
+    fn close_action_all_variants() {
+        let save = CloseAction::Save;
+        let dont_save = CloseAction::DontSave;
+        let cancel = CloseAction::Cancel;
+        assert_eq!(save, CloseAction::Save);
+        assert_eq!(dont_save, CloseAction::DontSave);
+        assert_eq!(cancel, CloseAction::Cancel);
+    }
+
+    #[test]
+    fn close_confirm_result_with_remember() {
+        let r = CloseConfirmResult {
+            action: CloseAction::Save,
+            remember: true,
+        };
+        assert_eq!(r.action, CloseAction::Save);
+        assert!(r.remember);
+    }
+
+    #[test]
+    fn close_confirm_result_clone() {
+        let r = CloseConfirmResult {
+            action: CloseAction::DontSave,
+            remember: true,
+        };
+        let cloned = r;
+        assert_eq!(cloned.action, r.action);
+        assert_eq!(cloned.remember, r.remember);
+    }
+
+    #[test]
+    fn close_confirm_result_debug() {
+        let r = CloseConfirmResult {
+            action: CloseAction::Save,
+            remember: false,
+        };
+        let debug_str = format!("{:?}", r);
+        assert!(debug_str.contains("Save"));
+        assert!(debug_str.contains("remember"));
     }
 }

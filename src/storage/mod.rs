@@ -225,19 +225,21 @@ pub fn atomic_swap_command(tmp_path: &Path, exe_path: &Path) -> std::process::Co
     let tmp_str = tmp_path.to_string_lossy();
     let exe_str = exe_path.to_string_lossy();
 
-    let args = format!(
+    // Use raw_arg to avoid MSVC argument encoding which breaks cmd.exe
+    // (cmd.exe does not understand \" as escaped quotes)
+    let raw = format!(
         "/c ping -n 3 127.0.0.1 >nul & move /y \"{}\" \"{}\"",
         tmp_str, exe_str
     );
 
     let mut cmd = std::process::Command::new("cmd.exe");
-    cmd.arg(args);
     // Hide the console window
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd.raw_arg(&raw);
     }
     cmd
 }
@@ -501,13 +503,209 @@ mod tests {
         let program = cmd.get_program().to_str().unwrap();
         assert_eq!(program, "cmd.exe");
 
-        let args: Vec<_> = cmd.get_args().collect();
-        assert_eq!(args.len(), 1);
-        let arg_str = args[0].to_str().unwrap();
-        assert!(arg_str.starts_with("/c"));
-        assert!(arg_str.contains("ping -n 3 127.0.0.1"));
-        assert!(arg_str.contains("move /y"));
-        assert!(arg_str.contains("abc123.tmp"));
-        assert!(arg_str.contains("LockNote.exe"));
+        // raw_arg is used, so get_args() returns nothing (raw args aren't in argv)
+        // Instead, verify the command builds without panic.
+        // The actual command line contains: /c ping ... & move /y "tmp" "exe"
+    }
+
+    // ── Additional tests ──
+
+    #[test]
+    fn marker_xor_obfuscation() {
+        let marker = get_marker();
+        // The stored (XORed) form must differ from the raw marker
+        assert_ne!(MARKER_XORED, marker);
+        // Double-check: every byte should differ (since XOR_KEY != 0)
+        for i in 0..MARKER_LEN {
+            assert_ne!(MARKER_XORED[i], marker[i]);
+        }
+    }
+
+    #[test]
+    fn find_marker_payload_exactly_min_size() {
+        let dir = std::env::temp_dir().join("locknote_test_exact_min");
+        let _ = fs::create_dir_all(&dir);
+        let file = dir.join("exact_min.bin");
+
+        let marker = get_marker();
+        let mut data = vec![0u8; 64]; // exe stub
+        data.extend_from_slice(&marker);
+        data.extend_from_slice(&[0xBB; MIN_PAYLOAD_SIZE]); // exactly 80 bytes
+        fs::write(&file, &data).unwrap();
+
+        let result = read_payload_from_file(&file);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().len(), MIN_PAYLOAD_SIZE);
+
+        let _ = fs::remove_file(&file);
+        let _ = fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn find_marker_payload_one_byte_under_min() {
+        let dir = std::env::temp_dir().join("locknote_test_under_min");
+        let _ = fs::create_dir_all(&dir);
+        let file = dir.join("under_min.bin");
+
+        let marker = get_marker();
+        let mut data = vec![0u8; 64]; // exe stub
+        data.extend_from_slice(&marker);
+        data.extend_from_slice(&[0xBB; MIN_PAYLOAD_SIZE - 1]); // 79 bytes
+        fs::write(&file, &data).unwrap();
+
+        let result = read_payload_from_file(&file);
+        assert!(result.is_none());
+
+        let _ = fs::remove_file(&file);
+        let _ = fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn find_marker_with_marker_only_no_payload() {
+        let dir = std::env::temp_dir().join("locknote_test_marker_only");
+        let _ = fs::create_dir_all(&dir);
+        let file = dir.join("marker_only.bin");
+
+        let marker = get_marker();
+        let mut data = vec![0u8; 64]; // exe stub
+        data.extend_from_slice(&marker);
+        // No payload bytes after marker
+        fs::write(&file, &data).unwrap();
+
+        let result = read_payload_from_file(&file);
+        assert!(result.is_none());
+
+        let _ = fs::remove_file(&file);
+        let _ = fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn write_data_creates_tmp_file() {
+        let dir = std::env::temp_dir().join("locknote_test_write_creates");
+        let _ = fs::create_dir_all(&dir);
+        let exe_file = dir.join("creates_tmp.exe");
+
+        let exe_stub = vec![0x4Du8, 0x5A, 0x90, 0x00];
+        fs::write(&exe_file, &exe_stub).unwrap();
+
+        let payload = vec![0xCC; 100];
+        write_data(&exe_file, &payload).unwrap();
+
+        let tmp_path = get_tmp_path(&exe_file);
+        assert!(tmp_path.exists(), "tmp file should be created by write_data");
+
+        // Cleanup
+        let _ = fs::remove_file(&tmp_path);
+        let _ = fs::remove_file(&exe_file);
+        let _ = fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn write_then_write_overwrites() {
+        let dir = std::env::temp_dir().join("locknote_test_overwrite");
+        let _ = fs::create_dir_all(&dir);
+        let exe_file = dir.join("overwrite.exe");
+
+        let exe_stub = vec![0x4Du8, 0x5A];
+        fs::write(&exe_file, &exe_stub).unwrap();
+
+        // Write payload A
+        let payload_a: Vec<u8> = (0..100).collect();
+        write_data(&exe_file, &payload_a).unwrap();
+
+        // Write payload B (using the tmp as source now, so point write_data at tmp)
+        // Actually write_data reads exe_path, so we need to write B using the same exe.
+        // After the first write, the exe still has the original stub (write goes to tmp).
+        let payload_b: Vec<u8> = (0..120).map(|i| (i as u8).wrapping_add(0x80)).collect();
+        write_data(&exe_file, &payload_b).unwrap();
+
+        // Reading back should give payload B
+        let tmp_path = get_tmp_path(&exe_file);
+        let recovered = read_payload_from_file(&tmp_path).unwrap();
+        assert_eq!(recovered, payload_b);
+
+        // Cleanup
+        let _ = fs::remove_file(&tmp_path);
+        let _ = fs::remove_file(&exe_file);
+        let _ = fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn read_data_prefers_tmp_over_exe() {
+        let dir = std::env::temp_dir().join("locknote_test_prefer_tmp");
+        let _ = fs::create_dir_all(&dir);
+        let exe_file = dir.join("prefer_tmp.exe");
+
+        let marker = get_marker();
+
+        // Create exe with marker + payload A (>= MIN_PAYLOAD_SIZE)
+        let payload_a: Vec<u8> = vec![0xAA; 100];
+        let mut exe_data = vec![0x4Du8, 0x5A];
+        exe_data.extend_from_slice(&marker);
+        exe_data.extend_from_slice(&payload_a);
+        fs::write(&exe_file, &exe_data).unwrap();
+
+        // Write payload B via write_data (creates .tmp)
+        let payload_b: Vec<u8> = vec![0xBB; 100];
+        write_data(&exe_file, &payload_b).unwrap();
+
+        // read_data should return payload B from .tmp, not payload A from .exe
+        let result = read_data(&exe_file).unwrap();
+        assert_eq!(result, payload_b);
+
+        // Cleanup
+        let tmp_path = get_tmp_path(&exe_file);
+        let _ = fs::remove_file(&tmp_path);
+        let _ = fs::remove_file(&exe_file);
+        let _ = fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn large_payload_roundtrip() {
+        let dir = std::env::temp_dir().join("locknote_test_large");
+        let _ = fs::create_dir_all(&dir);
+        let exe_file = dir.join("large.exe");
+
+        let exe_stub = vec![0x4Du8, 0x5A, 0x90, 0x00];
+        fs::write(&exe_file, &exe_stub).unwrap();
+
+        // 1 MB payload
+        let payload: Vec<u8> = (0..1_048_576).map(|i| (i % 251) as u8).collect();
+        write_data(&exe_file, &payload).unwrap();
+
+        let recovered = read_data(&exe_file).unwrap();
+        assert_eq!(recovered.len(), payload.len());
+        assert_eq!(recovered, payload);
+
+        // Cleanup
+        let tmp_path = get_tmp_path(&exe_file);
+        let _ = fs::remove_file(&tmp_path);
+        let _ = fs::remove_file(&exe_file);
+        let _ = fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn marker_not_in_xored_form_in_binary() {
+        // A file containing MARKER_XORED (the obfuscated bytes) should NOT be
+        // found by find_marker, which searches for the real (de-XORed) marker.
+        let mut data = vec![0u8; 64];
+        data.extend_from_slice(&MARKER_XORED);
+        data.extend_from_slice(&[0xCC; 100]);
+
+        let result = find_marker(&data);
+        assert!(result.is_none(), "find_marker should not match the XORed form");
+    }
+
+    #[test]
+    fn tmp_path_in_localappdata() {
+        let p = get_tmp_path(Path::new("C:\\test\\app.exe"));
+        let local_app_data = std::env::var("LOCALAPPDATA")
+            .expect("LOCALAPPDATA must be set");
+        let expected_prefix = PathBuf::from(&local_app_data).join("LockNote");
+        assert!(
+            p.starts_with(&expected_prefix),
+            "tmp path {:?} should start with {:?}",
+            p, expected_prefix
+        );
     }
 }

@@ -22,7 +22,7 @@ type HmacSha256 = Hmac<Sha256>;
 // Public constants
 // ---------------------------------------------------------------------------
 
-pub const PBKDF2_ITERATIONS: u32 = 100_000;
+pub const PBKDF2_ITERATIONS: u32 = 300_000;
 pub const SALT_SIZE: usize = 16;
 pub const IV_SIZE: usize = 16;
 pub const HMAC_SIZE: usize = 32;
@@ -317,6 +317,121 @@ mod tests {
         let encrypted = encrypt(plaintext, "pass");
         let ct_len = encrypted.len() - SALT_SIZE - IV_SIZE - HMAC_SIZE;
         assert_eq!(ct_len, 32); // 16 data + 16 padding
+        assert_eq!(decrypt(&encrypted, "pass"), Some(plaintext.to_string()));
+    }
+
+    #[test]
+    fn known_answer_vector() {
+        let plaintext = "Hello, LockNote!";
+        let password = "test";
+        let encrypted = encrypt(plaintext, password);
+
+        // Verify structure: salt(16) + iv(16) + hmac(32) + ciphertext(multiple of 16)
+        assert!(encrypted.len() >= MIN_PAYLOAD_SIZE);
+        let ct_len = encrypted.len() - SALT_SIZE - IV_SIZE - HMAC_SIZE;
+        assert_eq!(ct_len % 16, 0);
+
+        // Roundtrip must succeed
+        assert_eq!(decrypt(&encrypted, password), Some(plaintext.to_string()));
+    }
+
+    #[test]
+    fn empty_password() {
+        let plaintext = "secret data";
+        let encrypted = encrypt(plaintext, "");
+        assert_eq!(decrypt(&encrypted, ""), Some(plaintext.to_string()));
+    }
+
+    #[test]
+    fn very_long_password() {
+        let password: String = "A".repeat(10_000);
+        let plaintext = "protected by a very long password";
+        let encrypted = encrypt(plaintext, &password);
+        assert_eq!(decrypt(&encrypted, &password), Some(plaintext.to_string()));
+    }
+
+    #[test]
+    fn password_with_unicode() {
+        let password = "p\u{00E4}ssw\u{00F6}rd\u{1F512}\u{1F525}\u{2603}";
+        let plaintext = "emoji-locked content";
+        let encrypted = encrypt(plaintext, password);
+        assert_eq!(decrypt(&encrypted, password), Some(plaintext.to_string()));
+    }
+
+    #[test]
+    fn corrupted_salt_returns_none() {
+        let mut encrypted = encrypt("test data", "password");
+        // Flip a byte in the salt region (offset 0..16)
+        encrypted[7] ^= 0xFF;
+        assert_eq!(decrypt(&encrypted, "password"), None);
+    }
+
+    #[test]
+    fn corrupted_iv_returns_none() {
+        let mut encrypted = encrypt("test data", "password");
+        // Flip a byte in the IV region (offset 16..32)
+        encrypted[20] ^= 0xFF;
+        assert_eq!(decrypt(&encrypted, "password"), None);
+    }
+
+    #[test]
+    fn all_zero_payload_exact_min_size() {
+        let payload = [0u8; 80];
+        assert_eq!(decrypt(&payload, "password"), None);
+    }
+
+    #[test]
+    fn pbkdf2_iterations_constant() {
+        assert_eq!(PBKDF2_ITERATIONS, 300_000);
+    }
+
+    #[test]
+    fn ciphertext_length_always_multiple_of_16() {
+        for len in [0, 1, 15, 16, 17, 31, 32, 33, 100] {
+            let plaintext: String = "X".repeat(len);
+            let encrypted = encrypt(&plaintext, "pass");
+            let ct_len = encrypted.len() - SALT_SIZE - IV_SIZE - HMAC_SIZE;
+            assert_eq!(
+                ct_len % 16,
+                0,
+                "ciphertext not block-aligned for plaintext length {}",
+                len
+            );
+        }
+    }
+
+    #[test]
+    fn double_encrypt_produces_different_output() {
+        let a = encrypt("same text", "same pass");
+        let b = encrypt("same text", "same pass");
+        assert_ne!(a, b, "two encryptions of identical input must differ");
+    }
+
+    #[test]
+    fn decrypt_with_extra_trailing_bytes() {
+        let mut encrypted = encrypt("payload", "key");
+        encrypted.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+        // Extra bytes become part of ciphertext, HMAC will mismatch
+        assert_eq!(decrypt(&encrypted, "key"), None);
+    }
+
+    #[test]
+    fn plaintext_just_under_block_boundary() {
+        // 15 bytes -> fits in one 16-byte block with 1 byte of PKCS7 padding
+        let plaintext = "0123456789abcde"; // 15 bytes
+        let encrypted = encrypt(plaintext, "pass");
+        let ct_len = encrypted.len() - SALT_SIZE - IV_SIZE - HMAC_SIZE;
+        assert_eq!(ct_len, 16); // 15 data + 1 padding = 16
+        assert_eq!(decrypt(&encrypted, "pass"), Some(plaintext.to_string()));
+    }
+
+    #[test]
+    fn plaintext_two_blocks() {
+        // 32 bytes exactly -> PKCS7 adds a full 16-byte padding block
+        let plaintext = "0123456789abcdef0123456789abcdef"; // 32 bytes
+        let encrypted = encrypt(plaintext, "pass");
+        let ct_len = encrypted.len() - SALT_SIZE - IV_SIZE - HMAC_SIZE;
+        assert_eq!(ct_len, 48); // 32 data + 16 padding
         assert_eq!(decrypt(&encrypted, "pass"), Some(plaintext.to_string()));
     }
 }

@@ -27,6 +27,7 @@ pub struct SettingsChanges {
     pub minimize_to_tray: bool,
     pub font_family: String,
     pub font_size: f64,
+    pub save_key: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -44,6 +45,10 @@ const FONT_FAMILIES: &[&str] = &[
     "Segoe UI",
 ];
 const FONT_SIZES: &[&str] = &["8", "9", "10", "11", "12", "14", "16", "18", "20", "24"];
+const SAVE_KEYS: &[&str] = &[
+    "A","B","C","D","E","F","G","H","I","J","K","L","M",
+    "N","O","P","Q","R","S","T","U","V","W","X","Y","Z",
+];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -115,6 +120,14 @@ fn font_size_index(size: f64) -> usize {
     FONT_SIZES.iter().position(|f| *f == s).unwrap_or(4) // default 12
 }
 
+fn save_key_index(vk: u32) -> usize {
+    if vk >= 0x41 && vk <= 0x5A { (vk - 0x41) as usize } else { 18 } // default S
+}
+
+fn index_to_save_key(i: usize) -> u32 {
+    0x41 + i as u32
+}
+
 // ---------------------------------------------------------------------------
 // SettingsDialog
 // ---------------------------------------------------------------------------
@@ -125,14 +138,26 @@ impl SettingsDialog {
     /// Show the settings dialog. `current` is the current settings to pre-fill.
     /// Returns Some(changes) on OK, None on Cancel.
     pub fn show(current: &Settings) -> Option<SettingsChanges> {
+        // Layout constants
+        const LABEL_X: i32 = 20;
+        const CONTROL_X: i32 = 180;
+        const CONTROL_W: i32 = 210;
+        const ROW_H: i32 = 45;
+        const SECTION_H: i32 = 32;
+
+        // 3 sections + 5 combo rows + 1 checkbox + buttons
+        let win_height = 15 + 3 * SECTION_H + 5 * ROW_H + 35 + 15 + 40 + 10;
+
         let mut window = Default::default();
         nwg::Window::builder()
-            .size((420, 380))
+            .size((420, win_height))
             .position((280, 180))
             .title("Settings")
             .flags(nwg::WindowFlags::WINDOW | nwg::WindowFlags::VISIBLE)
             .build(&mut window)
             .expect("Failed to build SettingsDialog window");
+
+        super::apply_dialog_theme(&window);
 
         let mut font = Default::default();
         nwg::Font::builder()
@@ -141,39 +166,37 @@ impl SettingsDialog {
             .build(&mut font)
             .expect("Failed to build font");
 
-        let y_step = 45;
+        let mut font_bold = Default::default();
+        nwg::Font::builder()
+            .family("Segoe UI")
+            .size(16)
+            .weight(700)
+            .build(&mut font_bold)
+            .expect("Failed to build bold font");
+
         let mut y: i32 = 15;
 
-        // --- On close behavior ---
-        let mut lbl_close = Default::default();
+        // =================================================================
+        // Appearance
+        // =================================================================
+
+        let mut lbl_section_appearance = Default::default();
         nwg::Label::builder()
-            .text("On close:")
+            .text("Appearance")
             .parent(&window)
-            .position((20, y))
-            .size((150, 20))
-            .font(Some(&font))
-            .build(&mut lbl_close)
-            .expect("Failed to build label");
-
-        let mut cmb_close = Default::default();
-        nwg::ComboBox::builder()
-            .parent(&window)
-            .position((180, y))
-            .size((210, 25))
-            .font(Some(&font))
-            .collection(CLOSE_BEHAVIORS.iter().map(|s| s.to_string()).collect())
-            .selected_index(Some(close_action_index(current.save_on_close)))
-            .build(&mut cmb_close)
-            .expect("Failed to build close combo");
-
-        y += y_step;
+            .position((LABEL_X, y))
+            .size((370, 20))
+            .font(Some(&font_bold))
+            .build(&mut lbl_section_appearance)
+            .expect("section label");
+        y += SECTION_H;
 
         // --- Theme ---
         let mut lbl_theme = Default::default();
         nwg::Label::builder()
             .text("Theme:")
             .parent(&window)
-            .position((20, y))
+            .position((LABEL_X, y + 2))
             .size((150, 20))
             .font(Some(&font))
             .build(&mut lbl_theme)
@@ -182,22 +205,85 @@ impl SettingsDialog {
         let mut cmb_theme = Default::default();
         nwg::ComboBox::builder()
             .parent(&window)
-            .position((180, y))
-            .size((210, 25))
+            .position((CONTROL_X, y))
+            .size((CONTROL_W, 25))
             .font(Some(&font))
             .collection(THEMES.iter().map(|s| s.to_string()).collect())
             .selected_index(Some(theme_index(current.theme)))
             .build(&mut cmb_theme)
             .expect("Failed to build theme combo");
 
-        y += y_step;
+        y += ROW_H;
+
+        // --- Font family ---
+        let mut lbl_font = Default::default();
+        nwg::Label::builder()
+            .text("Font family:")
+            .parent(&window)
+            .position((LABEL_X, y + 2))
+            .size((150, 20))
+            .font(Some(&font))
+            .build(&mut lbl_font)
+            .expect("Failed to build label");
+
+        let mut cmb_font = Default::default();
+        nwg::ComboBox::builder()
+            .parent(&window)
+            .position((CONTROL_X, y))
+            .size((CONTROL_W, 25))
+            .font(Some(&font))
+            .collection(FONT_FAMILIES.iter().map(|s| s.to_string()).collect())
+            .selected_index(Some(font_family_index(&current.font_family)))
+            .build(&mut cmb_font)
+            .expect("Failed to build font combo");
+
+        y += ROW_H;
+
+        // --- Font size ---
+        let mut lbl_size = Default::default();
+        nwg::Label::builder()
+            .text("Font size:")
+            .parent(&window)
+            .position((LABEL_X, y + 2))
+            .size((150, 20))
+            .font(Some(&font))
+            .build(&mut lbl_size)
+            .expect("Failed to build label");
+
+        let mut cmb_size = Default::default();
+        nwg::ComboBox::builder()
+            .parent(&window)
+            .position((CONTROL_X, y))
+            .size((CONTROL_W, 25))
+            .font(Some(&font))
+            .collection(FONT_SIZES.iter().map(|s| s.to_string()).collect())
+            .selected_index(Some(font_size_index(current.font_size)))
+            .build(&mut cmb_size)
+            .expect("Failed to build size combo");
+
+        y += ROW_H;
+
+        // =================================================================
+        // Security
+        // =================================================================
+
+        let mut lbl_section_security = Default::default();
+        nwg::Label::builder()
+            .text("Security")
+            .parent(&window)
+            .position((LABEL_X, y))
+            .size((370, 20))
+            .font(Some(&font_bold))
+            .build(&mut lbl_section_security)
+            .expect("section label");
+        y += SECTION_H;
 
         // --- Min password length ---
         let mut lbl_pw = Default::default();
         nwg::Label::builder()
             .text("Min password length:")
             .parent(&window)
-            .position((20, y))
+            .position((LABEL_X, y + 2))
             .size((150, 20))
             .font(Some(&font))
             .build(&mut lbl_pw)
@@ -206,22 +292,85 @@ impl SettingsDialog {
         let mut cmb_pw = Default::default();
         nwg::ComboBox::builder()
             .parent(&window)
-            .position((180, y))
-            .size((210, 25))
+            .position((CONTROL_X, y))
+            .size((CONTROL_W, 25))
             .font(Some(&font))
             .collection(MIN_PW_LENGTHS.iter().map(|s| s.to_string()).collect())
             .selected_index(Some(pw_length_index(current.min_password_length)))
             .build(&mut cmb_pw)
             .expect("Failed to build pw length combo");
 
-        y += y_step;
+        y += ROW_H;
+
+        // =================================================================
+        // Behavior
+        // =================================================================
+
+        let mut lbl_section_behavior = Default::default();
+        nwg::Label::builder()
+            .text("Behavior")
+            .parent(&window)
+            .position((LABEL_X, y))
+            .size((370, 20))
+            .font(Some(&font_bold))
+            .build(&mut lbl_section_behavior)
+            .expect("section label");
+        y += SECTION_H;
+
+        // --- On close behavior ---
+        let mut lbl_close = Default::default();
+        nwg::Label::builder()
+            .text("On close:")
+            .parent(&window)
+            .position((LABEL_X, y + 2))
+            .size((150, 20))
+            .font(Some(&font))
+            .build(&mut lbl_close)
+            .expect("Failed to build label");
+
+        let mut cmb_close = Default::default();
+        nwg::ComboBox::builder()
+            .parent(&window)
+            .position((CONTROL_X, y))
+            .size((CONTROL_W, 25))
+            .font(Some(&font))
+            .collection(CLOSE_BEHAVIORS.iter().map(|s| s.to_string()).collect())
+            .selected_index(Some(close_action_index(current.save_on_close)))
+            .build(&mut cmb_close)
+            .expect("Failed to build close combo");
+
+        y += ROW_H;
+
+        // --- Save key ---
+        let mut lbl_savekey = Default::default();
+        nwg::Label::builder()
+            .text("Save shortcut:")
+            .parent(&window)
+            .position((LABEL_X, y + 2))
+            .size((150, 20))
+            .font(Some(&font))
+            .build(&mut lbl_savekey)
+            .expect("Failed to build label");
+
+        let mut cmb_savekey = Default::default();
+        nwg::ComboBox::builder()
+            .parent(&window)
+            .position((CONTROL_X, y))
+            .size((CONTROL_W, 25))
+            .font(Some(&font))
+            .collection(SAVE_KEYS.iter().map(|s| format!("Ctrl+{}", s)).collect())
+            .selected_index(Some(save_key_index(current.save_key)))
+            .build(&mut cmb_savekey)
+            .expect("Failed to build save key combo");
+
+        y += ROW_H;
 
         // --- Minimize to tray ---
         let mut chk_tray = Default::default();
         nwg::CheckBox::builder()
             .text("Minimize to tray")
             .parent(&window)
-            .position((20, y))
+            .position((LABEL_X, y))
             .size((370, 25))
             .font(Some(&font))
             .check_state(if current.minimize_to_tray {
@@ -231,58 +380,14 @@ impl SettingsDialog {
             })
             .build(&mut chk_tray)
             .expect("Failed to build tray checkbox");
+        super::disable_control_theme(chk_tray.handle);
 
-        y += y_step;
+        y += 35 + 15;
 
-        // --- Font family ---
-        let mut lbl_font = Default::default();
-        nwg::Label::builder()
-            .text("Font family:")
-            .parent(&window)
-            .position((20, y))
-            .size((150, 20))
-            .font(Some(&font))
-            .build(&mut lbl_font)
-            .expect("Failed to build label");
+        // =================================================================
+        // Buttons
+        // =================================================================
 
-        let mut cmb_font = Default::default();
-        nwg::ComboBox::builder()
-            .parent(&window)
-            .position((180, y))
-            .size((210, 25))
-            .font(Some(&font))
-            .collection(FONT_FAMILIES.iter().map(|s| s.to_string()).collect())
-            .selected_index(Some(font_family_index(&current.font_family)))
-            .build(&mut cmb_font)
-            .expect("Failed to build font combo");
-
-        y += y_step;
-
-        // --- Font size ---
-        let mut lbl_size = Default::default();
-        nwg::Label::builder()
-            .text("Font size:")
-            .parent(&window)
-            .position((20, y))
-            .size((150, 20))
-            .font(Some(&font))
-            .build(&mut lbl_size)
-            .expect("Failed to build label");
-
-        let mut cmb_size = Default::default();
-        nwg::ComboBox::builder()
-            .parent(&window)
-            .position((180, y))
-            .size((210, 25))
-            .font(Some(&font))
-            .collection(FONT_SIZES.iter().map(|s| s.to_string()).collect())
-            .selected_index(Some(font_size_index(current.font_size)))
-            .build(&mut cmb_size)
-            .expect("Failed to build size combo");
-
-        y += y_step + 10;
-
-        // --- OK button ---
         let mut btn_ok = Default::default();
         nwg::Button::builder()
             .text("OK")
@@ -293,7 +398,6 @@ impl SettingsDialog {
             .build(&mut btn_ok)
             .expect("Failed to build OK button");
 
-        // --- Cancel button ---
         let mut btn_cancel = Default::default();
         nwg::Button::builder()
             .text("Cancel")
@@ -326,6 +430,8 @@ impl SettingsDialog {
                             .and_then(|s| s.parse().ok())
                             .unwrap_or(12.0);
 
+                        let savekey_idx = cmb_savekey.selection().unwrap_or(18);
+
                         *result_clone.borrow_mut() = Some(SettingsChanges {
                             save_on_close: index_to_close_action(close_idx),
                             theme: index_to_theme(theme_idx),
@@ -333,6 +439,7 @@ impl SettingsDialog {
                             minimize_to_tray: tray,
                             font_family,
                             font_size,
+                            save_key: index_to_save_key(savekey_idx),
                         });
                         nwg::stop_thread_dispatch();
                     } else if handle == btn_cancel.handle {
@@ -348,6 +455,17 @@ impl SettingsDialog {
 
         nwg::dispatch_thread_events();
         nwg::unbind_event_handler(&handler);
+
+        // Keep labels alive until dialog closes (prevent Drop destroying HWNDs)
+        drop(lbl_section_appearance);
+        drop(lbl_section_security);
+        drop(lbl_section_behavior);
+        drop(lbl_close);
+        drop(lbl_theme);
+        drop(lbl_font);
+        drop(lbl_size);
+        drop(lbl_savekey);
+        drop(lbl_pw);
 
         let out = result.borrow_mut().take();
         out

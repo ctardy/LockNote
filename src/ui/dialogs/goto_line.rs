@@ -25,6 +25,8 @@ impl GoToLineDialog {
             .build(&mut window)
             .expect("Failed to build GoToLineDialog window");
 
+        super::apply_dialog_theme(&window);
+
         let mut font = Default::default();
         nwg::Font::builder()
             .family("Segoe UI")
@@ -88,6 +90,9 @@ impl GoToLineDialog {
             .build(&mut btn_cancel)
             .expect("Failed to build Cancel button");
 
+        // --- Enter key → OK button ---
+        super::bind_enter_to_button(txt_line.handle, btn_ok.handle);
+
         let result: Rc<RefCell<Option<u32>>> = Rc::new(RefCell::new(None));
         let window_handle = window.handle;
         let result_clone = result.clone();
@@ -135,5 +140,10 @@ mod tests {
     fn module_compiles() {
         // If this compiles, the module structure is valid.
         let _ = std::mem::size_of::<super::GoToLineDialog>();
+    }
+
+    #[test]
+    fn goto_line_dialog_is_zero_sized() {
+        assert_eq!(std::mem::size_of::<super::GoToLineDialog>(), 0);
     }
 }

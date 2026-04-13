@@ -57,46 +57,6 @@ impl ThemeChoice {
     }
 }
 
-/// Language (Pro only).
-#[cfg(feature = "pro")]
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Language {
-    En,
-    Fr,
-    Es,
-    De,
-}
-
-#[cfg(feature = "pro")]
-impl Language {
-    fn from_str(s: &str) -> Option<Language> {
-        match s.trim().to_lowercase().as_str() {
-            "en" => Some(Language::En),
-            "fr" => Some(Language::Fr),
-            "es" => Some(Language::Es),
-            "de" => Some(Language::De),
-            _ => None,
-        }
-    }
-
-    fn as_str(&self) -> &'static str {
-        match self {
-            Language::En => "en",
-            Language::Fr => "fr",
-            Language::Es => "es",
-            Language::De => "de",
-        }
-    }
-}
-
-/// TOTP entry (Pro only).
-#[cfg(feature = "pro")]
-#[derive(Debug, Clone, PartialEq)]
-pub struct TotpEntry {
-    pub name: String,
-    pub secret: String,
-}
-
 /// User settings.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Settings {
@@ -108,30 +68,15 @@ pub struct Settings {
     pub min_password_length: u32,
     pub font_family: String,
     pub font_size: f64,
+    pub save_key: u32,       // Virtual key code for save shortcut (default 0x53 = 'S')
+    pub save_modifiers: u32,  // Modifier bitmask: 0x01=Alt, 0x02=Ctrl, 0x04=Shift
 
-    // Pro-only fields
-    #[cfg(feature = "pro")]
-    pub language: Language,
-    #[cfg(feature = "pro")]
-    pub active_tab: u32,
-    #[cfg(feature = "pro")]
-    pub auto_lock: u32,
-    #[cfg(feature = "pro")]
-    pub clipboard_clear: u32,
-    #[cfg(feature = "pro")]
-    pub auto_save: u32,
-    #[cfg(feature = "pro")]
-    pub show_line_numbers: bool,
-    #[cfg(feature = "pro")]
-    pub totp_2fa: bool,
-    #[cfg(feature = "pro")]
-    pub totp_2fa_secret: String,
-    #[cfg(feature = "pro")]
-    pub totp_entries: Vec<TotpEntry>,
-    #[cfg(feature = "pro")]
-    pub hotkey_modifiers: u32,
-    #[cfg(feature = "pro")]
-    pub hotkey_key: u32,
+    // Window position/size (persisted between sessions)
+    pub window_width: u32,
+    pub window_height: u32,
+    pub window_x: i32,
+    pub window_y: i32,
+    pub window_maximized: bool,
 }
 
 fn parse_bool(s: &str) -> Option<bool> {
@@ -168,37 +113,14 @@ impl Settings {
             min_password_length: 4,
             font_family: "Consolas".to_string(),
             font_size: 11.0,
-            #[cfg(feature = "pro")]
-            language: Language::En,
-            #[cfg(feature = "pro")]
-            active_tab: 0,
-            #[cfg(feature = "pro")]
-            auto_lock: 15,
-            #[cfg(feature = "pro")]
-            clipboard_clear: 30,
-            #[cfg(feature = "pro")]
-            auto_save: 30,
-            #[cfg(feature = "pro")]
-            show_line_numbers: true,
-            #[cfg(feature = "pro")]
-            totp_2fa: false,
-            #[cfg(feature = "pro")]
-            totp_2fa_secret: String::new(),
-            #[cfg(feature = "pro")]
-            totp_entries: Vec::new(),
-            #[cfg(feature = "pro")]
-            hotkey_modifiers: 6,
-            #[cfg(feature = "pro")]
-            hotkey_key: 76,
+            save_key: 0x53, // 'S'
+            save_modifiers: 0x02, // Ctrl
+            window_width: 900,
+            window_height: 650,
+            window_x: i32::MIN,
+            window_y: i32::MIN,
+            window_maximized: false,
         }
-    }
-
-    /// Default settings for the Pro build.
-    #[cfg(feature = "pro")]
-    pub fn default_pro() -> Self {
-        let mut s = Self::default_public();
-        s.min_password_length = 6;
-        s
     }
 
     /// Parse settings from input text. Returns (settings, remaining_note_text).
@@ -295,73 +217,43 @@ impl Settings {
                     self.font_size = clamp_f64(v, 6.0, 72.0);
                 }
             }
-            #[cfg(feature = "pro")]
-            "language" => {
-                if let Some(v) = Language::from_str(value) {
-                    self.language = v;
-                }
-            }
-            #[cfg(feature = "pro")]
-            "active_tab" => {
+            "save_key" => {
                 if let Ok(v) = value.parse::<u32>() {
-                    self.active_tab = v;
-                }
-            }
-            #[cfg(feature = "pro")]
-            "auto_lock" => {
-                if let Ok(v) = value.parse::<u32>() {
-                    self.auto_lock = v;
-                }
-            }
-            #[cfg(feature = "pro")]
-            "clipboard_clear" => {
-                if let Ok(v) = value.parse::<u32>() {
-                    self.clipboard_clear = v;
-                }
-            }
-            #[cfg(feature = "pro")]
-            "auto_save" => {
-                if let Ok(v) = value.parse::<u32>() {
-                    self.auto_save = v;
-                }
-            }
-            #[cfg(feature = "pro")]
-            "show_line_numbers" => {
-                if let Some(v) = parse_bool(value) {
-                    self.show_line_numbers = v;
-                }
-            }
-            #[cfg(feature = "pro")]
-            "totp_2fa" => {
-                if let Some(v) = parse_bool(value) {
-                    self.totp_2fa = v;
-                }
-            }
-            #[cfg(feature = "pro")]
-            "totp_2fa_secret" => {
-                self.totp_2fa_secret = value.to_string();
-            }
-            #[cfg(feature = "pro")]
-            "totp_entry" => {
-                // Format: name|BASE32SECRET
-                if let Some(pipe) = value.find('|') {
-                    let name = value[..pipe].to_string();
-                    let secret = value[pipe + 1..].to_string();
-                    if !name.is_empty() && !secret.is_empty() {
-                        self.totp_entries.push(TotpEntry { name, secret });
+                    if (0x41..=0x5A).contains(&v) {
+                        self.save_key = v;
                     }
                 }
             }
-            #[cfg(feature = "pro")]
-            "hotkey_modifiers" => {
+            "save_modifiers" => {
                 if let Ok(v) = value.parse::<u32>() {
-                    self.hotkey_modifiers = v;
+                    if v > 0 && v <= 0x07 {
+                        self.save_modifiers = v;
+                    }
                 }
             }
-            #[cfg(feature = "pro")]
-            "hotkey_key" => {
+            "window_width" => {
                 if let Ok(v) = value.parse::<u32>() {
-                    self.hotkey_key = v;
+                    self.window_width = clamp_u32(v, 200, 8000);
+                }
+            }
+            "window_height" => {
+                if let Ok(v) = value.parse::<u32>() {
+                    self.window_height = clamp_u32(v, 150, 8000);
+                }
+            }
+            "window_x" => {
+                if let Ok(v) = value.parse::<i32>() {
+                    self.window_x = v;
+                }
+            }
+            "window_y" => {
+                if let Ok(v) = value.parse::<i32>() {
+                    self.window_y = v;
+                }
+            }
+            "window_maximized" => {
+                if let Some(v) = parse_bool(value) {
+                    self.window_maximized = v;
                 }
             }
             _ => {
@@ -389,22 +281,16 @@ impl Settings {
         } else {
             out.push_str(&format!("font_size={}\n", self.font_size));
         }
+        out.push_str(&format!("save_key={}\n", self.save_key));
+        out.push_str(&format!("save_modifiers={}\n", self.save_modifiers));
 
-        #[cfg(feature = "pro")]
-        {
-            out.push_str(&format!("language={}\n", self.language.as_str()));
-            out.push_str(&format!("active_tab={}\n", self.active_tab));
-            out.push_str(&format!("auto_lock={}\n", self.auto_lock));
-            out.push_str(&format!("clipboard_clear={}\n", self.clipboard_clear));
-            out.push_str(&format!("auto_save={}\n", self.auto_save));
-            out.push_str(&format!("show_line_numbers={}\n", bool_str(self.show_line_numbers)));
-            out.push_str(&format!("totp_2fa={}\n", bool_str(self.totp_2fa)));
-            out.push_str(&format!("totp_2fa_secret={}\n", self.totp_2fa_secret));
-            for entry in &self.totp_entries {
-                out.push_str(&format!("totp_entry={}|{}\n", entry.name, entry.secret));
-            }
-            out.push_str(&format!("hotkey_modifiers={}\n", self.hotkey_modifiers));
-            out.push_str(&format!("hotkey_key={}\n", self.hotkey_key));
+        // Window position/size (only if explicitly set)
+        if self.window_x != i32::MIN {
+            out.push_str(&format!("window_width={}\n", self.window_width));
+            out.push_str(&format!("window_height={}\n", self.window_height));
+            out.push_str(&format!("window_x={}\n", self.window_x));
+            out.push_str(&format!("window_y={}\n", self.window_y));
+            out.push_str(&format!("window_maximized={}\n", bool_str(self.window_maximized)));
         }
 
         out.push_str(FOOTER);
@@ -428,24 +314,6 @@ mod tests {
         assert_eq!(s.min_password_length, 4);
         assert_eq!(s.font_family, "Consolas");
         assert_eq!(s.font_size, 11.0);
-    }
-
-    #[cfg(feature = "pro")]
-    #[test]
-    fn test_default_pro() {
-        let s = Settings::default_pro();
-        assert_eq!(s.min_password_length, 6);
-        assert_eq!(s.language, Language::En);
-        assert_eq!(s.active_tab, 0);
-        assert_eq!(s.auto_lock, 15);
-        assert_eq!(s.clipboard_clear, 30);
-        assert_eq!(s.auto_save, 30);
-        assert!(s.show_line_numbers);
-        assert!(!s.totp_2fa);
-        assert_eq!(s.totp_2fa_secret, "");
-        assert!(s.totp_entries.is_empty());
-        assert_eq!(s.hotkey_modifiers, 6);
-        assert_eq!(s.hotkey_key, 76);
     }
 
     #[test]
@@ -574,37 +442,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "pro")]
-    #[test]
-    fn test_pro_totp_entries() {
-        let input = "[LOCKNOTE_SETTINGS]\ntotp_entry=Gmail|JBSWY3DPEHPK3PXP\ntotp_entry=AWS|KZXW6YTBOI======\n[/LOCKNOTE_SETTINGS]\nNote";
-        let (s, _) = Settings::parse(input);
-        assert_eq!(s.totp_entries.len(), 2);
-        assert_eq!(s.totp_entries[0].name, "Gmail");
-        assert_eq!(s.totp_entries[0].secret, "JBSWY3DPEHPK3PXP");
-        assert_eq!(s.totp_entries[1].name, "AWS");
-    }
-
-    #[cfg(feature = "pro")]
-    #[test]
-    fn test_pro_roundtrip() {
-        let mut s = Settings::default_pro();
-        s.language = Language::Fr;
-        s.active_tab = 2;
-        s.auto_lock = 0;
-        s.totp_2fa = true;
-        s.totp_entries.push(TotpEntry { name: "Test".into(), secret: "SECRET".into() });
-
-        let serialized = s.serialize("Pro note");
-        let (s2, note) = Settings::parse(&serialized);
-        assert_eq!(s2.language, Language::Fr);
-        assert_eq!(s2.active_tab, 2);
-        assert_eq!(s2.auto_lock, 0);
-        assert!(s2.totp_2fa);
-        assert_eq!(s2.totp_entries.len(), 1);
-        assert_eq!(note, "Pro note");
-    }
-
     #[test]
     fn test_no_footer_returns_all_as_note() {
         let input = "[LOCKNOTE_SETTINGS]\ntheme=light\nSome text without footer";
@@ -658,5 +495,223 @@ mod tests {
         let (s, note) = Settings::parse(input);
         assert_eq!(s, Settings::default_public());
         assert_eq!(note, "Just a note");
+    }
+
+    // ── Window position/size tests ──
+
+    #[test]
+    fn test_window_defaults() {
+        let s = Settings::default_public();
+        assert_eq!(s.window_width, 900);
+        assert_eq!(s.window_height, 650);
+        assert_eq!(s.window_x, i32::MIN);
+        assert_eq!(s.window_y, i32::MIN);
+        assert!(!s.window_maximized);
+    }
+
+    #[test]
+    fn test_window_not_serialized_when_default() {
+        let s = Settings::default_public();
+        let out = s.serialize("note");
+        assert!(!out.contains("window_width"));
+        assert!(!out.contains("window_x"));
+    }
+
+    #[test]
+    fn test_window_serialized_when_set() {
+        let mut s = Settings::default_public();
+        s.window_x = 100;
+        s.window_y = 200;
+        s.window_width = 1024;
+        s.window_height = 768;
+        s.window_maximized = true;
+
+        let out = s.serialize("note");
+        assert!(out.contains("window_width=1024"));
+        assert!(out.contains("window_height=768"));
+        assert!(out.contains("window_x=100"));
+        assert!(out.contains("window_y=200"));
+        assert!(out.contains("window_maximized=on"));
+    }
+
+    #[test]
+    fn test_window_roundtrip() {
+        let mut s = Settings::default_public();
+        s.window_x = 50;
+        s.window_y = -10;
+        s.window_width = 1200;
+        s.window_height = 800;
+        s.window_maximized = false;
+
+        let serialized = s.serialize("data");
+        let (s2, note) = Settings::parse(&serialized);
+        assert_eq!(s2.window_x, 50);
+        assert_eq!(s2.window_y, -10);
+        assert_eq!(s2.window_width, 1200);
+        assert_eq!(s2.window_height, 800);
+        assert!(!s2.window_maximized);
+        assert_eq!(note, "data");
+    }
+
+    #[test]
+    fn test_window_width_clamped() {
+        let input = "[LOCKNOTE_SETTINGS]\nwindow_width=50\nwindow_height=50\n[/LOCKNOTE_SETTINGS]\n";
+        let (s, _) = Settings::parse(input);
+        assert_eq!(s.window_width, 200);
+        assert_eq!(s.window_height, 150);
+    }
+
+    #[test]
+    fn test_window_negative_coordinates() {
+        let input = "[LOCKNOTE_SETTINGS]\nwindow_x=-500\nwindow_y=-200\n[/LOCKNOTE_SETTINGS]\n";
+        let (s, _) = Settings::parse(input);
+        assert_eq!(s.window_x, -500);
+        assert_eq!(s.window_y, -200);
+    }
+
+    #[test]
+    fn test_window_backward_compatible() {
+        // Old settings without window fields should use defaults
+        let input = "[LOCKNOTE_SETTINGS]\ntheme=light\n[/LOCKNOTE_SETTINGS]\nOld note";
+        let (s, _) = Settings::parse(input);
+        assert_eq!(s.window_width, 900);
+        assert_eq!(s.window_height, 650);
+        assert_eq!(s.window_x, i32::MIN);
+    }
+
+    // ── Edge-case and robustness tests ──
+
+    #[test]
+    fn test_note_containing_settings_header() {
+        // Note body literally contains "[LOCKNOTE_SETTINGS]" — should survive roundtrip
+        let note = "Here is a fake header: [LOCKNOTE_SETTINGS] in my note";
+        let s = Settings::default_public();
+        let serialized = s.serialize(note);
+        let (s2, note2) = Settings::parse(&serialized);
+        assert_eq!(s2, s);
+        assert_eq!(note2, note);
+    }
+
+    #[test]
+    fn test_note_containing_settings_footer() {
+        // Note body literally contains "[/LOCKNOTE_SETTINGS]"
+        let note = "Some text [/LOCKNOTE_SETTINGS] more text";
+        let s = Settings::default_public();
+        let serialized = s.serialize(note);
+        let (s2, note2) = Settings::parse(&serialized);
+        assert_eq!(s2, s);
+        assert_eq!(note2, note);
+    }
+
+    #[test]
+    fn test_duplicate_keys_last_wins() {
+        let input = "[LOCKNOTE_SETTINGS]\ntheme=dark\ntheme=light\n[/LOCKNOTE_SETTINGS]\n";
+        let (s, _) = Settings::parse(input);
+        assert_eq!(s.theme, ThemeChoice::Light);
+    }
+
+    #[test]
+    fn test_key_with_equals_in_value() {
+        // find('=') returns the first '=', so value should be "Courier=New"
+        let input = "[LOCKNOTE_SETTINGS]\nfont_family=Courier=New\n[/LOCKNOTE_SETTINGS]\n";
+        let (s, _) = Settings::parse(input);
+        assert_eq!(s.font_family, "Courier=New");
+    }
+
+    #[test]
+    fn test_empty_value() {
+        // "font_family=" → empty value, should NOT override default due to !value.is_empty() guard
+        let input = "[LOCKNOTE_SETTINGS]\nfont_family=\n[/LOCKNOTE_SETTINGS]\n";
+        let (s, _) = Settings::parse(input);
+        assert_eq!(s.font_family, "Consolas");
+    }
+
+    #[test]
+    fn test_window_height_clamping() {
+        let input = "[LOCKNOTE_SETTINGS]\nwindow_height=50\n[/LOCKNOTE_SETTINGS]\n";
+        let (s, _) = Settings::parse(input);
+        assert_eq!(s.window_height, 150);
+
+        let input = "[LOCKNOTE_SETTINGS]\nwindow_height=9999\n[/LOCKNOTE_SETTINGS]\n";
+        let (s, _) = Settings::parse(input);
+        assert_eq!(s.window_height, 8000);
+    }
+
+    #[test]
+    fn test_bool_yes_no_variants() {
+        let input = "[LOCKNOTE_SETTINGS]\nword_wrap=yes\n[/LOCKNOTE_SETTINGS]\n";
+        let (s, _) = Settings::parse(input);
+        assert!(s.word_wrap);
+
+        let input = "[LOCKNOTE_SETTINGS]\nword_wrap=no\n[/LOCKNOTE_SETTINGS]\n";
+        let (s, _) = Settings::parse(input);
+        assert!(!s.word_wrap);
+    }
+
+    #[test]
+    fn test_invalid_bool_uses_default() {
+        // word_wrap default is true; "maybe" is invalid and should keep default
+        let input = "[LOCKNOTE_SETTINGS]\nword_wrap=maybe\n[/LOCKNOTE_SETTINGS]\n";
+        let (s, _) = Settings::parse(input);
+        assert!(s.word_wrap);
+    }
+
+    #[test]
+    fn test_invalid_theme_uses_default() {
+        // Default theme is Dark; "blue" is invalid
+        let input = "[LOCKNOTE_SETTINGS]\ntheme=blue\n[/LOCKNOTE_SETTINGS]\n";
+        let (s, _) = Settings::parse(input);
+        assert_eq!(s.theme, ThemeChoice::Dark);
+    }
+
+    #[test]
+    fn test_invalid_close_action_uses_default() {
+        // Default is Ask; "sometimes" is invalid
+        let input = "[LOCKNOTE_SETTINGS]\nsave_on_close=sometimes\n[/LOCKNOTE_SETTINGS]\n";
+        let (s, _) = Settings::parse(input);
+        assert_eq!(s.save_on_close, CloseAction::Ask);
+    }
+
+    #[test]
+    fn test_settings_block_with_blank_lines() {
+        let input = "[LOCKNOTE_SETTINGS]\n\ntheme=light\n\nword_wrap=off\n\n[/LOCKNOTE_SETTINGS]\nNote";
+        let (s, note) = Settings::parse(input);
+        assert_eq!(s.theme, ThemeChoice::Light);
+        assert!(!s.word_wrap);
+        assert_eq!(note, "Note");
+    }
+
+    #[test]
+    fn test_very_long_note() {
+        let note: String = "x".repeat(100_000);
+        let s = Settings::default_public();
+        let serialized = s.serialize(&note);
+        let (s2, note2) = Settings::parse(&serialized);
+        assert_eq!(s2, s);
+        assert_eq!(note2.len(), 100_000);
+        assert_eq!(note2, note);
+    }
+
+    #[test]
+    fn test_note_with_only_newlines() {
+        // Note text is just newlines — after footer stripping, leading \n are consumed
+        let s = Settings::default_public();
+        let serialized = s.serialize("\n\n\n\n");
+        let (s2, note2) = Settings::parse(&serialized);
+        assert_eq!(s2, s);
+        // The serialize format is: ...FOOTER\n + note_text
+        // On parse, leading \r\n after footer are stripped, so "\n\n\n\n" becomes ""
+        // because the parser eats all leading newlines after the footer
+        assert_eq!(note2, "");
+    }
+
+    #[test]
+    fn test_crlf_in_settings_block() {
+        // Settings block with \r\n line endings — .lines() handles both
+        let input = "[LOCKNOTE_SETTINGS]\r\ntheme=light\r\nword_wrap=off\r\n[/LOCKNOTE_SETTINGS]\r\nMy note";
+        let (s, note) = Settings::parse(input);
+        assert_eq!(s.theme, ThemeChoice::Light);
+        assert!(!s.word_wrap);
+        assert_eq!(note, "My note");
     }
 }

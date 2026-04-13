@@ -22,6 +22,8 @@ impl AboutDialog {
             .build(&mut window)
             .expect("Failed to build AboutDialog window");
 
+        super::apply_dialog_theme(&window);
+
         let mut font = Default::default();
         nwg::Font::builder()
             .family("Segoe UI")

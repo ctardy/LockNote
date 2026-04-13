@@ -64,31 +64,31 @@ pub struct ThemePalette {
 // ---------------------------------------------------------------------------
 
 static DARK_PALETTE: ThemePalette = ThemePalette {
-    background:        Color::new(30, 30, 30),
-    surface:           Color::new(37, 37, 38),
-    surface_light:     Color::new(45, 45, 48),
-    border:            Color::new(60, 60, 60),
-    text_primary:      Color::new(220, 220, 220),
-    text_secondary:    Color::new(150, 150, 150),
-    text_muted:        Color::new(140, 140, 140),   // RGAA: ≥4.5:1 on dark bg
-    accent:            Color::new(86, 156, 214),
-    accent_hover:      Color::new(120, 180, 230),
-    editor_background: Color::new(30, 30, 30),
-    editor_text:       Color::new(220, 220, 220),
-    gutter_background: Color::new(30, 30, 30),
-    gutter_text:       Color::new(140, 140, 140),   // RGAA: ≥4.5:1 on dark bg
-    status_background: Color::new(0, 122, 204),
+    background:        Color::new(36, 39, 46),      // blue-charcoal
+    surface:           Color::new(44, 47, 55),
+    surface_light:     Color::new(53, 57, 66),
+    border:            Color::new(62, 66, 76),
+    text_primary:      Color::new(212, 216, 224),
+    text_secondary:    Color::new(148, 154, 166),
+    text_muted:        Color::new(140, 146, 158),   // WCAG AA ≥4.5:1 on dark bg
+    accent:            Color::new(95, 160, 230),
+    accent_hover:      Color::new(125, 180, 240),
+    editor_background: Color::new(36, 39, 46),
+    editor_text:       Color::new(212, 216, 224),
+    gutter_background: Color::new(36, 39, 46),
+    gutter_text:       Color::new(140, 146, 158),   // WCAG AA ≥4.5:1 on dark bg
+    status_background: Color::new(55, 128, 205),
     status_text:       Color::new(255, 255, 255),
-    menu_background:   Color::new(37, 37, 38),
-    menu_text:         Color::new(220, 220, 220),
-    menu_hover:        Color::new(62, 62, 64),
-    input_background:  Color::new(45, 45, 48),
-    input_border:      Color::new(60, 60, 60),
-    button_background: Color::new(60, 60, 60),
-    button_text:       Color::new(220, 220, 220),
-    button_secondary:  Color::new(80, 80, 80),
-    error_text:        Color::new(244, 71, 71),
-    match_highlight:   Color::new(80, 80, 0),
+    menu_background:   Color::new(44, 47, 55),
+    menu_text:         Color::new(212, 216, 224),
+    menu_hover:        Color::new(62, 68, 82),
+    input_background:  Color::new(44, 47, 55),
+    input_border:      Color::new(62, 66, 76),
+    button_background: Color::new(58, 64, 78),
+    button_text:       Color::new(212, 216, 224),
+    button_secondary:  Color::new(68, 74, 88),
+    error_text:        Color::new(244, 85, 85),
+    match_highlight:   Color::new(85, 80, 15),
 };
 
 static LIGHT_PALETTE: ThemePalette = ThemePalette {
@@ -228,27 +228,27 @@ mod tests {
     #[test]
     fn dark_palette_background() {
         let p = get_palette(ThemeMode::Dark);
-        assert_eq!(p.background, Color::new(30, 30, 30));
+        assert_eq!(p.background, Color::new(36, 39, 46));
     }
 
     #[test]
     fn dark_palette_accent() {
         let p = get_palette(ThemeMode::Dark);
-        assert_eq!(p.accent, Color::new(86, 156, 214));
+        assert_eq!(p.accent, Color::new(95, 160, 230));
     }
 
     #[test]
     fn dark_palette_status() {
         let p = get_palette(ThemeMode::Dark);
-        assert_eq!(p.status_background, Color::new(0, 122, 204));
+        assert_eq!(p.status_background, Color::new(55, 128, 205));
         assert_eq!(p.status_text, Color::new(255, 255, 255));
     }
 
     #[test]
     fn dark_palette_error_and_match() {
         let p = get_palette(ThemeMode::Dark);
-        assert_eq!(p.error_text, Color::new(244, 71, 71));
-        assert_eq!(p.match_highlight, Color::new(80, 80, 0));
+        assert_eq!(p.error_text, Color::new(244, 85, 85));
+        assert_eq!(p.match_highlight, Color::new(85, 80, 15));
     }
 
     #[test]
@@ -339,7 +339,7 @@ mod tests {
         set_mode(ThemeMode::Dark);
         assert_eq!(current_mode(), ThemeMode::Dark);
         let p = current();
-        assert_eq!(p.background, Color::new(30, 30, 30));
+        assert_eq!(p.background, Color::new(36, 39, 46));
     }
 
     #[test]
@@ -367,7 +367,6 @@ mod tests {
         assert_ne!(d.background, l.background);
         assert_ne!(d.text_primary, l.text_primary);
         assert_ne!(d.editor_background, l.editor_background);
-        // Status bar is the same in both
-        assert_eq!(d.status_background, l.status_background);
+        assert_ne!(d.status_background, l.status_background);
     }
 }

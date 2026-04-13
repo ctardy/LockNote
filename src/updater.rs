@@ -19,7 +19,7 @@ pub struct SemVer {
 impl SemVer {
     /// Parse a version string like "1.0.1" or "v1.0.1".
     pub fn parse(s: &str) -> Option<Self> {
-        let s = s.strip_prefix('v').unwrap_or(s).trim();
+        let s = s.trim().strip_prefix('v').unwrap_or(s.trim());
         let parts: Vec<&str> = s.split('.').collect();
         if parts.len() != 3 {
             return None;
@@ -146,7 +146,7 @@ pub fn download_and_update(download_url: &str, exe_path: &Path) -> Result<String
         let mut file = archive.by_index(i)
             .map_err(|e| format!("ZIP entry error: {}", e))?;
         let name = file.name().to_lowercase();
-        if name.ends_with("locknote.exe") || name.ends_with("locknote-pro.exe") {
+        if name.ends_with("locknote.exe") {
             let mut data = Vec::new();
             std::io::Read::read_to_end(&mut file, &mut data)
                 .map_err(|e| format!("Extract error: {}", e))?;
@@ -220,5 +220,130 @@ mod tests {
     fn current_version_valid() {
         let v = SemVer::current();
         assert_eq!(v, SemVer { major: 1, minor: 0, patch: 1 });
+    }
+
+    #[test]
+    fn parse_empty_string() {
+        assert_eq!(SemVer::parse(""), None);
+    }
+
+    #[test]
+    fn parse_only_v_prefix() {
+        assert_eq!(SemVer::parse("v"), None);
+    }
+
+    #[test]
+    fn parse_two_parts() {
+        assert_eq!(SemVer::parse("1.0"), None);
+    }
+
+    #[test]
+    fn parse_four_parts() {
+        assert_eq!(SemVer::parse("1.0.0.0"), None);
+    }
+
+    #[test]
+    fn parse_with_leading_trailing_whitespace() {
+        let v = SemVer::parse("  1.2.3  ");
+        assert!(v.is_some());
+        let v = v.unwrap();
+        assert_eq!(v.major, 1);
+        assert_eq!(v.minor, 2);
+        assert_eq!(v.patch, 3);
+    }
+
+    #[test]
+    fn parse_negative_numbers() {
+        assert_eq!(SemVer::parse("-1.0.0"), None);
+    }
+
+    #[test]
+    fn parse_very_large_numbers() {
+        let v = SemVer::parse("999999999.0.0");
+        assert!(v.is_some());
+        let v = v.unwrap();
+        assert_eq!(v.major, 999999999);
+    }
+
+    #[test]
+    fn parse_overflow() {
+        assert_eq!(SemVer::parse("99999999999.0.0"), None);
+    }
+
+    #[test]
+    fn parse_non_numeric() {
+        assert_eq!(SemVer::parse("a.b.c"), None);
+    }
+
+    #[test]
+    fn parse_mixed_valid_invalid() {
+        assert_eq!(SemVer::parse("1.0.abc"), None);
+    }
+
+    #[test]
+    fn version_equality_not_newer() {
+        let v = SemVer::parse("1.0.0").unwrap();
+        assert!(!v.is_newer_than(&v));
+    }
+
+    #[test]
+    fn version_comparison_patch_only() {
+        let a = SemVer::parse("1.0.2").unwrap();
+        let b = SemVer::parse("1.0.1").unwrap();
+        assert!(a.is_newer_than(&b));
+    }
+
+    #[test]
+    fn version_comparison_minor_beats_patch() {
+        let a = SemVer::parse("1.1.0").unwrap();
+        let b = SemVer::parse("1.0.99").unwrap();
+        assert!(a.is_newer_than(&b));
+    }
+
+    #[test]
+    fn version_comparison_major_beats_all() {
+        let a = SemVer::parse("2.0.0").unwrap();
+        let b = SemVer::parse("1.99.99").unwrap();
+        assert!(a.is_newer_than(&b));
+    }
+
+    #[test]
+    fn version_display() {
+        let v = SemVer { major: 1, minor: 2, patch: 3 };
+        assert_eq!(format!("{}", v), "1.2.3");
+    }
+
+    #[test]
+    fn version_display_zeros() {
+        let v = SemVer { major: 0, minor: 0, patch: 0 };
+        assert_eq!(format!("{}", v), "0.0.0");
+    }
+
+    #[test]
+    fn current_version_matches_cargo() {
+        assert_eq!(current_version(), "1.0.1");
+    }
+
+    #[test]
+    fn github_repo_format() {
+        assert!(github_repo().contains('/'));
+    }
+
+    #[test]
+    fn parse_with_v_prefix_and_spaces() {
+        let v = SemVer::parse("  v1.0.0  ");
+        assert!(v.is_some());
+        let v = v.unwrap();
+        assert_eq!(v.major, 1);
+        assert_eq!(v.minor, 0);
+        assert_eq!(v.patch, 0);
+    }
+
+    #[test]
+    fn is_newer_symmetric() {
+        let a = SemVer::parse("2.0.0").unwrap();
+        let b = SemVer::parse("1.0.0").unwrap();
+        assert!(a.is_newer_than(&b));
+        assert!(!b.is_newer_than(&a));
     }
 }

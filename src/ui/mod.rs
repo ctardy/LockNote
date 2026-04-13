@@ -8,8 +8,6 @@ use std::path::PathBuf;
 pub mod editor;
 pub mod search_bar;
 pub mod dialogs;
-#[cfg(feature = "tabs")]
-pub mod tab_bar;
 
 /// Main UI entry point. Initializes NWG, handles password flow, launches editor.
 pub fn run(exe_path: PathBuf, data: Option<Vec<u8>>) {
@@ -28,11 +26,18 @@ pub fn run(exe_path: PathBuf, data: Option<Vec<u8>>) {
     match data {
         None => {
             // No existing data — first run, create a new password
-            let password = match dialogs::create_password::show(4) {
+            let settings = crate::settings::Settings::default_public();
+            let password = match dialogs::create_password::show(settings.min_password_length) {
                 Some(pw) => pw,
                 None => return, // User cancelled
             };
-            let settings = crate::settings::Settings::default_public();
+
+            // Persist immediately so the password survives even if the user
+            // closes without typing anything.
+            let combined = settings.serialize("");
+            let encrypted = crate::crypto::encrypt(&combined, &password);
+            let _ = crate::storage::write_data(&exe_path, &encrypted);
+
             editor::EditorForm::run(exe_path, password, String::new(), settings);
         }
         Some(encrypted) => {

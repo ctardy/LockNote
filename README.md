@@ -1,9 +1,7 @@
 # LockNote
 
-[![Build](https://github.com/ctardy/LockNote/actions/workflows/release.yml/badge.svg)](https://github.com/ctardy/LockNote/actions)
 [![License](https://img.shields.io/badge/License-Free%20for%20personal%20use-green.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D6)](https://github.com/ctardy/LockNote/releases)
-[![.NET Framework 4.8](https://img.shields.io/badge/.NET%20Framework-4.8-512BD4)](https://dotnet.microsoft.com/download/dotnet-framework)
 
 A single `.exe` that is both a text editor **and** an encrypted vault. Your notes are stored inside the executable itself — no config files, no temp files, no installation, no dependencies.
 
@@ -12,7 +10,7 @@ A single `.exe` that is both a text editor **and** an encrypted vault. Your note
  │            LockNote.exe                 │
  │  ┌───────────────┬───────────────────┐  │
  │  │   Program     │  Encrypted data   │  │
- │  │   (16 KB)     │  (AES-256-CBC)    │  │
+ │  │   (Rust)      │  (AES-256-CBC)    │  │
  │  └───────────────┴───────────────────┘  │
  └─────────────────────────────────────────┘
         One file. Zero footprint.
@@ -38,15 +36,17 @@ LockNote is a **self-contained** encrypted notepad. Copy a single `.exe` anywher
 
 ### Download
 
-Grab `LockNote.exe` from the [latest release](../../releases/latest) — a single 16 KB file, ready to use.
+Grab `LockNote.exe` from the [latest release](../../releases/latest) — a single portable file, ready to use.
 
 ### Build from source
 
-Requires only the C# compiler built into Windows (no SDK, no Visual Studio, no NuGet):
+Requires Rust (stable, `x86_64-pc-windows-gnu` target):
 
 ```cmd
-build.cmd
+scripts\build.cmd
 ```
+
+Output: `build\LockNote.exe`
 
 ### First launch
 
@@ -66,33 +66,30 @@ build.cmd
 
 ### Editor
 - Line numbers gutter (auto-adjusting width)
-- Find text (`Ctrl+F`) with wrap-around search
+- Find & replace (`Ctrl+F`) with wrap-around search
 - Go to line (`Ctrl+G`)
 - Insert timestamp (`F5` — inserts `yyyy-MM-dd HH:mm`)
 - Duplicate line (`Ctrl+D`) and delete line (`Ctrl+Shift+K`)
 - Word, character, and line count in status bar
 - Cut / Copy / Paste / Paste plain text (`Ctrl+Shift+V`)
 - Right-click context menu with clipboard operations
-- Clickable URL detection (opens in default browser)
-- Drag & drop text files into the editor
 - Select all (`Ctrl+A`)
-- Multiple tabs: organize notes in separate tabs within a single encrypted file
-- Tab operations: new tab (`Ctrl+T`), close tab (`Ctrl+W`), rename (double-click)
-- Tab navigation: `Ctrl+Tab` / `Ctrl+Shift+Tab` to switch between tabs
-- Per-tab modified indicator
-- Tab menu in menu bar
 
 ### Security
 - AES-256-CBC encryption with HMAC-SHA256 authentication
-- PBKDF2-SHA256 key derivation (100,000 iterations)
+- PBKDF2-SHA256 key derivation (300,000 iterations)
 - Password strength indicator on creation
 - 5 unlock attempts max (brute-force protection)
 - Zero cleartext on disk — ever
 - All sensitive buffers zeroed after use
 
 ### Settings
-- Save-on-close behavior: Ask / Always / Never (with "Remember my choice")
+- Dark / light theme with system-aware defaults
+- Save-on-close behavior: Ask / Always / Never
+- Configurable font family and size
+- Minimize to system tray
 - Always on top (View menu toggle)
+- Auto-update check via GitHub releases
 
 ---
 
@@ -101,17 +98,13 @@ build.cmd
 | Shortcut | Action |
 |----------|--------|
 | `Ctrl+S` | Save (encrypt & write) |
-| `Ctrl+F` | Find text |
+| `Ctrl+F` | Find / Replace |
 | `Ctrl+G` | Go to line |
 | `Ctrl+D` | Duplicate current line |
 | `Ctrl+A` | Select all |
 | `Ctrl+Q` | Quit |
 | `Ctrl+Shift+V` | Paste as plain text |
 | `Ctrl+Shift+K` | Delete current line |
-| `Ctrl+T` | New tab |
-| `Ctrl+W` | Close tab |
-| `Ctrl+Tab` | Next tab |
-| `Ctrl+Shift+Tab` | Previous tab |
 | `F5` | Insert timestamp |
 
 ---
@@ -120,32 +113,14 @@ build.cmd
 
 ### Self-modifying executable
 
-LockNote appends encrypted data after a binary marker at the end of its own `.exe`. Since Windows locks a running executable, saves go to a `.tmp` staging file in `%LOCALAPPDATA%\LockNote\` that is swapped in on next launch via a hidden `cmd.exe` process.
+LockNote appends encrypted data after a binary marker at the end of its own `.exe`. Since Windows locks a running executable, saves go through an atomic swap mechanism.
 
 ```
 ┌──────────────────────┬────────┬──────────────────────────────┐
-│  .NET PE executable  │ Marker │  [salt][iv][hmac][ciphertext] │
-│       (16 KB)        │(16 B)  │        (variable)            │
+│   Rust PE executable │ Marker │  [salt][iv][hmac][ciphertext] │
+│                      │(16 B)  │        (variable)            │
 └──────────────────────┴────────┴──────────────────────────────┘
 ```
-
-### Multi-tab storage
-
-Multiple notes are stored in a single encrypted payload using a delimiter-based format:
-
-```
-[LOCKNOTE_SETTINGS]
-...settings...
-[/LOCKNOTE_SETTINGS]
-[LOCKNOTE_TABS]
-[TAB:Note 1]
-content...
-[TAB:Passwords]
-content...
-[/LOCKNOTE_TABS]
-```
-
-Legacy single-note payloads (from versions before the tab system) are automatically migrated to the multi-tab format on first save.
 
 ### Cryptography
 
@@ -153,7 +128,7 @@ Legacy single-note payloads (from versions before the tab system) are automatica
 |-----------|--------|
 | Cipher | AES-256-CBC (PKCS7 padding) |
 | Authentication | HMAC-SHA256 (encrypt-then-MAC) |
-| Key derivation | PBKDF2-SHA256, 100,000 iterations |
+| Key derivation | PBKDF2-SHA256, 300,000 iterations |
 | Salt | 16 bytes, random per save |
 | IV | 16 bytes, random per save |
 | Key material | 64 bytes (32 enc + 32 mac) from single PBKDF2 call |
@@ -167,9 +142,8 @@ Wire format: `[salt 16B][IV 16B][HMAC 32B][ciphertext]`
 - **Fresh randomness** — salt and IV regenerated on every save
 - **Encrypt-then-MAC** — ciphertext integrity verified before decryption
 - **Constant-time comparison** — HMAC check is not vulnerable to timing attacks
-- **Buffer cleanup** — all sensitive byte arrays zeroed with `Array.Clear` after use
+- **Buffer cleanup** — all sensitive byte arrays zeroed after use
 - **Brute-force protection** — 5 password attempts max, then the program exits
-- **.NET native crypto only** — `System.Security.Cryptography`, no third-party code
 
 ---
 
@@ -177,44 +151,37 @@ Wire format: `[salt 16B][IV 16B][HMAC 32B][ciphertext]`
 
 ```
 src/
-├── Program.cs              Entry point, .tmp swap, password flow
-├── Storage.cs              Binary marker, read/write encrypted payload
-├── Crypto.cs               AES-256-CBC + HMAC-SHA256, PBKDF2
-├── Settings.cs             User preferences (serialized in encrypted payload)
-├── EditorForm.cs           Main editor window, menus, shortcuts, status bar
-├── LineNumberTextBox.cs    RichTextBox with line number gutter
-├── CreatePasswordDialog.cs Password creation with strength indicator
-├── UnlockDialog.cs         Password prompt (5 attempts max)
-├── SearchBar.cs            Ctrl+F find panel
-├── GoToLineDialog.cs       Ctrl+G go-to-line dialog
-├── SettingsDialog.cs       Settings dialog (close behavior)
-├── CloseConfirmDialog.cs   Unsaved changes prompt
-├── NoteTab.cs              Tab data model
-├── TabStore.cs             Multi-tab serialization format
-├── TabBar.cs               Custom owner-drawn tab bar
-├── RenameTabDialog.cs      Tab rename dialog
-└── Updater.cs              Auto-updater (GitHub releases)
-
-tests/
-├── TestFramework.cs        Minimal test framework (no NuGet)
-├── CryptoTests.cs          Encryption/decryption round-trip tests
-├── SettingsTests.cs        Settings serialization tests
-├── StorageTests.cs         Binary marker read/write tests
-├── TabStoreTests.cs        Tab serialization/deserialization tests
-└── TestMain.cs             Test runner entry point
+├── main.rs                     Entry point, panic handling
+├── crypto/mod.rs               AES-256-CBC + HMAC-SHA256, PBKDF2
+├── storage/mod.rs              Binary marker, read/write encrypted payload
+├── settings/mod.rs             User settings (theme, save-on-close)
+├── theme/mod.rs                Dark/light theme system
+├── updater.rs                  Auto-update check via GitHub releases
+├── integration_tests.rs        Integration tests
+├── ui/
+│   ├── mod.rs                  UI entry point, password flow
+│   ├── editor.rs               Editor, menus, shortcuts, status bar
+│   ├── search_bar.rs           Ctrl+F find/replace panel
+│   └── dialogs/
+│       ├── create_password.rs  Password creation dialog
+│       ├── unlock.rs           Password prompt (5 attempts max)
+│       ├── close_confirm.rs    Save-on-close confirmation
+│       ├── goto_line.rs        Go-to-line dialog
+│       ├── settings_dialog.rs  Settings UI
+│       ├── preferences_dialog.rs  User preferences (font, behavior)
+│       ├── security_dialog.rs  Security settings (password change)
+│       └── about.rs            About dialog
 ```
+
+Built with Rust using [native-windows-gui](https://github.com/aspect-build/native-windows-gui) for the native Windows UI, and pure Rust cryptography crates (aes, cbc, hmac, sha2, pbkdf2).
 
 ---
 
 ## Testing
 
-Run the test suite (47 tests covering Crypto, Settings, Storage, and TabStore):
-
 ```cmd
-test.cmd
+cargo test
 ```
-
-No external test framework required — uses a built-in minimal test runner compiled with the same `csc.exe`.
 
 ---
 
@@ -223,37 +190,33 @@ No external test framework required — uses a built-in minimal test runner comp
 | Component | Requirement |
 |-----------|-------------|
 | **OS** | Windows 10 or 11 (x64) |
-| **Runtime** | .NET Framework 4.8 (pre-installed on Windows 10+) |
-| **Build** | `csc.exe` included with .NET Framework — no SDK, no Visual Studio, no NuGet |
-| **Output** | ~16 KB portable `.exe` |
-| **Dependencies** | None |
+| **Runtime** | None — native Rust executable |
+| **Build** | Rust stable (`x86_64-pc-windows-gnu`) |
+| **Dependencies** | None at runtime |
 
 ---
 
-## Roadmap
+## LockNote Pro
 
-See the [open issues](../../issues) for planned features, organized by theme:
+Looking for more features? [LockNote Pro](https://uitguard.com) adds:
 
-- **Editor** — Find & replace, word wrap toggle, print support
-- **Settings** — Dark theme, configurable font, remember window position
-- **Security** — Auto-lock on inactivity, clipboard auto-clear, configurable PBKDF2 iterations
-- **UX** — System tray, import/export, always on top
+- Multi-tab notes
+- Encrypted password vault
+- TOTP two-factor authentication
+- Named snapshots / version history
+- Multi-language support (EN, FR, ES, DE)
+- Auto-lock, auto-save, clipboard auto-clear
+- GZip compression
+- Global hotkey
 
 ---
 
 ## Contributing
 
 1. Fork the repo
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Make sure `build.cmd` and `test.cmd` both pass
-4. Commit your changes
-5. Open a Pull Request
-
-**Important constraints:**
-- C# 5 only (no `?.`, `$""`, `nameof()`, etc.)
-- .NET Framework 4.8 — no .NET Core/5/6/7/8
-- No NuGet packages — only `System.*` BCL namespaces
-- All code must compile with the built-in `csc.exe`
+2. Create a feature branch
+3. Make sure `scripts\build.cmd` and `cargo test` pass
+4. Open a Pull Request
 
 ---
 

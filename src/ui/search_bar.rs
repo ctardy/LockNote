@@ -98,10 +98,9 @@ impl SearchBar {
             return Some((abs_pos, abs_pos + term.len()));
         }
 
-        // Wrap around: search from beginning to start_from
+        // Wrap around: search from the beginning of the full text
         if search_start > 0 {
-            let wrap_end = (search_start).min(text_lower.len());
-            if let Some(pos) = text_lower[..wrap_end].find(&term_lower) {
+            if let Some(pos) = text_lower.find(&term_lower) {
                 *self.last_index.borrow_mut() = pos;
                 return Some((pos, pos + term.len()));
             }
@@ -283,5 +282,150 @@ mod tests {
         assert!(sb.is_replace_mode());
         sb.hide();
         assert!(!sb.is_visible());
+    }
+
+    #[test]
+    fn find_next_single_char() {
+        let sb = SearchBar::new();
+        sb.set_search_term("a");
+        let text = "banana";
+        assert_eq!(sb.find_next(text), Some((1, 2)));
+        assert_eq!(sb.find_next(text), Some((3, 4)));
+        assert_eq!(sb.find_next(text), Some((5, 6)));
+        // Wrap around to first 'a'
+        assert_eq!(sb.find_next(text), Some((1, 2)));
+    }
+
+    #[test]
+    fn find_next_at_very_end() {
+        let sb = SearchBar::new();
+        sb.set_search_term("test");
+        let text = "hello world test";
+        let result = sb.find_next(text);
+        assert_eq!(result, Some((12, 16)));
+        // Only occurrence — wrap around should find it again
+        let result = sb.find_next(text);
+        assert_eq!(result, Some((12, 16)));
+    }
+
+    #[test]
+    fn find_next_wrap_around() {
+        let sb = SearchBar::new();
+        sb.set_search_term("a");
+        let text = "xax";
+        assert_eq!(sb.find_next(text), Some((1, 2)));
+        // Next search starts at 2, nothing after, wraps to find at 1 again
+        assert_eq!(sb.find_next(text), Some((1, 2)));
+    }
+
+    #[test]
+    fn find_next_changing_term_resets() {
+        let sb = SearchBar::new();
+        sb.set_search_term("hello");
+        let text = "hello world hello";
+        let result = sb.find_next(text);
+        assert_eq!(result, Some((0, 5)));
+        // Change term — should reset index so search starts from beginning
+        sb.set_search_term("world");
+        let result = sb.find_next(text);
+        assert_eq!(result, Some((6, 11)));
+    }
+
+    #[test]
+    fn replace_all_overlapping() {
+        let sb = SearchBar::new();
+        sb.set_search_term("aa");
+        sb.set_replace_term("x");
+        let mut text = "aaaa".to_string();
+        let count = sb.replace_all(&mut text);
+        assert_eq!(count, 2);
+        assert_eq!(text, "xx");
+    }
+
+    #[test]
+    fn replace_all_growing_replacement() {
+        let sb = SearchBar::new();
+        sb.set_search_term("a");
+        sb.set_replace_term("abc");
+        let mut text = "aaa".to_string();
+        let count = sb.replace_all(&mut text);
+        assert_eq!(count, 3);
+        assert_eq!(text, "abcabcabc");
+    }
+
+    #[test]
+    fn replace_all_empty_term() {
+        let sb = SearchBar::new();
+        sb.set_search_term("");
+        sb.set_replace_term("x");
+        let mut text = "hello".to_string();
+        let count = sb.replace_all(&mut text);
+        assert_eq!(count, 0);
+        assert_eq!(text, "hello");
+    }
+
+    #[test]
+    fn replace_current_no_match_selection() {
+        let sb = SearchBar::new();
+        sb.set_search_term("hello");
+        sb.set_replace_term("world");
+        let mut text = "hello there hello".to_string();
+        // Selection doesn't match search term — should not replace
+        let result = sb.replace_current(&mut text, (6, 11));
+        assert_eq!(text, "hello there hello");
+        // Should still find next occurrence
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn replace_current_empty_text() {
+        let sb = SearchBar::new();
+        sb.set_search_term("hello");
+        sb.set_replace_term("world");
+        let mut text = String::new();
+        let result = sb.replace_current(&mut text, (0, 0));
+        assert_eq!(result, None);
+        assert!(text.is_empty());
+    }
+
+    #[test]
+    fn find_next_unicode_case() {
+        let sb = SearchBar::new();
+        sb.set_search_term("CAFÉ");
+        let text = "I love café";
+        let result = sb.find_next(text);
+        assert_eq!(result, Some((7, 12)));
+    }
+
+    #[test]
+    fn find_next_empty_text() {
+        let sb = SearchBar::new();
+        sb.set_search_term("hello");
+        assert_eq!(sb.find_next(""), None);
+    }
+
+    #[test]
+    fn replace_all_case_preserving_count() {
+        let sb = SearchBar::new();
+        sb.set_search_term("hello");
+        sb.set_replace_term("hi");
+        let mut text = "Hello HELLO hello hElLo".to_string();
+        let count = sb.replace_all(&mut text);
+        assert_eq!(count, 4);
+        assert_eq!(text, "hi hi hi hi");
+    }
+
+    #[test]
+    fn find_next_term_longer_than_text() {
+        let sb = SearchBar::new();
+        sb.set_search_term("hello world");
+        assert_eq!(sb.find_next("hi"), None);
+    }
+
+    #[test]
+    fn new_search_bar_defaults() {
+        let sb = SearchBar::new();
+        assert!(!sb.is_visible());
+        assert!(!sb.is_replace_mode());
     }
 }

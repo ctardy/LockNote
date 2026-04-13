@@ -21,15 +21,30 @@ impl UnlockDialog {
     pub fn show(encrypted_data: &[u8]) -> Option<(String, String)> {
         let data = encrypted_data.to_vec();
 
+        // --- Center on screen ---
+        #[link(name = "user32")]
+        extern "system" {
+            fn GetSystemMetrics(index: i32) -> i32;
+        }
+        let win_w: i32 = 420;
+        let win_h: i32 = 280;
+        let screen_w = unsafe { GetSystemMetrics(0) }; // SM_CXSCREEN
+        let screen_h = unsafe { GetSystemMetrics(1) }; // SM_CYSCREEN
+        let pos_x = (screen_w - win_w) / 2;
+        let pos_y = (screen_h - win_h) / 2;
+
         let mut window = Default::default();
         nwg::Window::builder()
-            .size((380, 200))
-            .position((300, 250))
-            .title("Unlock")
+            .size((win_w, win_h))
+            .position((pos_x, pos_y))
+            .title("LockNote")
             .flags(nwg::WindowFlags::WINDOW | nwg::WindowFlags::VISIBLE)
             .build(&mut window)
             .expect("Failed to build UnlockDialog window");
 
+        super::apply_dialog_theme(&window);
+
+        // --- Fonts ---
         let mut font = Default::default();
         nwg::Font::builder()
             .family("Segoe UI")
@@ -37,23 +52,72 @@ impl UnlockDialog {
             .build(&mut font)
             .expect("Failed to build font");
 
+        let mut font_title = Default::default();
+        nwg::Font::builder()
+            .family("Segoe UI")
+            .size(24)
+            .weight(700)
+            .build(&mut font_title)
+            .expect("Failed to build title font");
+
+        let mut font_desc = Default::default();
+        nwg::Font::builder()
+            .family("Segoe UI")
+            .size(15)
+            .build(&mut font_desc)
+            .expect("Failed to build description font");
+
+        let content_w: i32 = 370;
+        let margin: i32 = 25;
+
+        // --- Welcome title ---
+        let mut _lbl_title = Default::default();
+        nwg::Label::builder()
+            .text("Welcome back")
+            .parent(&window)
+            .position((margin, 18))
+            .size((content_w, 30))
+            .font(Some(&font_title))
+            .build(&mut _lbl_title)
+            .expect("Failed to build title label");
+
+        // --- Description ---
+        let mut _lbl_desc = Default::default();
+        nwg::Label::builder()
+            .text("Enter your password to unlock your notes.")
+            .parent(&window)
+            .position((margin, 55))
+            .size((content_w, 22))
+            .font(Some(&font_desc))
+            .build(&mut _lbl_desc)
+            .expect("Failed to build description label");
+
+        // --- Separator ---
+        let mut _separator = Default::default();
+        nwg::Frame::builder()
+            .parent(&window)
+            .position((margin, 85))
+            .size((content_w, 1))
+            .build(&mut _separator)
+            .expect("Failed to build separator");
+
         // Password label
-        let mut lbl_password = Default::default();
+        let mut _lbl_password = Default::default();
         nwg::Label::builder()
             .text("Password:")
             .parent(&window)
-            .position((20, 15))
-            .size((340, 20))
+            .position((margin, 100))
+            .size((content_w, 20))
             .font(Some(&font))
-            .build(&mut lbl_password)
+            .build(&mut _lbl_password)
             .expect("Failed to build label");
 
         // Password input
         let mut txt_password = Default::default();
         nwg::TextInput::builder()
             .parent(&window)
-            .position((20, 40))
-            .size((340, 25))
+            .position((margin, 125))
+            .size((content_w, 28))
             .password(Some('*'))
             .font(Some(&font))
             .focus(true)
@@ -65,8 +129,8 @@ impl UnlockDialog {
         nwg::Label::builder()
             .text("")
             .parent(&window)
-            .position((20, 75))
-            .size((340, 20))
+            .position((margin, 160))
+            .size((content_w, 20))
             .font(Some(&font))
             .build(&mut lbl_status)
             .expect("Failed to build status label");
@@ -76,8 +140,8 @@ impl UnlockDialog {
         nwg::Button::builder()
             .text("Unlock")
             .parent(&window)
-            .position((170, 120))
-            .size((85, 30))
+            .position((200, 200))
+            .size((90, 32))
             .font(Some(&font))
             .build(&mut btn_unlock)
             .expect("Failed to build Unlock button");
@@ -87,11 +151,39 @@ impl UnlockDialog {
         nwg::Button::builder()
             .text("Cancel")
             .parent(&window)
-            .position((270, 120))
-            .size((85, 30))
+            .position((305, 200))
+            .size((90, 32))
             .font(Some(&font))
             .build(&mut btn_cancel)
             .expect("Failed to build Cancel button");
+
+        // --- Enter key → Unlock button ---
+        {
+            let btn_handle = btn_unlock.handle;
+            let enter_handler = nwg::bind_raw_event_handler(
+                &txt_password.handle,
+                0x20001,
+                move |_hwnd, msg, wparam, _lparam| {
+                    let is_enter = (msg == 0x0100 && wparam == 0x0D)
+                                || (msg == 0x0102 && wparam == 0x0D);
+                    if is_enter {
+                        if let nwg::ControlHandle::Hwnd(btn_hwnd) = btn_handle {
+                            unsafe {
+                                let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
+                                    Some(windows::Win32::Foundation::HWND(btn_hwnd as *mut _)),
+                                    0x00F5, // BM_CLICK
+                                    windows::Win32::Foundation::WPARAM(0),
+                                    windows::Win32::Foundation::LPARAM(0),
+                                );
+                            }
+                        }
+                        return Some(0);
+                    }
+                    None
+                },
+            );
+            std::mem::forget(enter_handler);
+        }
 
         // Result: Some((password, decrypted_text))
         let result: Rc<RefCell<Option<(String, String)>>> = Rc::new(RefCell::new(None));
@@ -131,6 +223,13 @@ impl UnlockDialog {
                                     lbl_status.set_text(
                                         &format!("Wrong password ({}/{})", att, MAX_ATTEMPTS),
                                     );
+                                    if let nwg::ControlHandle::Hwnd(pwd_hwnd) = txt_password.handle {
+                                        unsafe {
+                                            let _ = windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(
+                                                Some(windows::Win32::Foundation::HWND(pwd_hwnd as *mut _)),
+                                            );
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -171,5 +270,11 @@ mod tests {
     #[test]
     fn max_attempts_constant() {
         assert_eq!(MAX_ATTEMPTS, 5);
+    }
+
+    #[test]
+    fn max_attempts_is_reasonable() {
+        assert!(MAX_ATTEMPTS >= 3, "MAX_ATTEMPTS should be at least 3");
+        assert!(MAX_ATTEMPTS <= 10, "MAX_ATTEMPTS should be at most 10");
     }
 }

@@ -9,10 +9,39 @@ mod theme;
 mod updater;
 mod ui;
 
-#[cfg(feature = "pro")]
-mod pro;
+#[cfg(test)]
+mod integration_tests;
 
 fn main() {
+    // ── Single-instance guard ──
+    let mutex = unsafe {
+        windows::Win32::System::Threading::CreateMutexW(
+            None,
+            false,
+            windows::core::w!("LockNote_SingleInstance_Mutex"),
+        )
+    };
+    if unsafe { windows::Win32::Foundation::GetLastError() }
+        == windows::Win32::Foundation::ERROR_ALREADY_EXISTS
+    {
+        unsafe {
+            if let Ok(hwnd) = windows::Win32::UI::WindowsAndMessaging::FindWindowW(
+                None,
+                windows::core::w!("LockNote"),
+            ) {
+                if windows::Win32::UI::WindowsAndMessaging::IsIconic(hwnd).as_bool() {
+                    windows::Win32::UI::WindowsAndMessaging::ShowWindow(
+                        hwnd,
+                        windows::Win32::UI::WindowsAndMessaging::SW_RESTORE,
+                    );
+                }
+                let _ = windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(hwnd);
+            }
+        }
+        return;
+    }
+    let _mutex_guard = mutex;
+
     // Panic hook: log to file + show MessageBox
     std::panic::set_hook(Box::new(|info| {
         let msg = format!("LockNote crashed:\n\n{}", info);

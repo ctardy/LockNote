@@ -49,7 +49,6 @@ fn strength_label(score: u32) -> &'static str {
     }
 }
 
-#[allow(dead_code)]
 fn strength_color(score: u32) -> [u8; 3] {
     match score {
         0..=1 => [220, 50, 50],   // red
@@ -65,15 +64,6 @@ fn strength_percent(score: u32) -> u32 {
         4..=5 => 75,
         _ => 100,
     }
-}
-
-// ---------------------------------------------------------------------------
-// Helper: convert theme Color to nwg [r,g,b]
-// ---------------------------------------------------------------------------
-
-#[allow(dead_code)]
-fn to_nwg_color(c: theme::Color) -> [u8; 3] {
-    [c.r, c.g, c.b]
 }
 
 // ---------------------------------------------------------------------------
@@ -108,6 +98,8 @@ impl CreatePasswordDialog {
             .flags(nwg::WindowFlags::WINDOW | nwg::WindowFlags::VISIBLE)
             .build(&mut window)
             .expect("Failed to build CreatePasswordDialog window");
+
+        super::apply_dialog_theme(&window);
 
         // --- Fonts ---
         let mut font = Default::default();
@@ -210,6 +202,23 @@ impl CreatePasswordDialog {
             .build(&mut strength_bar_bg)
             .expect("Failed to build strength bar bg");
 
+        // Color the bar background (dark gray track)
+        if let nwg::ControlHandle::Hwnd(h) = strength_bar_bg.handle {
+            let hwnd = windows::Win32::Foundation::HWND(h as *mut _);
+            let brush = unsafe {
+                windows::Win32::Graphics::Gdi::CreateSolidBrush(
+                    windows::Win32::Foundation::COLORREF(0x00404040),
+                )
+            };
+            unsafe {
+                windows::Win32::UI::WindowsAndMessaging::SetClassLongPtrW(
+                    hwnd,
+                    windows::Win32::UI::WindowsAndMessaging::GCL_HBRBACKGROUND,
+                    brush.0 as isize,
+                );
+            }
+        }
+
         let mut strength_bar = Default::default();
         nwg::Frame::builder()
             .parent(&window)
@@ -273,6 +282,37 @@ impl CreatePasswordDialog {
             .build(&mut btn_cancel)
             .expect("Failed to build Cancel button");
 
+        // --- Enter key → Create button ---
+        {
+            let btn_handle = btn_ok.handle;
+            for input_handle in [txt_password.handle, txt_confirm.handle] {
+                let bh = btn_handle;
+                let enter_handler = nwg::bind_raw_event_handler(
+                    &input_handle,
+                    0x20001,
+                    move |_hwnd, msg, wparam, _lparam| {
+                        let is_enter = (msg == 0x0100 && wparam == 0x0D)
+                                    || (msg == 0x0102 && wparam == 0x0D);
+                        if is_enter {
+                            if let nwg::ControlHandle::Hwnd(btn_hwnd) = bh {
+                                unsafe {
+                                    let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
+                                        Some(windows::Win32::Foundation::HWND(btn_hwnd as *mut _)),
+                                        0x00F5, // BM_CLICK
+                                        windows::Win32::Foundation::WPARAM(0),
+                                        windows::Win32::Foundation::LPARAM(0),
+                                    );
+                                }
+                            }
+                            return Some(0);
+                        }
+                        None
+                    },
+                );
+                std::mem::forget(enter_handler);
+            }
+        }
+
         // --- Result ---
         let result: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
 
@@ -291,10 +331,17 @@ impl CreatePasswordDialog {
                             lbl_error.set_text(
                                 &format!("Password must be at least {} characters", min_length),
                             );
+                            if let nwg::ControlHandle::Hwnd(h) = txt_password.handle {
+                                unsafe { let _ = windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(Some(windows::Win32::Foundation::HWND(h as *mut _))); }
+                            }
                             return;
                         }
                         if pw != confirm {
                             lbl_error.set_text("Passwords do not match");
+                            txt_confirm.set_text("");
+                            if let nwg::ControlHandle::Hwnd(h) = txt_confirm.handle {
+                                unsafe { let _ = windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(Some(windows::Win32::Foundation::HWND(h as *mut _))); }
+                            }
                             return;
                         }
 
@@ -324,10 +371,29 @@ impl CreatePasswordDialog {
                         let label = strength_label(score);
                         lbl_strength.set_text(label);
 
-                        // Resize the strength bar
+                        // Resize and color the strength bar
                         let bar_w = (390 * pct / 100) as i32;
                         strength_bar.set_position(25, 196);
                         strength_bar.set_size(bar_w as u32, 10);
+
+                        let [r, g, b] = strength_color(score);
+                        let colorref = (r as u32) | ((g as u32) << 8) | ((b as u32) << 16);
+                        if let nwg::ControlHandle::Hwnd(h) = strength_bar.handle {
+                            let hwnd = windows::Win32::Foundation::HWND(h as *mut _);
+                            let brush = unsafe {
+                                windows::Win32::Graphics::Gdi::CreateSolidBrush(
+                                    windows::Win32::Foundation::COLORREF(colorref),
+                                )
+                            };
+                            unsafe {
+                                windows::Win32::UI::WindowsAndMessaging::SetClassLongPtrW(
+                                    hwnd,
+                                    windows::Win32::UI::WindowsAndMessaging::GCL_HBRBACKGROUND,
+                                    brush.0 as isize,
+                                );
+                                let _ = windows::Win32::Graphics::Gdi::InvalidateRect(Some(hwnd), None, true);
+                            }
+                        }
                     }
                 }
                 _ => {}
@@ -401,5 +467,72 @@ mod tests {
         assert_eq!(strength_percent(3), 50);
         assert_eq!(strength_percent(5), 75);
         assert_eq!(strength_percent(7), 100);
+    }
+
+    #[test]
+    fn test_score_only_digits() {
+        // 8+ chars (+1), digit (+1) = 2
+        assert_eq!(password_score("12345678"), 2);
+    }
+
+    #[test]
+    fn test_score_only_uppercase() {
+        // 8+ chars (+1), uppercase (+1) = 2
+        assert_eq!(password_score("ABCDEFGH"), 2);
+    }
+
+    #[test]
+    fn test_score_special_only() {
+        // <8 chars, non-alphanumeric (+1) = 1
+        assert_eq!(password_score("!@#$"), 1);
+    }
+
+    #[test]
+    fn test_score_12_chars() {
+        // 8+ (+1), 12+ (+1), lowercase (+1) = 3
+        assert_eq!(password_score("abcdefghijkl"), 3);
+    }
+
+    #[test]
+    fn test_score_16_chars_lower() {
+        // 8+ (+1), 12+ (+1), 16+ (+1), lowercase (+1) = 4
+        assert_eq!(password_score("abcdefghijklmnop"), 4);
+    }
+
+    #[test]
+    fn test_score_common_password() {
+        // 8+ (+1), lowercase (+1), uppercase (+1), digit (+1) = 4
+        assert_eq!(password_score("Password1"), 4);
+    }
+
+    #[test]
+    fn test_score_with_spaces() {
+        // len=12 bytes: 8+ (+1), 12+ (+1), lowercase (+1), space is non-alphanumeric (+1) = 4
+        assert_eq!(password_score("hello world!"), 4);
+    }
+
+    #[test]
+    fn test_score_unicode_password() {
+        // "Pässwörd" = 10 bytes: 8+ (+1), ascii_lowercase s/w/r/d (+1),
+        // ascii_uppercase P (+1), ä/ö are !is_ascii_alphanumeric (+1) = 4
+        assert_eq!(password_score("Pässwörd"), 4);
+    }
+
+    #[test]
+    fn test_strength_color_values() {
+        assert_eq!(strength_color(0), [220, 50, 50]);   // red
+        assert_eq!(strength_color(1), [220, 50, 50]);   // red
+        assert_eq!(strength_color(2), [230, 160, 30]);  // orange
+        assert_eq!(strength_color(3), [230, 160, 30]);  // orange
+        assert_eq!(strength_color(4), [50, 180, 50]);   // green
+        assert_eq!(strength_color(7), [50, 180, 50]);   // green
+    }
+
+    #[test]
+    fn test_score_single_char_types() {
+        assert_eq!(password_score("a"), 1); // lowercase only
+        assert_eq!(password_score("A"), 1); // uppercase only
+        assert_eq!(password_score("1"), 1); // digit only
+        assert_eq!(password_score("!"), 1); // symbol only
     }
 }
