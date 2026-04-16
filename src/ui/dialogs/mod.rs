@@ -116,14 +116,18 @@ pub fn disable_control_theme(handle: nwg::ControlHandle) {
     }
 }
 
-/// Bind Enter key on a text input to trigger a button click via BM_CLICK.
-pub fn bind_enter_to_button(input_handle: nwg::ControlHandle, button_handle: nwg::ControlHandle) {
+/// Bind Enter key to trigger a button click.
+///
+/// nwg's dispatch loop uses `IsDialogMessage` which intercepts VK_RETURN
+/// and sends WM_COMMAND with IDOK (1) to the parent window.
+/// This function installs a handler on the **window** to catch that command.
+pub fn bind_enter_to_button(window_handle: nwg::ControlHandle, button_handle: nwg::ControlHandle) {
     let raw = nwg::bind_raw_event_handler(
-        &input_handle,
+        &window_handle,
         0x20000,
         move |_hwnd, msg, wparam, _lparam| {
-            // WM_KEYDOWN = 0x0100, VK_RETURN = 0x0D
-            if msg == 0x0100 && wparam == 0x0D {
+            // WM_COMMAND = 0x0111, IDOK = 1 (sent by IsDialogMessage when Enter is pressed)
+            if msg == 0x0111 && (wparam & 0xFFFF) == 1 {
                 if let nwg::ControlHandle::Hwnd(btn_hwnd) = button_handle {
                     unsafe {
                         windows::Win32::UI::WindowsAndMessaging::SendMessageW(

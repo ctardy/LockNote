@@ -158,38 +158,14 @@ impl UnlockDialog {
             .expect("Failed to build Cancel button");
 
         // --- Enter key → Unlock button ---
-        {
-            let btn_handle = btn_unlock.handle;
-            let enter_handler = nwg::bind_raw_event_handler(
-                &txt_password.handle,
-                0x20001,
-                move |_hwnd, msg, wparam, _lparam| {
-                    let is_enter = (msg == 0x0100 && wparam == 0x0D)
-                                || (msg == 0x0102 && wparam == 0x0D);
-                    if is_enter {
-                        if let nwg::ControlHandle::Hwnd(btn_hwnd) = btn_handle {
-                            unsafe {
-                                let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
-                                    Some(windows::Win32::Foundation::HWND(btn_hwnd as *mut _)),
-                                    0x00F5, // BM_CLICK
-                                    windows::Win32::Foundation::WPARAM(0),
-                                    windows::Win32::Foundation::LPARAM(0),
-                                );
-                            }
-                        }
-                        return Some(0);
-                    }
-                    None
-                },
-            );
-            std::mem::forget(enter_handler);
-        }
+        super::bind_enter_to_button(window.handle, btn_unlock.handle);
 
         // Result: Some((password, decrypted_text))
         let result: Rc<RefCell<Option<(String, String)>>> = Rc::new(RefCell::new(None));
         let attempts: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
 
         let window_handle = window.handle;
+        let txt_password_handle = txt_password.handle;
         let result_clone = result.clone();
         let attempts_clone = attempts.clone();
 
@@ -245,6 +221,15 @@ impl UnlockDialog {
                 _ => {}
             }
         });
+
+        // Force focus on password input before entering the message loop
+        if let nwg::ControlHandle::Hwnd(h) = txt_password_handle {
+            unsafe {
+                let _ = windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(
+                    Some(windows::Win32::Foundation::HWND(h as *mut _)),
+                );
+            }
+        }
 
         nwg::dispatch_thread_events();
         nwg::unbind_event_handler(&handler);

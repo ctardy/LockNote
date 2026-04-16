@@ -283,41 +283,14 @@ impl CreatePasswordDialog {
             .expect("Failed to build Cancel button");
 
         // --- Enter key → Create button ---
-        {
-            let btn_handle = btn_ok.handle;
-            for input_handle in [txt_password.handle, txt_confirm.handle] {
-                let bh = btn_handle;
-                let enter_handler = nwg::bind_raw_event_handler(
-                    &input_handle,
-                    0x20001,
-                    move |_hwnd, msg, wparam, _lparam| {
-                        let is_enter = (msg == 0x0100 && wparam == 0x0D)
-                                    || (msg == 0x0102 && wparam == 0x0D);
-                        if is_enter {
-                            if let nwg::ControlHandle::Hwnd(btn_hwnd) = bh {
-                                unsafe {
-                                    let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
-                                        Some(windows::Win32::Foundation::HWND(btn_hwnd as *mut _)),
-                                        0x00F5, // BM_CLICK
-                                        windows::Win32::Foundation::WPARAM(0),
-                                        windows::Win32::Foundation::LPARAM(0),
-                                    );
-                                }
-                            }
-                            return Some(0);
-                        }
-                        None
-                    },
-                );
-                std::mem::forget(enter_handler);
-            }
-        }
+        super::bind_enter_to_button(window.handle, btn_ok.handle);
 
         // --- Result ---
         let result: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
 
         // --- Event handler ---
         let window_handle = window.handle;
+        let txt_password_handle = txt_password.handle;
         let result_clone = result.clone();
 
         let handler = nwg::full_bind_event_handler(&window_handle, move |evt, _evt_data, handle| {
@@ -399,6 +372,15 @@ impl CreatePasswordDialog {
                 _ => {}
             }
         });
+
+        // Force focus on password input before entering the message loop
+        if let nwg::ControlHandle::Hwnd(h) = txt_password_handle {
+            unsafe {
+                let _ = windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(
+                    Some(windows::Win32::Foundation::HWND(h as *mut _)),
+                );
+            }
+        }
 
         nwg::dispatch_thread_events();
         nwg::unbind_event_handler(&handler);

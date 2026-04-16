@@ -91,7 +91,7 @@ impl GoToLineDialog {
             .expect("Failed to build Cancel button");
 
         // --- Enter key → OK button ---
-        super::bind_enter_to_button(txt_line.handle, btn_ok.handle);
+        super::bind_enter_to_button(window.handle, btn_ok.handle);
 
         let result: Rc<RefCell<Option<u32>>> = Rc::new(RefCell::new(None));
         let window_handle = window.handle;

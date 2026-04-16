@@ -583,6 +583,16 @@ impl EditorForm {
                         // Set minimum window size
                     }
                     Event::OnResize | Event::OnResizeEnd => {
+                        // Minimize to tray: hide window when minimized
+                        if f.settings.borrow().minimize_to_tray {
+                            if let nwg::ControlHandle::Hwnd(hwnd) = f.window.handle {
+                                let hwnd = windows::Win32::Foundation::HWND(hwnd as *mut _);
+                                if unsafe { windows::Win32::UI::WindowsAndMessaging::IsIconic(hwnd) }.as_bool() {
+                                    f.window.set_visible(false);
+                                    return;
+                                }
+                            }
+                        }
                         f.layout_controls();
                     }
                     // Keyboard shortcuts are handled in raw event handler below
@@ -1317,8 +1327,15 @@ impl EditorForm {
 
     fn on_tray_restore(&self) {
         self.window.set_visible(true);
-        // Restore from minimized state
-        // Would need ShowWindow(hwnd, SW_RESTORE) via raw Win32
+        // Restore from minimized state via ShowWindow(SW_RESTORE)
+        if let nwg::ControlHandle::Hwnd(hwnd) = self.window.handle {
+            unsafe {
+                windows::Win32::UI::WindowsAndMessaging::ShowWindow(
+                    windows::Win32::Foundation::HWND(hwnd as *mut _),
+                    windows::Win32::UI::WindowsAndMessaging::SW_RESTORE,
+                );
+            }
+        }
     }
 
     // =====================================================================
