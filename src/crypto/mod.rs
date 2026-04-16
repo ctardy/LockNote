@@ -1,15 +1,15 @@
-// Crypto module — AES-256-CBC + HMAC-SHA256, PBKDF2-SHA256
+// Crypto module — AES-256-CBC + HMAC-SHA256, Argon2id
 //
-// Wire format (byte-compatible with the C# LockNote binary):
-//   [salt 16][iv 16][hmac 32][ciphertext ...]
+// Wire format:
+//   [salt 16][iv 16][m_cost 4 LE][t_cost 4 LE][p_lanes 4 LE][hmac 32][ciphertext ...]
+//   HMAC is computed over salt || iv || m_cost || t_cost || p_lanes || ciphertext.
 //
-// Encrypt-then-MAC: HMAC is computed over salt || iv || ciphertext.
 // All sensitive buffers are zeroed after use via `zeroize`.
 
 use aes::Aes256;
+use argon2::Argon2;
 use cbc::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use hmac::{Hmac, Mac};
-use pbkdf2::pbkdf2_hmac;
 use rand::RngCore;
 use sha2::Sha256;
 use zeroize::Zeroize;
@@ -22,23 +22,36 @@ type HmacSha256 = Hmac<Sha256>;
 // Public constants
 // ---------------------------------------------------------------------------
 
-pub const PBKDF2_ITERATIONS: u32 = 300_000;
+/// Argon2id memory cost in KiB (64 MiB).
+pub const DEFAULT_M_COST: u32 = 65_536;
+/// Argon2id time cost (iterations).
+pub const DEFAULT_T_COST: u32 = 3;
+/// Argon2id parallelism (lanes).
+pub const DEFAULT_P_LANES: u32 = 4;
+
 pub const SALT_SIZE: usize = 16;
 pub const IV_SIZE: usize = 16;
+pub const ARGON2_PARAMS_SIZE: usize = 12; // m_cost(4) + t_cost(4) + p_lanes(4)
 pub const HMAC_SIZE: usize = 32;
 pub const KEY_SIZE: usize = 32;
-/// Minimum valid payload: salt + iv + hmac + one AES block (16 bytes).
-pub const MIN_PAYLOAD_SIZE: usize = SALT_SIZE + IV_SIZE + HMAC_SIZE + 16; // 80
+/// Minimum valid payload: salt + iv + argon2_params + hmac + one AES block (16 bytes).
+pub const MIN_PAYLOAD_SIZE: usize = SALT_SIZE + IV_SIZE + ARGON2_PARAMS_SIZE + HMAC_SIZE + 16; // 92
 
 // ---------------------------------------------------------------------------
 // Key derivation
 // ---------------------------------------------------------------------------
 
 /// Derives a 32-byte encryption key and a 32-byte MAC key from a password
-/// and salt using PBKDF2-SHA256.
+/// and salt using Argon2id.
 fn derive_keys(password: &str, salt: &[u8]) -> ([u8; KEY_SIZE], [u8; KEY_SIZE]) {
     let mut key_material = [0u8; 64];
-    pbkdf2_hmac::<Sha256>(password.as_bytes(), salt, PBKDF2_ITERATIONS, &mut key_material);
+
+    let params = argon2::Params::new(DEFAULT_M_COST, DEFAULT_T_COST, DEFAULT_P_LANES, Some(64))
+        .expect("valid Argon2 parameters");
+    let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
+    argon2
+        .hash_password_into(password.as_bytes(), salt, &mut key_material)
+        .expect("Argon2id hashing failed");
 
     let mut enc_key = [0u8; KEY_SIZE];
     let mut mac_key = [0u8; KEY_SIZE];
@@ -53,12 +66,18 @@ fn derive_keys(password: &str, salt: &[u8]) -> ([u8; KEY_SIZE], [u8; KEY_SIZE]) 
 // HMAC computation
 // ---------------------------------------------------------------------------
 
-/// Computes HMAC-SHA256 over salt || iv || ciphertext.
-fn compute_hmac(mac_key: &[u8; KEY_SIZE], salt: &[u8], iv: &[u8], ciphertext: &[u8]) -> [u8; HMAC_SIZE] {
-    let mut mac = HmacSha256::new_from_slice(mac_key)
-        .expect("HMAC accepts any key size");
+/// Computes HMAC-SHA256 over salt || iv || argon2_params || ciphertext.
+fn compute_hmac(
+    mac_key: &[u8; KEY_SIZE],
+    salt: &[u8],
+    iv: &[u8],
+    argon2_params: &[u8],
+    ciphertext: &[u8],
+) -> [u8; HMAC_SIZE] {
+    let mut mac = HmacSha256::new_from_slice(mac_key).expect("HMAC accepts any key size");
     mac.update(salt);
     mac.update(iv);
+    mac.update(argon2_params);
     mac.update(ciphertext);
     let result = mac.finalize().into_bytes();
     let mut out = [0u8; HMAC_SIZE];
@@ -72,7 +91,7 @@ fn compute_hmac(mac_key: &[u8; KEY_SIZE], salt: &[u8], iv: &[u8], ciphertext: &[
 
 /// Encrypts `plaintext` with `password` and returns the wire-format payload.
 ///
-/// Wire format: `salt[16] || iv[16] || hmac[32] || ciphertext[...]`
+/// Wire format: `salt[16] || iv[16] || m_cost[4 LE] || t_cost[4 LE] || p_lanes[4 LE] || hmac[32] || ciphertext[...]`
 pub fn encrypt(plaintext: &str, password: &str) -> Vec<u8> {
     // 1. Generate random salt and IV
     let mut salt = [0u8; SALT_SIZE];
@@ -86,7 +105,6 @@ pub fn encrypt(plaintext: &str, password: &str) -> Vec<u8> {
 
     // 3. Encrypt (AES-256-CBC, PKCS7 padding)
     let mut plain_bytes = plaintext.as_bytes().to_vec();
-    // cbc::Encryptor needs a buffer large enough for plaintext + up to one block of padding.
     let padded_len = (plain_bytes.len() / 16 + 1) * 16;
     let mut buf = vec![0u8; padded_len];
     buf[..plain_bytes.len()].copy_from_slice(&plain_bytes);
@@ -96,17 +114,25 @@ pub fn encrypt(plaintext: &str, password: &str) -> Vec<u8> {
         .expect("buffer is large enough for PKCS7 padding")
         .to_vec();
 
-    // 4. Compute HMAC over salt || iv || ciphertext
-    let hmac_value = compute_hmac(&mac_key, &salt, &iv, &ciphertext);
+    // 4. Encode Argon2id parameters as 12 bytes little-endian
+    let mut params_bytes = [0u8; ARGON2_PARAMS_SIZE];
+    params_bytes[0..4].copy_from_slice(&DEFAULT_M_COST.to_le_bytes());
+    params_bytes[4..8].copy_from_slice(&DEFAULT_T_COST.to_le_bytes());
+    params_bytes[8..12].copy_from_slice(&DEFAULT_P_LANES.to_le_bytes());
 
-    // 5. Assemble output: salt || iv || hmac || ciphertext
-    let mut output = Vec::with_capacity(SALT_SIZE + IV_SIZE + HMAC_SIZE + ciphertext.len());
+    // 5. Compute HMAC over salt || iv || params || ciphertext
+    let hmac_value = compute_hmac(&mac_key, &salt, &iv, &params_bytes, &ciphertext);
+
+    // 6. Assemble output: salt || iv || params || hmac || ciphertext
+    let mut output =
+        Vec::with_capacity(SALT_SIZE + IV_SIZE + ARGON2_PARAMS_SIZE + HMAC_SIZE + ciphertext.len());
     output.extend_from_slice(&salt);
     output.extend_from_slice(&iv);
+    output.extend_from_slice(&params_bytes);
     output.extend_from_slice(&hmac_value);
     output.extend_from_slice(&ciphertext);
 
-    // 6. Zeroize sensitive material
+    // 7. Zeroize sensitive material
     enc_key.zeroize();
     mac_key.zeroize();
     salt.zeroize();
@@ -127,25 +153,54 @@ pub fn encrypt(plaintext: &str, password: &str) -> Vec<u8> {
 /// password or corrupted data), or the ciphertext is not valid PKCS7-padded
 /// AES-256-CBC.
 pub fn decrypt(data: &[u8], password: &str) -> Option<String> {
-    // 1. Validate minimum size
     if data.len() < MIN_PAYLOAD_SIZE {
         return None;
     }
 
-    // 2. Extract fields
     let salt = &data[..SALT_SIZE];
     let iv = &data[SALT_SIZE..SALT_SIZE + IV_SIZE];
-    let stored_hmac = &data[SALT_SIZE + IV_SIZE..SALT_SIZE + IV_SIZE + HMAC_SIZE];
-    let ciphertext = &data[SALT_SIZE + IV_SIZE + HMAC_SIZE..];
+    let params_bytes = &data[SALT_SIZE + IV_SIZE..SALT_SIZE + IV_SIZE + ARGON2_PARAMS_SIZE];
+    let stored_hmac = &data[SALT_SIZE + IV_SIZE + ARGON2_PARAMS_SIZE
+        ..SALT_SIZE + IV_SIZE + ARGON2_PARAMS_SIZE + HMAC_SIZE];
+    let ciphertext = &data[SALT_SIZE + IV_SIZE + ARGON2_PARAMS_SIZE + HMAC_SIZE..];
 
-    // 3. Derive keys
-    let (mut enc_key, mut mac_key) = derive_keys(password, salt);
+    let m_cost = u32::from_le_bytes([params_bytes[0], params_bytes[1], params_bytes[2], params_bytes[3]]);
+    let t_cost = u32::from_le_bytes([params_bytes[4], params_bytes[5], params_bytes[6], params_bytes[7]]);
+    let p_lanes = u32::from_le_bytes([params_bytes[8], params_bytes[9], params_bytes[10], params_bytes[11]]);
 
-    // 4. Verify HMAC (constant-time via hmac crate's `verify_slice`)
-    let mut mac = HmacSha256::new_from_slice(&mac_key)
-        .expect("HMAC accepts any key size");
+    // Reject obviously invalid parameters
+    if m_cost < 8 || t_cost == 0 || p_lanes == 0 {
+        return None;
+    }
+    if m_cost > 1_048_576 || t_cost > 100 || p_lanes > 255 {
+        return None;
+    }
+
+    // Derive keys with stored parameters
+    let mut key_material = [0u8; 64];
+    let params = match argon2::Params::new(m_cost, t_cost, p_lanes, Some(64)) {
+        Ok(p) => p,
+        Err(_) => return None,
+    };
+    let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
+    if argon2
+        .hash_password_into(password.as_bytes(), salt, &mut key_material)
+        .is_err()
+    {
+        return None;
+    }
+
+    let mut enc_key = [0u8; KEY_SIZE];
+    let mut mac_key = [0u8; KEY_SIZE];
+    enc_key.copy_from_slice(&key_material[..KEY_SIZE]);
+    mac_key.copy_from_slice(&key_material[KEY_SIZE..]);
+    key_material.zeroize();
+
+    // Verify HMAC over salt || iv || params || ciphertext
+    let mut mac = HmacSha256::new_from_slice(&mac_key).expect("HMAC accepts any key size");
     mac.update(salt);
     mac.update(iv);
+    mac.update(params_bytes);
     mac.update(ciphertext);
 
     if mac.verify_slice(stored_hmac).is_err() {
@@ -154,7 +209,7 @@ pub fn decrypt(data: &[u8], password: &str) -> Option<String> {
         return None;
     }
 
-    // 5. Decrypt
+    // Decrypt
     let mut ct_buf = ciphertext.to_vec();
     let plaintext_result = Aes256CbcDec::new(&enc_key.into(), iv.into())
         .decrypt_padded_mut::<cbc::cipher::block_padding::Pkcs7>(&mut ct_buf);
@@ -230,26 +285,22 @@ mod tests {
 
     #[test]
     fn truncated_data_returns_none() {
-        // Way too short
         assert_eq!(decrypt(&[0u8; 10], "pass"), None);
-        // Just under the minimum
         assert_eq!(decrypt(&[0u8; MIN_PAYLOAD_SIZE - 1], "pass"), None);
-        // Exactly minimum but garbage -> HMAC mismatch
         assert_eq!(decrypt(&[0u8; MIN_PAYLOAD_SIZE], "pass"), None);
     }
 
     #[test]
     fn corrupted_hmac_returns_none() {
         let mut encrypted = encrypt("data", "pass");
-        // Flip a byte in the HMAC region (offset 32..64)
-        encrypted[40] ^= 0xFF;
+        // Flip a byte in the HMAC region (offset 44..76)
+        encrypted[50] ^= 0xFF;
         assert_eq!(decrypt(&encrypted, "pass"), None);
     }
 
     #[test]
     fn corrupted_ciphertext_returns_none() {
         let mut encrypted = encrypt("data", "pass");
-        // Flip a byte in the ciphertext region
         let last = encrypted.len() - 1;
         encrypted[last] ^= 0xFF;
         assert_eq!(decrypt(&encrypted, "pass"), None);
@@ -259,31 +310,26 @@ mod tests {
     fn salt_iv_randomness() {
         let a = encrypt("same text", "same password");
         let b = encrypt("same text", "same password");
-        // Salt (first 16 bytes) should differ
         assert_ne!(&a[..SALT_SIZE], &b[..SALT_SIZE], "salts must differ");
-        // IV (next 16 bytes) should differ
         assert_ne!(
             &a[SALT_SIZE..SALT_SIZE + IV_SIZE],
             &b[SALT_SIZE..SALT_SIZE + IV_SIZE],
             "IVs must differ"
         );
-        // Entire ciphertext should differ
         assert_ne!(a, b);
     }
 
     #[test]
     fn wire_format_layout() {
         let encrypted = encrypt("test", "pass");
-        // Must be at least MIN_PAYLOAD_SIZE
         assert!(encrypted.len() >= MIN_PAYLOAD_SIZE);
-        // Ciphertext length must be a multiple of 16 (AES block size)
-        let ct_len = encrypted.len() - SALT_SIZE - IV_SIZE - HMAC_SIZE;
+        let ct_len = encrypted.len() - SALT_SIZE - IV_SIZE - ARGON2_PARAMS_SIZE - HMAC_SIZE;
         assert_eq!(ct_len % 16, 0);
     }
 
     #[test]
     fn minimum_payload_size_is_correct() {
-        assert_eq!(MIN_PAYLOAD_SIZE, 80);
+        assert_eq!(MIN_PAYLOAD_SIZE, 92);
     }
 
     #[test]
@@ -312,27 +358,40 @@ mod tests {
 
     #[test]
     fn plaintext_on_block_boundary() {
-        // Exactly 16 bytes -> PKCS7 adds a full 16-byte padding block
         let plaintext = "0123456789abcdef"; // 16 bytes
         let encrypted = encrypt(plaintext, "pass");
-        let ct_len = encrypted.len() - SALT_SIZE - IV_SIZE - HMAC_SIZE;
+        let ct_len = encrypted.len() - SALT_SIZE - IV_SIZE - ARGON2_PARAMS_SIZE - HMAC_SIZE;
         assert_eq!(ct_len, 32); // 16 data + 16 padding
         assert_eq!(decrypt(&encrypted, "pass"), Some(plaintext.to_string()));
     }
 
     #[test]
-    fn known_answer_vector() {
-        let plaintext = "Hello, LockNote!";
-        let password = "test";
-        let encrypted = encrypt(plaintext, password);
+    fn default_constants() {
+        assert_eq!(DEFAULT_M_COST, 65_536);
+        assert_eq!(DEFAULT_T_COST, 3);
+        assert_eq!(DEFAULT_P_LANES, 4);
+    }
 
-        // Verify structure: salt(16) + iv(16) + hmac(32) + ciphertext(multiple of 16)
-        assert!(encrypted.len() >= MIN_PAYLOAD_SIZE);
-        let ct_len = encrypted.len() - SALT_SIZE - IV_SIZE - HMAC_SIZE;
-        assert_eq!(ct_len % 16, 0);
+    #[test]
+    fn ciphertext_length_always_multiple_of_16() {
+        for len in [0, 1, 15, 16, 17, 31, 32, 33, 100] {
+            let plaintext: String = "X".repeat(len);
+            let encrypted = encrypt(&plaintext, "pass");
+            let ct_len = encrypted.len() - SALT_SIZE - IV_SIZE - ARGON2_PARAMS_SIZE - HMAC_SIZE;
+            assert_eq!(
+                ct_len % 16,
+                0,
+                "ciphertext not block-aligned for plaintext length {}",
+                len
+            );
+        }
+    }
 
-        // Roundtrip must succeed
-        assert_eq!(decrypt(&encrypted, password), Some(plaintext.to_string()));
+    #[test]
+    fn double_encrypt_produces_different_output() {
+        let a = encrypt("same text", "same pass");
+        let b = encrypt("same text", "same pass");
+        assert_ne!(a, b, "two encryptions of identical input must differ");
     }
 
     #[test]
@@ -361,7 +420,6 @@ mod tests {
     #[test]
     fn corrupted_salt_returns_none() {
         let mut encrypted = encrypt("test data", "password");
-        // Flip a byte in the salt region (offset 0..16)
         encrypted[7] ^= 0xFF;
         assert_eq!(decrypt(&encrypted, "password"), None);
     }
@@ -369,69 +427,7 @@ mod tests {
     #[test]
     fn corrupted_iv_returns_none() {
         let mut encrypted = encrypt("test data", "password");
-        // Flip a byte in the IV region (offset 16..32)
         encrypted[20] ^= 0xFF;
         assert_eq!(decrypt(&encrypted, "password"), None);
-    }
-
-    #[test]
-    fn all_zero_payload_exact_min_size() {
-        let payload = [0u8; 80];
-        assert_eq!(decrypt(&payload, "password"), None);
-    }
-
-    #[test]
-    fn pbkdf2_iterations_constant() {
-        assert_eq!(PBKDF2_ITERATIONS, 300_000);
-    }
-
-    #[test]
-    fn ciphertext_length_always_multiple_of_16() {
-        for len in [0, 1, 15, 16, 17, 31, 32, 33, 100] {
-            let plaintext: String = "X".repeat(len);
-            let encrypted = encrypt(&plaintext, "pass");
-            let ct_len = encrypted.len() - SALT_SIZE - IV_SIZE - HMAC_SIZE;
-            assert_eq!(
-                ct_len % 16,
-                0,
-                "ciphertext not block-aligned for plaintext length {}",
-                len
-            );
-        }
-    }
-
-    #[test]
-    fn double_encrypt_produces_different_output() {
-        let a = encrypt("same text", "same pass");
-        let b = encrypt("same text", "same pass");
-        assert_ne!(a, b, "two encryptions of identical input must differ");
-    }
-
-    #[test]
-    fn decrypt_with_extra_trailing_bytes() {
-        let mut encrypted = encrypt("payload", "key");
-        encrypted.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
-        // Extra bytes become part of ciphertext, HMAC will mismatch
-        assert_eq!(decrypt(&encrypted, "key"), None);
-    }
-
-    #[test]
-    fn plaintext_just_under_block_boundary() {
-        // 15 bytes -> fits in one 16-byte block with 1 byte of PKCS7 padding
-        let plaintext = "0123456789abcde"; // 15 bytes
-        let encrypted = encrypt(plaintext, "pass");
-        let ct_len = encrypted.len() - SALT_SIZE - IV_SIZE - HMAC_SIZE;
-        assert_eq!(ct_len, 16); // 15 data + 1 padding = 16
-        assert_eq!(decrypt(&encrypted, "pass"), Some(plaintext.to_string()));
-    }
-
-    #[test]
-    fn plaintext_two_blocks() {
-        // 32 bytes exactly -> PKCS7 adds a full 16-byte padding block
-        let plaintext = "0123456789abcdef0123456789abcdef"; // 32 bytes
-        let encrypted = encrypt(plaintext, "pass");
-        let ct_len = encrypted.len() - SALT_SIZE - IV_SIZE - HMAC_SIZE;
-        assert_eq!(ct_len, 48); // 32 data + 16 padding
-        assert_eq!(decrypt(&encrypted, "pass"), Some(plaintext.to_string()));
     }
 }

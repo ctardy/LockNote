@@ -18,7 +18,7 @@ aes = "0.8"
 cbc = { version = "0.1", features = ["alloc"] }
 hmac = "0.12"
 sha2 = "0.10"
-pbkdf2 = { version = "0.12", features = ["hmac"] }
+argon2 = "0.5"
 rand = "0.9"
 zeroize = { version = "1", features = ["derive"] }
 

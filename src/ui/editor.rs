@@ -1311,11 +1311,13 @@ impl EditorForm {
             "LockNote v{}\n\n\
              Self-contained encrypted notepad for Windows.\n\n\
              Encryption: AES-256-CBC + HMAC-SHA256\n\
-             KDF: PBKDF2-SHA256 ({} iterations)\n\n\
+             KDF: Argon2id ({}KiB / {} passes / {} lanes)\n\n\
              https://github.com/{}\n\
              https://uitguard.com",
             crate::updater::current_version(),
-            crate::crypto::PBKDF2_ITERATIONS,
+            crate::crypto::DEFAULT_M_COST,
+            crate::crypto::DEFAULT_T_COST,
+            crate::crypto::DEFAULT_P_LANES,
             crate::updater::github_repo(),
         );
         nwg::modal_info_message(&self.window, "About LockNote", &msg);
