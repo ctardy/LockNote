@@ -2,7 +2,7 @@
 //
 // Layout (top to bottom):
 //   1. MenuStrip (File, View, Edit, Help)
-//   2. SearchBar (hidden by default, toggled via Ctrl+F / Ctrl+H)
+//   (Find/Replace is a popup dialog: ui::dialogs::find_replace)
 //   3. RichTextBox (main editor area)
 //   4. StatusBar (word count, character count, line count)
 
@@ -10,7 +10,6 @@ use native_windows_gui as nwg;
 use std::cell::RefCell;
 use std::path::PathBuf;
 
-use super::search_bar::SearchBar;
 use crate::theme;
 
 /// Main editor window holding all NWG controls and application state.
@@ -69,9 +68,6 @@ pub struct EditorForm {
     tray_menu: nwg::Menu,
     tray_menu_restore: nwg::MenuItem,
     tray_menu_quit: nwg::MenuItem,
-
-    // ── Search bar (managed separately) ──
-    search_bar: RefCell<Option<SearchBar>>,
 
     // ── Application state ──
     password: RefCell<String>,
@@ -394,13 +390,23 @@ impl EditorForm {
             .build(&mut editor)
             .expect("Failed to build editor RichTextBox");
 
-        // Enable EN_CHANGE notifications so OnTextInput fires
+        // Enable EN_CHANGE notifications so OnTextInput fires + keep selection
+        // visible when focus moves to a popup. ES_NOHIDESEL = 0x100.
         if let nwg::ControlHandle::Hwnd(hwnd) = editor.handle {
             const EM_SETEVENTMASK: u32 = 0x0445;
             const EM_GETEVENTMASK: u32 = 0x043B;
             const ENM_CHANGE: u32 = 0x01;
             let hwnd_w = windows::Win32::Foundation::HWND(hwnd as *mut _);
             unsafe {
+                let style = windows::Win32::UI::WindowsAndMessaging::GetWindowLongPtrW(
+                    hwnd_w,
+                    windows::Win32::UI::WindowsAndMessaging::GWL_STYLE,
+                );
+                windows::Win32::UI::WindowsAndMessaging::SetWindowLongPtrW(
+                    hwnd_w,
+                    windows::Win32::UI::WindowsAndMessaging::GWL_STYLE,
+                    style | 0x100,
+                );
                 let mask = windows::Win32::UI::WindowsAndMessaging::SendMessageW(
                     hwnd_w, EM_GETEVENTMASK,
                     Some(windows::Win32::Foundation::WPARAM(0)),
@@ -409,7 +415,6 @@ impl EditorForm {
                 windows::Win32::UI::WindowsAndMessaging::SendMessageW(
                     hwnd_w, EM_SETEVENTMASK,
                     Some(windows::Win32::Foundation::WPARAM(0)),
-                        // ENM_CHANGE=0x01, ENM_MOUSEEVENTS=0x00020000
                 Some(windows::Win32::Foundation::LPARAM(mask.0 as isize | ENM_CHANGE as isize | 0x00020000)),
                 );
             }
@@ -496,8 +501,6 @@ impl EditorForm {
             tray_menu,
             tray_menu_restore,
             tray_menu_quit,
-            // Search bar
-            search_bar: RefCell::new(None),
             // State
             password: RefCell::new(password),
             is_modified: RefCell::new(false),
@@ -573,6 +576,17 @@ impl EditorForm {
                             f.on_close();
                         }
                     }
+                    Event::OnContextMenu => {
+                        if handle == f.tray_icon.handle {
+                            let (x, y) = nwg::GlobalCursor::position();
+                            f.tray_menu.popup(x, y);
+                        }
+                    }
+                    Event::OnMousePress(nwg::MousePressEvent::MousePressLeftUp) => {
+                        if handle == f.tray_icon.handle {
+                            f.on_tray_restore();
+                        }
+                    }
                     Event::OnTextInput => {
                         if handle == f.editor.handle {
                             f.mark_modified();
@@ -612,48 +626,8 @@ impl EditorForm {
             move |_hwnd, msg, w_param, _l_param| {
                 // WM_KEYDOWN = 0x0100
                 if msg == 0x0100 {
-                    let ctrl = unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(0x11) } < 0; // VK_CONTROL
-                    let shift = unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(0x10) } < 0; // VK_SHIFT
-                    let vk = w_param as u32;
-
-                    // Dynamic save shortcut (configurable modifier+key)
-                    {
-                        let s = f2.settings.borrow();
-                        let sm = s.save_modifiers;
-                        let sk = s.save_key;
-                        drop(s);
-                        let want_ctrl = sm & 0x02 != 0;
-                        let want_shift = sm & 0x04 != 0;
-                        let want_alt = sm & 0x01 != 0;
-                        let alt = unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(0x12) } < 0;
-                        if ctrl == want_ctrl && shift == want_shift && alt == want_alt && vk == sk {
-                            f2.on_save();
-                            return Some(0);
-                        }
-                    }
-
-                    if ctrl && !shift {
-                        match vk {
-                            0x51 => { f2.on_close(); return Some(0); }       // Ctrl+Q
-                            0x46 => { f2.on_show_find(); return Some(0); }   // Ctrl+F
-                            0x48 => { f2.on_show_replace(); return Some(0); }// Ctrl+H
-                            0x47 => { f2.on_goto_line(); return Some(0); }   // Ctrl+G
-                            0x44 => { f2.on_duplicate_line(); return Some(0); } // Ctrl+D
-                            0x41 => { f2.on_select_all(); return Some(0); }  // Ctrl+A
-                            _ => {}
-                        }
-                    } else if ctrl && shift {
-                        match vk {
-                            0x56 => { f2.on_paste_plain(); return Some(0); } // Ctrl+Shift+V
-                            0x4B => { f2.on_delete_line(); return Some(0); } // Ctrl+Shift+K
-                            _ => {}
-                        }
-                    } else if !ctrl && !shift {
-                        match vk {
-                            0x74 => { f2.on_insert_timestamp(); return Some(0); } // F5
-                            0x1B => { f2.on_escape(); return Some(0); }           // Escape
-                            _ => {}
-                        }
+                    if f2.handle_shortcut(w_param as u32) {
+                        return Some(0);
                     }
                 }
 
@@ -715,6 +689,25 @@ impl EditorForm {
             },
         );
         std::mem::forget(raw_handler);
+
+        // WM_KEYDOWN from the RichEdit child is never routed to the main
+        // window's subclass, so bind a second handler directly on the editor
+        // control and reuse handle_shortcut(). Without this, Ctrl+F/H/G/Z/Y
+        // and friends never fire when the cursor is in the editor.
+        let f_ed = form.clone();
+        let editor_key_handler = nwg::bind_raw_event_handler(
+            &form.editor.handle,
+            0x10001,
+            move |_hwnd, msg, w_param, _l_param| {
+                if msg == 0x0100 {
+                    if f_ed.handle_shortcut(w_param as u32) {
+                        return Some(0);
+                    }
+                }
+                None
+            },
+        );
+        std::mem::forget(editor_key_handler);
     }
 
     // =====================================================================
@@ -868,19 +861,11 @@ impl EditorForm {
         let (w, h) = self.window.size();
         let status_h: u32 = 22;
         // Search bar height (only when visible)
-        let search_h: u32 = {
-            let sb = self.search_bar.borrow();
-            match *sb {
-                Some(ref bar) if bar.is_visible() => 34,
-                _ => 0,
-            }
-        };
-
-        let editor_y = search_h as i32;
-        let editor_h = (h as i32) - (status_h as i32) - (search_h as i32);
+        // Find/Replace is a popup dialog, no vertical band reserved here.
+        let editor_h = (h as i32) - (status_h as i32);
         let editor_h = if editor_h < 0 { 0 } else { editor_h as u32 };
 
-        self.editor.set_position(0, editor_y);
+        self.editor.set_position(0, 0);
         self.editor.set_size(w, editor_h);
     }
 
@@ -1074,6 +1059,56 @@ impl EditorForm {
     }
 
     /// Send a Windows message to the editor's HWND.
+    /// Keyboard-shortcut dispatch. Called from both the main-window and the
+    /// editor-control subclass handlers so shortcuts work regardless of which
+    /// control has focus. Returns true if the shortcut was handled.
+    fn handle_shortcut(&self, vk: u32) -> bool {
+        let ctrl = unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(0x11) } < 0;
+        let shift = unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(0x10) } < 0;
+        let alt = unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(0x12) } < 0;
+
+        {
+            let s = self.settings.borrow();
+            let sm = s.save_modifiers;
+            let sk = s.save_key;
+            drop(s);
+            let want_ctrl = sm & 0x02 != 0;
+            let want_shift = sm & 0x04 != 0;
+            let want_alt = sm & 0x01 != 0;
+            if ctrl == want_ctrl && shift == want_shift && alt == want_alt && vk == sk {
+                self.on_save();
+                return true;
+            }
+        }
+
+        if ctrl && !shift {
+            match vk {
+                0x51 => { self.on_close(); return true; }       // Ctrl+Q
+                0x46 => { self.on_show_find(); return true; }   // Ctrl+F
+                0x48 => { self.on_show_replace(); return true; }// Ctrl+H
+                0x47 => { self.on_goto_line(); return true; }   // Ctrl+G
+                0x44 => { self.on_duplicate_line(); return true; } // Ctrl+D
+                0x41 => { self.on_select_all(); return true; }  // Ctrl+A
+                0x5A => { self.on_undo(); return true; }        // Ctrl+Z
+                0x59 => { self.on_redo(); return true; }        // Ctrl+Y
+                _ => {}
+            }
+        } else if ctrl && shift {
+            match vk {
+                0x56 => { self.on_paste_plain(); return true; } // Ctrl+Shift+V
+                0x4B => { self.on_delete_line(); return true; } // Ctrl+Shift+K
+                _ => {}
+            }
+        } else if !ctrl && !shift {
+            match vk {
+                0x74 => { self.on_insert_timestamp(); return true; } // F5
+                0x1B => { self.on_escape(); return true; }           // Escape
+                _ => {}
+            }
+        }
+        false
+    }
+
     fn send_editor_message(&self, msg: u32, wparam: usize, lparam: isize) {
         use nwg::ControlHandle;
         if let ControlHandle::Hwnd(hwnd) = self.editor.handle {
@@ -1086,6 +1121,16 @@ impl EditorForm {
                 );
             }
         }
+    }
+
+    /// Undo last edit. EM_UNDO = 0x00C7.
+    fn on_undo(&self) {
+        self.send_editor_message(0x00C7, 0, 0);
+    }
+
+    /// Redo last undone edit. EM_REDO = WM_USER + 84 = 0x0454 (RichEdit only).
+    fn on_redo(&self) {
+        self.send_editor_message(0x0454, 0, 0);
     }
 
     fn on_select_all(&self) {
@@ -1182,43 +1227,38 @@ impl EditorForm {
     // Search / Replace
     // =====================================================================
 
-    /// Show the find bar (find-only mode).
+    /// Open the Find popup dialog.
     fn on_show_find(&self) {
-        let mut sb = self.search_bar.borrow_mut();
-        if sb.is_none() {
-            *sb = Some(SearchBar::new());
+        use nwg::ControlHandle;
+        if let ControlHandle::Hwnd(hwnd) = self.editor.handle {
+            let initial = self.current_selection_text();
+            super::dialogs::find_replace::FindReplaceDialog::show(hwnd as isize, false, &initial);
         }
-        if let Some(ref bar) = *sb {
-            bar.show(false); // find-only mode
-        }
-        drop(sb);
-        self.layout_controls();
     }
 
-    /// Show the find & replace bar.
+    /// Open the Find & Replace popup dialog.
     fn on_show_replace(&self) {
-        let mut sb = self.search_bar.borrow_mut();
-        if sb.is_none() {
-            *sb = Some(SearchBar::new());
+        use nwg::ControlHandle;
+        if let ControlHandle::Hwnd(hwnd) = self.editor.handle {
+            let initial = self.current_selection_text();
+            super::dialogs::find_replace::FindReplaceDialog::show(hwnd as isize, true, &initial);
         }
-        if let Some(ref bar) = *sb {
-            bar.show(true); // replace mode
-        }
-        drop(sb);
-        self.layout_controls();
     }
 
-    /// Hide search bar on Escape.
+    /// Escape key fallback (the popup dialog handles its own close).
     fn on_escape(&self) {
-        let sb = self.search_bar.borrow();
-        if let Some(ref bar) = *sb {
-            if bar.is_visible() {
-                bar.hide();
-                drop(sb);
-                self.layout_controls();
-                self.editor.set_focus();
-                return;
-            }
+        self.editor.set_focus();
+    }
+
+    /// Return the currently selected text in the editor, or empty if nothing is selected.
+    fn current_selection_text(&self) -> String {
+        let text = self.get_content();
+        let sel = self.editor.selection();
+        let (start_b, end_b) = utf16_range_to_byte_range(&text, sel.start as usize, sel.end as usize);
+        if start_b < end_b && end_b <= text.len() {
+            text[start_b..end_b].to_string()
+        } else {
+            String::new()
         }
     }
 

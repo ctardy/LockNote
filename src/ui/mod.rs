@@ -1,4 +1,4 @@
-// UI module — Main window, editor, dialogs, search bar
+// UI module — Main window, editor, dialogs
 //
 // Entry point: `ui::run(exe_path, data)` called from main.rs.
 // Handles the startup flow: create-password or unlock, then launches EditorForm.
@@ -6,7 +6,6 @@
 use std::path::PathBuf;
 
 pub mod editor;
-pub mod search_bar;
 pub mod dialogs;
 
 /// Main UI entry point. Initializes NWG, handles password flow, launches editor.

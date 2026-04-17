@@ -4,6 +4,7 @@ pub mod create_password;
 pub mod unlock;
 pub mod close_confirm;
 pub mod goto_line;
+pub mod find_replace;
 pub mod about;
 pub mod settings_dialog;
 pub mod preferences_dialog;
