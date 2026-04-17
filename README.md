@@ -200,14 +200,19 @@ cargo test
 
 Looking for more features? [LockNote Pro](https://uitguard.com) adds:
 
-- Multi-tab notes
-- Encrypted password vault
-- TOTP two-factor authentication
-- Named snapshots / version history
-- Multi-language support (EN, FR, ES, DE)
-- Auto-lock, auto-save, clipboard auto-clear
-- GZip compression
-- Global hotkey
+| Category | Features |
+|----------|----------|
+| **Editor** | Multi-tab notes with color labels, Markdown preview (split or full) |
+| **Security** | Auto-lock after inactivity, clipboard auto-clear, TOTP two-factor authentication, duress password (decoy content under coercion) |
+| **Vault** | Built-in encrypted password & secrets manager with categories, reveal-on-click, copy with auto-clear |
+| **Attachments** | Embed encrypted files (images, PDFs, documents) inside the executable |
+| **Steganography** | Hide your encrypted notes inside a normal-looking image (JPEG, PNG, BMP) |
+| **QR code export** | Transfer encrypted notes to your phone via QR code — no network needed |
+| **Snapshots** | Named version history with instant restore |
+| **Localization** | English, French, Spanish, German |
+| **Productivity** | Auto-save, GZip compression, global hotkey (Ctrl+Shift+L), import/export text files |
+
+[Get LockNote Pro](https://uitguard.com)
 
 ---
 

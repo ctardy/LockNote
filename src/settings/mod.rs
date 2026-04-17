@@ -109,7 +109,7 @@ impl Settings {
             save_on_close: CloseAction::Ask,
             theme: ThemeChoice::Dark,
             word_wrap: true,
-            minimize_to_tray: true,
+            minimize_to_tray: false,
             min_password_length: 4,
             font_family: "Consolas".to_string(),
             font_size: 11.0,
@@ -310,7 +310,7 @@ mod tests {
         assert_eq!(s.save_on_close, CloseAction::Ask);
         assert_eq!(s.theme, ThemeChoice::Dark);
         assert!(s.word_wrap);
-        assert!(s.minimize_to_tray);
+        assert!(!s.minimize_to_tray);
         assert_eq!(s.min_password_length, 4);
         assert_eq!(s.font_family, "Consolas");
         assert_eq!(s.font_size, 11.0);
