@@ -65,9 +65,10 @@ Output: `build\LockNote.exe`
 ## Features
 
 ### Editor
-- Line numbers gutter (auto-adjusting width)
-- Find & replace (`Ctrl+F`) with wrap-around search
+- Find (`Ctrl+F`) and Find & Replace (`Ctrl+H`) popups with Previous/Next navigation, live match counter (3 / 12), match case, whole word
 - Go to line (`Ctrl+G`)
+- Undo / redo (`Ctrl+Z` / `Ctrl+Y`)
+- Line numbers gutter (auto-adjusting width)
 - Insert timestamp (`F5` — inserts `yyyy-MM-dd HH:mm`)
 - Duplicate line (`Ctrl+D`) and delete line (`Ctrl+Shift+K`)
 - Word, character, and line count in status bar
@@ -77,7 +78,7 @@ Output: `build\LockNote.exe`
 
 ### Security
 - AES-256-CBC encryption with HMAC-SHA256 authentication
-- PBKDF2-SHA256 key derivation (300,000 iterations)
+- Argon2id key derivation (64 MiB memory cost, tunable)
 - Password strength indicator on creation
 - 5 unlock attempts max (brute-force protection)
 - Zero cleartext on disk — ever
@@ -98,14 +99,17 @@ Output: `build\LockNote.exe`
 | Shortcut | Action |
 |----------|--------|
 | `Ctrl+S` | Save (encrypt & write) |
-| `Ctrl+F` | Find / Replace |
+| `Ctrl+F` | Find (popup) |
+| `Ctrl+H` | Find & Replace (popup) |
 | `Ctrl+G` | Go to line |
+| `Ctrl+Z` / `Ctrl+Y` | Undo / Redo |
 | `Ctrl+D` | Duplicate current line |
 | `Ctrl+A` | Select all |
 | `Ctrl+Q` | Quit |
 | `Ctrl+Shift+V` | Paste as plain text |
 | `Ctrl+Shift+K` | Delete current line |
 | `F5` | Insert timestamp |
+| `Enter` (in Find popup) | Find next |
 
 ---
 
@@ -128,13 +132,14 @@ LockNote appends encrypted data after a binary marker at the end of its own `.ex
 |-----------|--------|
 | Cipher | AES-256-CBC (PKCS7 padding) |
 | Authentication | HMAC-SHA256 (encrypt-then-MAC) |
-| Key derivation | PBKDF2-SHA256, 300,000 iterations |
+| Key derivation | Argon2id (m_cost 64 MiB, t_cost 3, 4 lanes) |
 | Salt | 16 bytes, random per save |
 | IV | 16 bytes, random per save |
-| Key material | 64 bytes (32 enc + 32 mac) from single PBKDF2 call |
+| KDF params stored | m_cost, t_cost, p_lanes (12 bytes, allows cost bump without format change) |
+| Key material | 64 bytes (32 enc + 32 mac) from a single Argon2id call |
 | Verification | HMAC checked before decryption (constant-time comparison) |
 
-Wire format: `[salt 16B][IV 16B][HMAC 32B][ciphertext]`
+Wire format: `[salt 16B][IV 16B][argon2 params 12B][HMAC 32B][ciphertext]`
 
 ### Security properties
 
@@ -152,7 +157,7 @@ Wire format: `[salt 16B][IV 16B][HMAC 32B][ciphertext]`
 ```
 src/
 ├── main.rs                     Entry point, panic handling
-├── crypto/mod.rs               AES-256-CBC + HMAC-SHA256, PBKDF2
+├── crypto/mod.rs               AES-256-CBC + HMAC-SHA256, Argon2id
 ├── storage/mod.rs              Binary marker, read/write encrypted payload
 ├── settings/mod.rs             User settings (theme, save-on-close)
 ├── theme/mod.rs                Dark/light theme system
@@ -161,12 +166,12 @@ src/
 ├── ui/
 │   ├── mod.rs                  UI entry point, password flow
 │   ├── editor.rs               Editor, menus, shortcuts, status bar
-│   ├── search_bar.rs           Ctrl+F find/replace panel
 │   └── dialogs/
 │       ├── create_password.rs  Password creation dialog
 │       ├── unlock.rs           Password prompt (5 attempts max)
 │       ├── close_confirm.rs    Save-on-close confirmation
 │       ├── goto_line.rs        Go-to-line dialog
+│       ├── find_replace.rs     Find / Find & Replace popup
 │       ├── settings_dialog.rs  Settings UI
 │       ├── preferences_dialog.rs  User preferences (font, behavior)
 │       ├── security_dialog.rs  Security settings (password change)
