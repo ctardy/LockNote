@@ -6,6 +6,7 @@
 use native_windows_gui as nwg;
 use std::cell::RefCell;
 use std::rc::Rc;
+use zeroize::Zeroizing;
 
 use crate::theme;
 
@@ -297,8 +298,11 @@ impl CreatePasswordDialog {
             match evt {
                 nwg::Event::OnButtonClick => {
                     if handle == btn_ok.handle {
-                        let pw = txt_password.text();
-                        let confirm = txt_confirm.text();
+                        // Wrap both candidates in Zeroizing: the confirm field is wiped
+                        // on drop no matter which branch we take; the final password
+                        // is cloned into the result (a plain String owned by the caller).
+                        let pw: Zeroizing<String> = Zeroizing::new(txt_password.text());
+                        let confirm: Zeroizing<String> = Zeroizing::new(txt_confirm.text());
 
                         if (pw.len() as u32) < min_length {
                             lbl_error.set_text(
@@ -309,7 +313,7 @@ impl CreatePasswordDialog {
                             }
                             return;
                         }
-                        if pw != confirm {
+                        if *pw != *confirm {
                             lbl_error.set_text("Passwords do not match");
                             txt_confirm.set_text("");
                             if let nwg::ControlHandle::Hwnd(h) = txt_confirm.handle {
@@ -318,7 +322,7 @@ impl CreatePasswordDialog {
                             return;
                         }
 
-                        *result_clone.borrow_mut() = Some(pw);
+                        *result_clone.borrow_mut() = Some((*pw).clone());
 
                         // Clear text boxes for security
                         txt_password.set_text("");

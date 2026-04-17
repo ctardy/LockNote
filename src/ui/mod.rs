@@ -34,8 +34,19 @@ pub fn run(exe_path: PathBuf, data: Option<Vec<u8>>) {
             // Persist immediately so the password survives even if the user
             // closes without typing anything.
             let combined = settings.serialize("");
-            let encrypted = crate::crypto::encrypt(&combined, &password);
-            let _ = crate::storage::write_data(&exe_path, &encrypted);
+            match crate::crypto::encrypt(&combined, &password) {
+                Ok(encrypted) => {
+                    let _ = crate::storage::write_data(&exe_path, &encrypted);
+                }
+                Err(e) => {
+                    nwg::modal_info_message(
+                        &nwg::ControlHandle::NoHandle,
+                        "Error",
+                        &format!("Encryption failed: {}", e),
+                    );
+                    return;
+                }
+            }
 
             editor::EditorForm::run(exe_path, password, String::new(), settings);
         }

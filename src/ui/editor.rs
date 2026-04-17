@@ -880,7 +880,17 @@ impl EditorForm {
         let combined = settings.serialize(&note_text);
         let password = self.password.borrow();
 
-        let encrypted = crate::crypto::encrypt(&combined, &password);
+        let encrypted = match crate::crypto::encrypt(&combined, &password) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                nwg::modal_info_message(
+                    &self.window,
+                    "Save Error",
+                    &format!("Encryption failed: {}", e),
+                );
+                return;
+            }
+        };
 
         match crate::storage::write_data(&self.exe_path, &encrypted) {
             Ok(()) => {
@@ -1372,7 +1382,7 @@ impl EditorForm {
         // Restore from minimized state via ShowWindow(SW_RESTORE)
         if let nwg::ControlHandle::Hwnd(hwnd) = self.window.handle {
             unsafe {
-                windows::Win32::UI::WindowsAndMessaging::ShowWindow(
+                let _ = windows::Win32::UI::WindowsAndMessaging::ShowWindow(
                     windows::Win32::Foundation::HWND(hwnd as *mut _),
                     windows::Win32::UI::WindowsAndMessaging::SW_RESTORE,
                 );

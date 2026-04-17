@@ -3,9 +3,10 @@
 // Fetches the latest release from GitHub, compares semantic version,
 // downloads and migrates data to the new binary if user confirms.
 
+use sha2::{Digest, Sha256};
 use std::path::Path;
 
-const CURRENT_VERSION: &str = "1.1.0";
+pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const GITHUB_REPO: &str = "ctardy/LockNote";
 
 /// Semantic version for comparison.
@@ -122,8 +123,80 @@ pub fn check_for_update() -> UpdateCheckResult {
     }
 }
 
+/// Fetch SHA256SUMS.txt from the latest release and return its raw contents.
+fn fetch_sha256sums() -> Result<String, String> {
+    let url = api_url();
+    let response = ureq::get(&url)
+        .header("User-Agent", &format!("LockNote/{}", CURRENT_VERSION))
+        .call()
+        .map_err(|e| format!("Integrity file missing from release: {}", e))?;
+
+    let body: String = response
+        .into_body()
+        .read_to_string()
+        .map_err(|e| format!("Integrity file missing from release: {}", e))?;
+
+    let json: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| format!("Integrity file missing from release: {}", e))?;
+
+    let sums_url = json["assets"]
+        .as_array()
+        .and_then(|assets| {
+            assets.iter().find_map(|a| {
+                let name = a["name"].as_str().unwrap_or("");
+                if name == "SHA256SUMS.txt" {
+                    a["browser_download_url"].as_str().map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+        })
+        .ok_or_else(|| "Integrity file missing from release".to_string())?;
+
+    let sums_resp = ureq::get(&sums_url)
+        .header("User-Agent", &format!("LockNote/{}", CURRENT_VERSION))
+        .call()
+        .map_err(|e| format!("Integrity file missing from release: {}", e))?;
+
+    sums_resp
+        .into_body()
+        .read_to_string()
+        .map_err(|e| format!("Integrity file missing from release: {}", e))
+}
+
+/// Parse SHA256SUMS.txt format ("<hex>  <filename>") and return the hash for `filename`.
+fn find_expected_hash(sums: &str, filename: &str) -> Option<String> {
+    for line in sums.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        // Format: <hex-sha256>  <filename>  (two spaces per GNU sha256sum convention,
+        // but accept any whitespace separator for robustness).
+        let mut parts = trimmed.splitn(2, char::is_whitespace);
+        let hash = parts.next().unwrap_or("").trim();
+        let rest = parts.next().unwrap_or("").trim();
+        // Strip optional leading '*' used for binary mode in sha256sum output.
+        let name = rest.trim_start_matches('*').trim();
+        if name == filename && !hash.is_empty() {
+            return Some(hash.to_lowercase());
+        }
+    }
+    None
+}
+
 /// Download a zip file and extract LockNote.exe, migrate data to the new binary.
 pub fn download_and_update(download_url: &str, exe_path: &Path) -> Result<String, String> {
+    // Derive asset filename from the download URL (last path segment).
+    let asset_name = download_url
+        .rsplit('/')
+        .next()
+        .unwrap_or("")
+        .to_string();
+    if asset_name.is_empty() {
+        return Err("Invalid download URL".into());
+    }
+
     // Download zip to temp
     let response = ureq::get(download_url)
         .header("User-Agent", &format!("LockNote/{}", CURRENT_VERSION))
@@ -134,6 +207,25 @@ pub fn download_and_update(download_url: &str, exe_path: &Path) -> Result<String
         .into_body()
         .read_to_vec()
         .map_err(|e| format!("Read failed: {}", e))?;
+
+    // Integrity check: fetch SHA256SUMS.txt, find matching line, compare hash.
+    let sums = fetch_sha256sums()?;
+    let expected_hash = find_expected_hash(&sums, &asset_name)
+        .ok_or_else(|| format!("Integrity file missing entry for {}", asset_name))?;
+
+    let actual_hash = {
+        let digest = Sha256::digest(&zip_data);
+        // hex lowercase encoding
+        let mut s = String::with_capacity(digest.len() * 2);
+        for b in digest.iter() {
+            s.push_str(&format!("{:02x}", b));
+        }
+        s
+    };
+
+    if actual_hash != expected_hash {
+        return Err("Update integrity check failed (SHA256 mismatch)".into());
+    }
 
     // Extract using zip crate (or fallback to temp file approach)
     let cursor = std::io::Cursor::new(&zip_data);
@@ -218,8 +310,16 @@ mod tests {
 
     #[test]
     fn current_version_valid() {
+        // CURRENT_VERSION comes from Cargo.toml via env!("CARGO_PKG_VERSION").
+        // Just verify that it parses and round-trips to the same string.
         let v = SemVer::current();
-        assert_eq!(v, SemVer { major: 1, minor: 1, patch: 0 });
+        assert_eq!(format!("{}", v), CURRENT_VERSION);
+    }
+
+    #[test]
+    fn current_version_parses() {
+        SemVer::parse(CURRENT_VERSION)
+            .expect("CURRENT_VERSION (from CARGO_PKG_VERSION) must be valid semver");
     }
 
     #[test]
@@ -321,7 +421,7 @@ mod tests {
 
     #[test]
     fn current_version_matches_cargo() {
-        assert_eq!(current_version(), "1.1.0");
+        assert_eq!(current_version(), env!("CARGO_PKG_VERSION"));
     }
 
     #[test]

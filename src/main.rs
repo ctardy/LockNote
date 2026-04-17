@@ -30,7 +30,7 @@ fn main() {
                 windows::core::w!("LockNote"),
             ) {
                 if windows::Win32::UI::WindowsAndMessaging::IsIconic(hwnd).as_bool() {
-                    windows::Win32::UI::WindowsAndMessaging::ShowWindow(
+                    let _ = windows::Win32::UI::WindowsAndMessaging::ShowWindow(
                         hwnd,
                         windows::Win32::UI::WindowsAndMessaging::SW_RESTORE,
                     );

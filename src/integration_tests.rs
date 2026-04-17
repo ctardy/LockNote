@@ -16,7 +16,7 @@ fn full_chain_encrypt_settings_decrypt() {
     let combined = settings.serialize(note);
 
     let password = "test_password_123";
-    let encrypted = crypto::encrypt(&combined, password);
+    let encrypted = crypto::encrypt(&combined, password).unwrap();
     let decrypted = crypto::decrypt(&encrypted, password).unwrap();
 
     let (parsed_settings, parsed_note) = Settings::parse(&decrypted);
@@ -31,20 +31,17 @@ fn full_chain_password_change() {
     let pw2 = "new_password";
 
     // Encrypt with pw1
-    let encrypted1 = crypto::encrypt(plaintext, pw1);
-    assert!(crypto::decrypt(&encrypted1, pw1).is_some());
+    let encrypted1 = crypto::encrypt(plaintext, pw1).unwrap();
+    assert!(crypto::decrypt(&encrypted1, pw1).is_ok());
 
     // Decrypt with pw1, re-encrypt with pw2
     let decrypted = crypto::decrypt(&encrypted1, pw1).unwrap();
-    let encrypted2 = crypto::encrypt(&decrypted, pw2);
+    let encrypted2 = crypto::encrypt(&decrypted, pw2).unwrap();
 
     // pw1 no longer works on new ciphertext
-    assert!(crypto::decrypt(&encrypted2, pw1).is_none());
+    assert!(crypto::decrypt(&encrypted2, pw1).is_err());
     // pw2 works
-    assert_eq!(
-        crypto::decrypt(&encrypted2, pw2),
-        Some(plaintext.to_string())
-    );
+    assert_eq!(crypto::decrypt(&encrypted2, pw2).unwrap(), plaintext);
 }
 
 #[test]
@@ -62,7 +59,7 @@ fn full_chain_storage_write_read_decrypt() {
     let note = "Integration test note";
     let settings = Settings::default_public();
     let combined = settings.serialize(note);
-    let encrypted = crypto::encrypt(&combined, password);
+    let encrypted = crypto::encrypt(&combined, password).unwrap();
 
     storage::write_data(&exe_file, &encrypted).unwrap();
 
@@ -90,7 +87,7 @@ fn full_chain_corrupted_storage_fails_gracefully() {
     let exe_stub = vec![0x4Du8, 0x5A];
     fs::write(&exe_file, &exe_stub).unwrap();
 
-    let encrypted = crypto::encrypt("test", "pass");
+    let encrypted = crypto::encrypt("test", "pass").unwrap();
     storage::write_data(&exe_file, &encrypted).unwrap();
 
     // Corrupt the tmp file
@@ -106,7 +103,7 @@ fn full_chain_corrupted_storage_fails_gracefully() {
     // Read back — should get corrupted data
     let read_back = storage::read_data(&exe_file).unwrap();
     // Decrypt should fail (HMAC mismatch)
-    assert!(crypto::decrypt(&read_back, "pass").is_none());
+    assert!(crypto::decrypt(&read_back, "pass").is_err());
 
     // Cleanup
     let _ = fs::remove_file(&tmp_path);
@@ -118,7 +115,7 @@ fn full_chain_corrupted_storage_fails_gracefully() {
 fn full_chain_empty_note() {
     let settings = Settings::default_public();
     let combined = settings.serialize("");
-    let encrypted = crypto::encrypt(&combined, "pw");
+    let encrypted = crypto::encrypt(&combined, "pw").unwrap();
     let decrypted = crypto::decrypt(&encrypted, "pw").unwrap();
     let (_, note) = Settings::parse(&decrypted);
     assert_eq!(note, "");
@@ -129,7 +126,7 @@ fn full_chain_large_note() {
     let large_note = "x".repeat(500_000);
     let settings = Settings::default_public();
     let combined = settings.serialize(&large_note);
-    let encrypted = crypto::encrypt(&combined, "pw");
+    let encrypted = crypto::encrypt(&combined, "pw").unwrap();
     let decrypted = crypto::decrypt(&encrypted, "pw").unwrap();
     let (_, note) = Settings::parse(&decrypted);
     assert_eq!(note, large_note);
@@ -145,7 +142,7 @@ fn storage_marker_preserved_across_updates() {
     // Create initial exe with data
     let exe_stub_v1 = vec![0xAAu8; 100];
     fs::write(&exe_file, &exe_stub_v1).unwrap();
-    let payload = crypto::encrypt("original note", "pw");
+    let payload = crypto::encrypt("original note", "pw").unwrap();
     storage::write_data(&exe_file, &payload).unwrap();
 
     // Simulate update: read the payload first

@@ -19,6 +19,47 @@ type Aes256CbcDec = cbc::Decryptor<Aes256>;
 type HmacSha256 = Hmac<Sha256>;
 
 // ---------------------------------------------------------------------------
+// Error type
+// ---------------------------------------------------------------------------
+
+/// Errors emitted by the crypto module.
+///
+/// The `HmacMismatch` variant is intentionally opaque (no inner detail)
+/// because it is the typical signal for "wrong password" — callers must take
+/// care not to leak distinguishing information to users (anti-oracle).
+///
+/// `CipherInit` is reserved for future key-size mismatches; today every
+/// init path uses a fixed-size 32-byte key so the cipher constructors are
+/// infallible, but we keep the variant for forward compatibility.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub enum CryptoError {
+    InvalidParameters(String),
+    KdfFailed(String),
+    CipherInit(String),
+    Encryption(String),
+    Decryption(String),
+    HmacMismatch,
+    InvalidInput(String),
+}
+
+impl std::fmt::Display for CryptoError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidParameters(s) => write!(f, "Invalid crypto parameters: {}", s),
+            Self::KdfFailed(s) => write!(f, "Key derivation failed: {}", s),
+            Self::CipherInit(s) => write!(f, "Cipher init failed: {}", s),
+            Self::Encryption(s) => write!(f, "Encryption failed: {}", s),
+            Self::Decryption(s) => write!(f, "Decryption failed: {}", s),
+            Self::HmacMismatch => write!(f, "HMAC verification failed"),
+            Self::InvalidInput(s) => write!(f, "Invalid input: {}", s),
+        }
+    }
+}
+
+impl std::error::Error for CryptoError {}
+
+// ---------------------------------------------------------------------------
 // Public constants
 // ---------------------------------------------------------------------------
 
@@ -42,16 +83,22 @@ pub const MIN_PAYLOAD_SIZE: usize = SALT_SIZE + IV_SIZE + ARGON2_PARAMS_SIZE + H
 // ---------------------------------------------------------------------------
 
 /// Derives a 32-byte encryption key and a 32-byte MAC key from a password
-/// and salt using Argon2id.
-fn derive_keys(password: &str, salt: &[u8]) -> ([u8; KEY_SIZE], [u8; KEY_SIZE]) {
+/// and salt using Argon2id with the specified parameters.
+fn derive_keys(
+    password: &str,
+    salt: &[u8],
+    m_cost: u32,
+    t_cost: u32,
+    p_lanes: u32,
+) -> Result<([u8; KEY_SIZE], [u8; KEY_SIZE]), CryptoError> {
     let mut key_material = [0u8; 64];
 
-    let params = argon2::Params::new(DEFAULT_M_COST, DEFAULT_T_COST, DEFAULT_P_LANES, Some(64))
-        .expect("valid Argon2 parameters");
+    let params = argon2::Params::new(m_cost, t_cost, p_lanes, Some(64))
+        .map_err(|e| CryptoError::InvalidParameters(e.to_string()))?;
     let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
     argon2
         .hash_password_into(password.as_bytes(), salt, &mut key_material)
-        .expect("Argon2id hashing failed");
+        .map_err(|e| CryptoError::KdfFailed(e.to_string()))?;
 
     let mut enc_key = [0u8; KEY_SIZE];
     let mut mac_key = [0u8; KEY_SIZE];
@@ -59,7 +106,7 @@ fn derive_keys(password: &str, salt: &[u8]) -> ([u8; KEY_SIZE], [u8; KEY_SIZE]) 
     mac_key.copy_from_slice(&key_material[KEY_SIZE..]);
 
     key_material.zeroize();
-    (enc_key, mac_key)
+    Ok((enc_key, mac_key))
 }
 
 // ---------------------------------------------------------------------------
@@ -73,8 +120,11 @@ fn compute_hmac(
     iv: &[u8],
     argon2_params: &[u8],
     ciphertext: &[u8],
-) -> [u8; HMAC_SIZE] {
-    let mut mac = HmacSha256::new_from_slice(mac_key).expect("HMAC accepts any key size");
+) -> Result<[u8; HMAC_SIZE], CryptoError> {
+    // HMAC-SHA256 accepts any key size; this branch is effectively unreachable
+    // but we propagate a typed error to keep all cipher init paths fallible.
+    let mut mac = HmacSha256::new_from_slice(mac_key)
+        .map_err(|e| CryptoError::InvalidParameters(e.to_string()))?;
     mac.update(salt);
     mac.update(iv);
     mac.update(argon2_params);
@@ -82,17 +132,18 @@ fn compute_hmac(
     let result = mac.finalize().into_bytes();
     let mut out = [0u8; HMAC_SIZE];
     out.copy_from_slice(&result);
-    out
+    Ok(out)
 }
 
 // ---------------------------------------------------------------------------
 // Encrypt
 // ---------------------------------------------------------------------------
 
-/// Encrypts `plaintext` with `password` and returns the wire-format payload.
+/// Encrypts `plaintext` with `password` using the default Argon2id parameters
+/// and returns the wire-format payload.
 ///
 /// Wire format: `salt[16] || iv[16] || m_cost[4 LE] || t_cost[4 LE] || p_lanes[4 LE] || hmac[32] || ciphertext[...]`
-pub fn encrypt(plaintext: &str, password: &str) -> Vec<u8> {
+pub fn encrypt(plaintext: &str, password: &str) -> Result<Vec<u8>, CryptoError> {
     // 1. Generate random salt and IV
     let mut salt = [0u8; SALT_SIZE];
     let mut iv = [0u8; IV_SIZE];
@@ -100,8 +151,9 @@ pub fn encrypt(plaintext: &str, password: &str) -> Vec<u8> {
     rng.fill_bytes(&mut salt);
     rng.fill_bytes(&mut iv);
 
-    // 2. Derive keys
-    let (mut enc_key, mut mac_key) = derive_keys(password, &salt);
+    // 2. Derive keys (fixed Argon2id parameters)
+    let (mut enc_key, mut mac_key) =
+        derive_keys(password, &salt, DEFAULT_M_COST, DEFAULT_T_COST, DEFAULT_P_LANES)?;
 
     // 3. Encrypt (AES-256-CBC, PKCS7 padding)
     let mut plain_bytes = plaintext.as_bytes().to_vec();
@@ -111,7 +163,7 @@ pub fn encrypt(plaintext: &str, password: &str) -> Vec<u8> {
 
     let ciphertext = Aes256CbcEnc::new(&enc_key.into(), &iv.into())
         .encrypt_padded_mut::<cbc::cipher::block_padding::Pkcs7>(&mut buf, plain_bytes.len())
-        .expect("buffer is large enough for PKCS7 padding")
+        .map_err(|e| CryptoError::Encryption(e.to_string()))?
         .to_vec();
 
     // 4. Encode Argon2id parameters as 12 bytes little-endian
@@ -121,7 +173,7 @@ pub fn encrypt(plaintext: &str, password: &str) -> Vec<u8> {
     params_bytes[8..12].copy_from_slice(&DEFAULT_P_LANES.to_le_bytes());
 
     // 5. Compute HMAC over salt || iv || params || ciphertext
-    let hmac_value = compute_hmac(&mac_key, &salt, &iv, &params_bytes, &ciphertext);
+    let hmac_value = compute_hmac(&mac_key, &salt, &iv, &params_bytes, &ciphertext)?;
 
     // 6. Assemble output: salt || iv || params || hmac || ciphertext
     let mut output =
@@ -140,7 +192,7 @@ pub fn encrypt(plaintext: &str, password: &str) -> Vec<u8> {
     plain_bytes.zeroize();
     buf.zeroize();
 
-    output
+    Ok(output)
 }
 
 // ---------------------------------------------------------------------------
@@ -149,12 +201,19 @@ pub fn encrypt(plaintext: &str, password: &str) -> Vec<u8> {
 
 /// Decrypts wire-format `data` with `password`.
 ///
-/// Returns `None` if the data is too short, the HMAC does not match (wrong
-/// password or corrupted data), or the ciphertext is not valid PKCS7-padded
-/// AES-256-CBC.
-pub fn decrypt(data: &[u8], password: &str) -> Option<String> {
+/// Returns `Err(CryptoError::HmacMismatch)` if the HMAC does not match (wrong
+/// password or corrupted data). Other variants signal structural issues
+/// (too-short input, invalid Argon2 parameters, decryption failure).
+///
+/// UI callers must avoid leaking the specific variant back to the user when
+/// showing "Invalid password" — see `CryptoError::HmacMismatch`.
+pub fn decrypt(data: &[u8], password: &str) -> Result<String, CryptoError> {
     if data.len() < MIN_PAYLOAD_SIZE {
-        return None;
+        return Err(CryptoError::InvalidInput(format!(
+            "payload too short ({} bytes, min {})",
+            data.len(),
+            MIN_PAYLOAD_SIZE
+        )));
     }
 
     let salt = &data[..SALT_SIZE];
@@ -170,34 +229,31 @@ pub fn decrypt(data: &[u8], password: &str) -> Option<String> {
 
     // Reject obviously invalid parameters
     if m_cost < 8 || t_cost == 0 || p_lanes == 0 {
-        return None;
+        return Err(CryptoError::InvalidParameters(format!(
+            "out-of-range Argon2 params (m={}, t={}, p={})",
+            m_cost, t_cost, p_lanes
+        )));
     }
+    // Cap to prevent DoS: 1 GiB memory, 100 iterations, 255 lanes
     if m_cost > 1_048_576 || t_cost > 100 || p_lanes > 255 {
-        return None;
+        return Err(CryptoError::InvalidParameters(format!(
+            "Argon2 params exceed safety caps (m={}, t={}, p={})",
+            m_cost, t_cost, p_lanes
+        )));
     }
 
-    // Derive keys with stored parameters
-    let mut key_material = [0u8; 64];
-    let params = match argon2::Params::new(m_cost, t_cost, p_lanes, Some(64)) {
-        Ok(p) => p,
-        Err(_) => return None,
-    };
-    let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
-    if argon2
-        .hash_password_into(password.as_bytes(), salt, &mut key_material)
-        .is_err()
-    {
-        return None;
-    }
-
-    let mut enc_key = [0u8; KEY_SIZE];
-    let mut mac_key = [0u8; KEY_SIZE];
-    enc_key.copy_from_slice(&key_material[..KEY_SIZE]);
-    mac_key.copy_from_slice(&key_material[KEY_SIZE..]);
-    key_material.zeroize();
+    // Derive keys with the stored parameters
+    let (mut enc_key, mut mac_key) = derive_keys(password, salt, m_cost, t_cost, p_lanes)?;
 
     // Verify HMAC over salt || iv || params || ciphertext
-    let mut mac = HmacSha256::new_from_slice(&mac_key).expect("HMAC accepts any key size");
+    let mut mac = match HmacSha256::new_from_slice(&mac_key) {
+        Ok(m) => m,
+        Err(e) => {
+            enc_key.zeroize();
+            mac_key.zeroize();
+            return Err(CryptoError::InvalidParameters(e.to_string()));
+        }
+    };
     mac.update(salt);
     mac.update(iv);
     mac.update(params_bytes);
@@ -206,7 +262,7 @@ pub fn decrypt(data: &[u8], password: &str) -> Option<String> {
     if mac.verify_slice(stored_hmac).is_err() {
         enc_key.zeroize();
         mac_key.zeroize();
-        return None;
+        return Err(CryptoError::HmacMismatch);
     }
 
     // Decrypt
@@ -219,13 +275,14 @@ pub fn decrypt(data: &[u8], password: &str) -> Option<String> {
 
     match plaintext_result {
         Ok(plain_bytes) => {
-            let text = String::from_utf8(plain_bytes.to_vec()).ok();
+            let owned = plain_bytes.to_vec();
             ct_buf.zeroize();
-            text
+            String::from_utf8(owned)
+                .map_err(|e| CryptoError::Decryption(format!("invalid UTF-8: {}", e)))
         }
-        Err(_) => {
+        Err(e) => {
             ct_buf.zeroize();
-            None
+            Err(CryptoError::Decryption(e.to_string()))
         }
     }
 }
@@ -242,74 +299,77 @@ mod tests {
     fn round_trip_basic() {
         let password = "correct horse battery staple";
         let plaintext = "Hello, LockNote!";
-        let encrypted = encrypt(plaintext, password);
-        let decrypted = decrypt(&encrypted, password);
-        assert_eq!(decrypted, Some(plaintext.to_string()));
+        let encrypted = encrypt(plaintext, password).unwrap();
+        let decrypted = decrypt(&encrypted, password).unwrap();
+        assert_eq!(decrypted, plaintext);
     }
 
     #[test]
     fn round_trip_empty_plaintext() {
         let password = "pass";
         let plaintext = "";
-        let encrypted = encrypt(plaintext, password);
+        let encrypted = encrypt(plaintext, password).unwrap();
         assert!(encrypted.len() >= MIN_PAYLOAD_SIZE);
-        let decrypted = decrypt(&encrypted, password);
-        assert_eq!(decrypted, Some(String::new()));
+        let decrypted = decrypt(&encrypted, password).unwrap();
+        assert_eq!(decrypted, String::new());
     }
 
     #[test]
     fn round_trip_unicode() {
         let password = "mdp";
         let plaintext = "Caf\u{00e9} \u{1f512}\u{1f4dd} \u{65e5}\u{672c}\u{8a9e} \u{0410}\u{0411}\u{0412}";
-        let encrypted = encrypt(plaintext, password);
-        let decrypted = decrypt(&encrypted, password);
-        assert_eq!(decrypted, Some(plaintext.to_string()));
+        let encrypted = encrypt(plaintext, password).unwrap();
+        let decrypted = decrypt(&encrypted, password).unwrap();
+        assert_eq!(decrypted, plaintext);
     }
 
     #[test]
     fn round_trip_large_text() {
         let password = "big";
         let plaintext: String = "A".repeat(100_000);
-        let encrypted = encrypt(&plaintext, password);
+        let encrypted = encrypt(&plaintext, password).unwrap();
         let decrypted = decrypt(&encrypted, password).unwrap();
         assert_eq!(decrypted.len(), 100_000);
         assert_eq!(decrypted, plaintext);
     }
 
     #[test]
-    fn wrong_password_returns_none() {
-        let encrypted = encrypt("secret", "right");
+    fn wrong_password_returns_hmac_mismatch() {
+        let encrypted = encrypt("secret", "right").unwrap();
         let result = decrypt(&encrypted, "wrong");
-        assert_eq!(result, None);
+        assert!(matches!(result, Err(CryptoError::HmacMismatch)));
     }
 
     #[test]
-    fn truncated_data_returns_none() {
-        assert_eq!(decrypt(&[0u8; 10], "pass"), None);
-        assert_eq!(decrypt(&[0u8; MIN_PAYLOAD_SIZE - 1], "pass"), None);
-        assert_eq!(decrypt(&[0u8; MIN_PAYLOAD_SIZE], "pass"), None);
+    fn truncated_data_returns_err() {
+        assert!(decrypt(&[0u8; 10], "pass").is_err());
+        assert!(decrypt(&[0u8; MIN_PAYLOAD_SIZE - 1], "pass").is_err());
+        // A zero-filled MIN_PAYLOAD_SIZE buffer has all-zero Argon2 params (m=0),
+        // which is rejected as InvalidParameters.
+        assert!(decrypt(&[0u8; MIN_PAYLOAD_SIZE], "pass").is_err());
     }
 
     #[test]
-    fn corrupted_hmac_returns_none() {
-        let mut encrypted = encrypt("data", "pass");
+    fn corrupted_hmac_returns_err() {
+        let mut encrypted = encrypt("data", "pass").unwrap();
         // Flip a byte in the HMAC region (offset 44..76)
         encrypted[50] ^= 0xFF;
-        assert_eq!(decrypt(&encrypted, "pass"), None);
+        assert!(matches!(decrypt(&encrypted, "pass"), Err(CryptoError::HmacMismatch)));
     }
 
     #[test]
-    fn corrupted_ciphertext_returns_none() {
-        let mut encrypted = encrypt("data", "pass");
+    fn corrupted_ciphertext_returns_err() {
+        let mut encrypted = encrypt("data", "pass").unwrap();
         let last = encrypted.len() - 1;
         encrypted[last] ^= 0xFF;
-        assert_eq!(decrypt(&encrypted, "pass"), None);
+        // Ciphertext corruption invalidates the HMAC (it covers the ciphertext).
+        assert!(decrypt(&encrypted, "pass").is_err());
     }
 
     #[test]
     fn salt_iv_randomness() {
-        let a = encrypt("same text", "same password");
-        let b = encrypt("same text", "same password");
+        let a = encrypt("same text", "same password").unwrap();
+        let b = encrypt("same text", "same password").unwrap();
         assert_ne!(&a[..SALT_SIZE], &b[..SALT_SIZE], "salts must differ");
         assert_ne!(
             &a[SALT_SIZE..SALT_SIZE + IV_SIZE],
@@ -321,7 +381,7 @@ mod tests {
 
     #[test]
     fn wire_format_layout() {
-        let encrypted = encrypt("test", "pass");
+        let encrypted = encrypt("test", "pass").unwrap();
         assert!(encrypted.len() >= MIN_PAYLOAD_SIZE);
         let ct_len = encrypted.len() - SALT_SIZE - IV_SIZE - ARGON2_PARAMS_SIZE - HMAC_SIZE;
         assert_eq!(ct_len % 16, 0);
@@ -335,8 +395,10 @@ mod tests {
     #[test]
     fn derive_keys_deterministic() {
         let salt = [0x42u8; SALT_SIZE];
-        let (k1_enc, k1_mac) = derive_keys("password", &salt);
-        let (k2_enc, k2_mac) = derive_keys("password", &salt);
+        let (k1_enc, k1_mac) =
+            derive_keys("password", &salt, DEFAULT_M_COST, DEFAULT_T_COST, DEFAULT_P_LANES).unwrap();
+        let (k2_enc, k2_mac) =
+            derive_keys("password", &salt, DEFAULT_M_COST, DEFAULT_T_COST, DEFAULT_P_LANES).unwrap();
         assert_eq!(k1_enc, k2_enc);
         assert_eq!(k1_mac, k2_mac);
     }
@@ -344,25 +406,41 @@ mod tests {
     #[test]
     fn derive_keys_different_passwords() {
         let salt = [0x42u8; SALT_SIZE];
-        let (k1_enc, _) = derive_keys("password1", &salt);
-        let (k2_enc, _) = derive_keys("password2", &salt);
+        let (k1_enc, _) =
+            derive_keys("password1", &salt, DEFAULT_M_COST, DEFAULT_T_COST, DEFAULT_P_LANES).unwrap();
+        let (k2_enc, _) =
+            derive_keys("password2", &salt, DEFAULT_M_COST, DEFAULT_T_COST, DEFAULT_P_LANES).unwrap();
         assert_ne!(k1_enc, k2_enc);
     }
 
     #[test]
     fn derive_keys_different_salts() {
-        let (k1_enc, _) = derive_keys("password", &[0x01u8; SALT_SIZE]);
-        let (k2_enc, _) = derive_keys("password", &[0x02u8; SALT_SIZE]);
+        let (k1_enc, _) = derive_keys(
+            "password",
+            &[0x01u8; SALT_SIZE],
+            DEFAULT_M_COST,
+            DEFAULT_T_COST,
+            DEFAULT_P_LANES,
+        )
+        .unwrap();
+        let (k2_enc, _) = derive_keys(
+            "password",
+            &[0x02u8; SALT_SIZE],
+            DEFAULT_M_COST,
+            DEFAULT_T_COST,
+            DEFAULT_P_LANES,
+        )
+        .unwrap();
         assert_ne!(k1_enc, k2_enc);
     }
 
     #[test]
     fn plaintext_on_block_boundary() {
         let plaintext = "0123456789abcdef"; // 16 bytes
-        let encrypted = encrypt(plaintext, "pass");
+        let encrypted = encrypt(plaintext, "pass").unwrap();
         let ct_len = encrypted.len() - SALT_SIZE - IV_SIZE - ARGON2_PARAMS_SIZE - HMAC_SIZE;
         assert_eq!(ct_len, 32); // 16 data + 16 padding
-        assert_eq!(decrypt(&encrypted, "pass"), Some(plaintext.to_string()));
+        assert_eq!(decrypt(&encrypted, "pass").unwrap(), plaintext);
     }
 
     #[test]
@@ -376,7 +454,7 @@ mod tests {
     fn ciphertext_length_always_multiple_of_16() {
         for len in [0, 1, 15, 16, 17, 31, 32, 33, 100] {
             let plaintext: String = "X".repeat(len);
-            let encrypted = encrypt(&plaintext, "pass");
+            let encrypted = encrypt(&plaintext, "pass").unwrap();
             let ct_len = encrypted.len() - SALT_SIZE - IV_SIZE - ARGON2_PARAMS_SIZE - HMAC_SIZE;
             assert_eq!(
                 ct_len % 16,
@@ -389,45 +467,45 @@ mod tests {
 
     #[test]
     fn double_encrypt_produces_different_output() {
-        let a = encrypt("same text", "same pass");
-        let b = encrypt("same text", "same pass");
+        let a = encrypt("same text", "same pass").unwrap();
+        let b = encrypt("same text", "same pass").unwrap();
         assert_ne!(a, b, "two encryptions of identical input must differ");
     }
 
     #[test]
     fn empty_password() {
         let plaintext = "secret data";
-        let encrypted = encrypt(plaintext, "");
-        assert_eq!(decrypt(&encrypted, ""), Some(plaintext.to_string()));
+        let encrypted = encrypt(plaintext, "").unwrap();
+        assert_eq!(decrypt(&encrypted, "").unwrap(), plaintext);
     }
 
     #[test]
     fn very_long_password() {
         let password: String = "A".repeat(10_000);
         let plaintext = "protected by a very long password";
-        let encrypted = encrypt(plaintext, &password);
-        assert_eq!(decrypt(&encrypted, &password), Some(plaintext.to_string()));
+        let encrypted = encrypt(plaintext, &password).unwrap();
+        assert_eq!(decrypt(&encrypted, &password).unwrap(), plaintext);
     }
 
     #[test]
     fn password_with_unicode() {
         let password = "p\u{00E4}ssw\u{00F6}rd\u{1F512}\u{1F525}\u{2603}";
         let plaintext = "emoji-locked content";
-        let encrypted = encrypt(plaintext, password);
-        assert_eq!(decrypt(&encrypted, password), Some(plaintext.to_string()));
+        let encrypted = encrypt(plaintext, password).unwrap();
+        assert_eq!(decrypt(&encrypted, password).unwrap(), plaintext);
     }
 
     #[test]
-    fn corrupted_salt_returns_none() {
-        let mut encrypted = encrypt("test data", "password");
+    fn corrupted_salt_returns_err() {
+        let mut encrypted = encrypt("test data", "password").unwrap();
         encrypted[7] ^= 0xFF;
-        assert_eq!(decrypt(&encrypted, "password"), None);
+        assert!(decrypt(&encrypted, "password").is_err());
     }
 
     #[test]
-    fn corrupted_iv_returns_none() {
-        let mut encrypted = encrypt("test data", "password");
+    fn corrupted_iv_returns_err() {
+        let mut encrypted = encrypt("test data", "password").unwrap();
         encrypted[20] ^= 0xFF;
-        assert_eq!(decrypt(&encrypted, "password"), None);
+        assert!(decrypt(&encrypted, "password").is_err());
     }
 }
