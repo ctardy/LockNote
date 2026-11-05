@@ -61,6 +61,26 @@ pub enum UpdateCheckResult {
     Error(String),
 }
 
+/// Shared HTTP agent for every updater request.
+///
+/// Certificates are verified against the OS store (Windows) instead of the
+/// bundled Mozilla roots, so a corporate TLS-intercepting proxy whose CA is
+/// installed on the machine no longer fails with "invalid peer certificate".
+/// Verification stays on: an untrusted chain is still rejected.
+fn http_agent() -> &'static ureq::Agent {
+    static AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
+    AGENT.get_or_init(|| {
+        ureq::Agent::config_builder()
+            .tls_config(
+                ureq::tls::TlsConfig::builder()
+                    .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+                    .build(),
+            )
+            .build()
+            .new_agent()
+    })
+}
+
 /// GitHub release API URL.
 fn api_url() -> String {
     format!("https://api.github.com/repos/{}/releases/latest", GITHUB_REPO)
@@ -69,7 +89,7 @@ fn api_url() -> String {
 /// Check for updates (blocking HTTP call).
 pub fn check_for_update() -> UpdateCheckResult {
     let url = api_url();
-    let response = match ureq::get(&url)
+    let response = match http_agent().get(&url)
         .header("User-Agent", &format!("LockNote/{}", CURRENT_VERSION))
         .call()
     {
@@ -126,7 +146,7 @@ pub fn check_for_update() -> UpdateCheckResult {
 /// Fetch SHA256SUMS.txt from the latest release and return its raw contents.
 fn fetch_sha256sums() -> Result<String, String> {
     let url = api_url();
-    let response = ureq::get(&url)
+    let response = http_agent().get(&url)
         .header("User-Agent", &format!("LockNote/{}", CURRENT_VERSION))
         .call()
         .map_err(|e| format!("Integrity file missing from release: {}", e))?;
@@ -153,7 +173,7 @@ fn fetch_sha256sums() -> Result<String, String> {
         })
         .ok_or_else(|| "Integrity file missing from release".to_string())?;
 
-    let sums_resp = ureq::get(&sums_url)
+    let sums_resp = http_agent().get(&sums_url)
         .header("User-Agent", &format!("LockNote/{}", CURRENT_VERSION))
         .call()
         .map_err(|e| format!("Integrity file missing from release: {}", e))?;
@@ -198,7 +218,7 @@ pub fn download_and_update(download_url: &str, exe_path: &Path) -> Result<String
     }
 
     // Download zip to temp
-    let response = ureq::get(download_url)
+    let response = http_agent().get(download_url)
         .header("User-Agent", &format!("LockNote/{}", CURRENT_VERSION))
         .call()
         .map_err(|e| format!("Download failed: {}", e))?;
@@ -285,6 +305,31 @@ pub fn github_repo() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn http_agent_trusts_the_os_certificate_store() {
+        // Behind a TLS-intercepting proxy the CA lives in the Windows store,
+        // not in the bundled Mozilla roots ("invalid peer certificate").
+        let roots = http_agent().config().tls_config().root_certs();
+        assert!(
+            matches!(roots, ureq::tls::RootCerts::PlatformVerifier),
+            "updater must verify certificates with the OS store, got {:?}",
+            roots
+        );
+    }
+
+    /// Network check (run with `--ignored`): the OS-store verifier must still
+    /// accept a normal public TLS chain.
+    #[test]
+    #[ignore]
+    fn http_agent_reaches_github_over_tls() {
+        let resp = http_agent()
+            .get("https://api.github.com/")
+            .header("User-Agent", "LockNote-test")
+            .call()
+            .expect("TLS handshake with api.github.com via the OS store");
+        assert_eq!(resp.status().as_u16(), 200);
+    }
 
     #[test]
     fn parse_version() {
