@@ -1,16 +1,21 @@
 [package]
 name = "locknote"
-version = "1.2.1"
+version = "2.0.0"
 edition = "2021"
 description = "Self-contained encrypted notepad for Windows"
-authors = ["Chris Tardy"]
-license = "MIT"
+authors = ["Christophe Tardy"]
+license = "GPL-3.0-or-later"
 homepage = "https://uitguard.com"
 repository = "https://github.com/ctardy/LockNote"
+default-run = "locknote"
 
-[features]
-default = ["public"]
-public = []
+[[bin]]
+name = "locknote"
+path = "src/main.rs"
+
+[[bin]]
+name = "locknote-swap"
+path = "src/bin/locknote_swap.rs"
 
 [dependencies]
 # Crypto
@@ -18,13 +23,25 @@ aes = "0.8"
 cbc = { version = "0.1", features = ["alloc"] }
 hmac = "0.12"
 sha2 = "0.10"
+sha1 = "0.10"
 argon2 = "0.5"
 rand = "0.9"
+
+# Release integrity: the updater verifies the Ed25519-signed SHA256SUMS.txt.
+ed25519-dalek = { version = "2", features = ["rand_core"] }
 zeroize = { version = "1", features = ["derive"] }
+
+# Compression
+flate2 = "1"
+base64 = "0.22"
+data-encoding = "2"
 
 # GUI (native Windows)
 native-windows-gui = "1.0"
 native-windows-derive = "1.0"
+
+# Encoding
+encoding_rs = "0.8"
 
 # System
 clipboard-win = "5"
@@ -33,21 +50,58 @@ serde_json = "1"
 winreg = "0.55"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
+# SSH keys (issue 054): OpenSSH key format, passphrase encryption
+# (bcrypt-pbkdf + aes256-ctr), Ed25519 / ECDSA / RSA generation.
+ssh-key = { version = "0.6.7", default-features = false, features = ["std", "ed25519", "p256", "p384", "rsa", "encryption", "getrandom"] }
+# Same version as ssh-key's own: its Encode trait writes a keypair in the
+# ssh-agent ADD_IDENTITY layout, and ssh-key does not re-export it.
+ssh-encoding = { version = "0.2", default-features = false, features = ["alloc"] }
+
 # Windows API
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_System_LibraryLoader",
-    "Win32_System_Threading",
-    "Win32_Security",
     "Win32_UI_Shell",
     "Win32_UI_Controls",
+    "Win32_UI_Controls_Dialogs",
+    # Per-monitor DPI of the dialogs (ui/dialogs/style.rs)
+    "Win32_UI_HiDpi",
     "Win32_Graphics_Gdi",
+    # Dark title bar: DwmSetWindowAttribute (ui/dark_chrome.rs)
+    "Win32_Graphics_Dwm",
+    "Win32_Storage_Xps",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Threading",
+    "Win32_Security",
+    "Win32_Security_Cryptography",
+    # Owner-only DACL on an exported SSH private key (issue 054)
+    "Win32_Security_Authorization",
+    "Win32_System_DataExchange",
+    "Win32_System_Ole",
+    # CompareStringEx: locale-aware vault tree sort (issue 048)
+    "Win32_Globalization",
 ] }
 
 [build-dependencies]
 winres = "0.1"
+
+# Debug/test builds: optimize the big-number and KDF crates behind SSH key
+# generation (issue 054). Unoptimized RSA-4096 generation and bcrypt-pbkdf
+# take minutes; the app code itself stays at opt-level 0 for debugging.
+[profile.dev.package.num-bigint-dig]
+opt-level = 3
+[profile.dev.package.rsa]
+opt-level = 3
+[profile.dev.package.bcrypt-pbkdf]
+opt-level = 3
+[profile.dev.package.blowfish]
+opt-level = 3
+[profile.dev.package.crypto-bigint]
+opt-level = 3
+[profile.dev.package.p384]
+opt-level = 3
 
 [profile.release]
 opt-level = "z"

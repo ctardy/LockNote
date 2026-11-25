@@ -17,13 +17,8 @@ use std::rc::Rc;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::SendMessageW;
 
-#[cfg(feature = "i18n")]
-fn t(key: &str, _fallback: &str) -> String {
-    crate::pro::i18n::get(key).to_string()
-}
-#[cfg(not(feature = "i18n"))]
-fn t(_key: &str, fallback: &str) -> String {
-    fallback.to_string()
+fn t(key: &str) -> String {
+    crate::features::i18n::get(key).to_string()
 }
 
 const EM_EXGETSEL: u32 = 0x0434;
@@ -167,7 +162,7 @@ pub struct FindReplaceDialog;
 impl FindReplaceDialog {
     pub fn show(editor_hwnd: isize, replace_mode: bool, initial_find: &str) {
         let title_key = if replace_mode { "search.title" } else { "search.find.title" };
-        let title = t(title_key, if replace_mode { "Find & Replace" } else { "Find" });
+        let title = t(title_key);
 
         let win_w = 540;
         let win_h = if replace_mode { 200 } else { 155 };
@@ -186,14 +181,14 @@ impl FindReplaceDialog {
         let mut font = Default::default();
         nwg::Font::builder()
             .family("Segoe UI")
-            .size(15)
+            .size(16)
             .build(&mut font)
             .expect("Failed to build font");
 
         // ── Row 1: Find ──
         let mut lbl_find = Default::default();
         nwg::Label::builder()
-            .text(&t("search.find", "Find:"))
+            .text(&t("search.find"))
             .parent(&window)
             .position((15, 18))
             .size((90, 20))
@@ -214,7 +209,7 @@ impl FindReplaceDialog {
 
         let mut btn_prev = Default::default();
         nwg::Button::builder()
-            .text(&t("search.prev", "Previous"))
+            .text(&t("search.prev"))
             .parent(&window)
             .position((348, 14))
             .size((85, 28))
@@ -224,7 +219,7 @@ impl FindReplaceDialog {
 
         let mut btn_next = Default::default();
         nwg::Button::builder()
-            .text(&t("search.next", "Next"))
+            .text(&t("search.next"))
             .parent(&window)
             .position((438, 14))
             .size((85, 28))
@@ -236,7 +231,7 @@ impl FindReplaceDialog {
         let (txt_replace_opt, btn_replace_opt, btn_replace_all_opt) = if replace_mode {
             let mut lbl_replace = Default::default();
             nwg::Label::builder()
-                .text(&t("search.replace", "Replace:"))
+                .text(&t("search.replace"))
                 .parent(&window)
                 .position((15, 51))
                 .size((90, 20))
@@ -257,7 +252,7 @@ impl FindReplaceDialog {
 
             let mut btn_replace = Default::default();
             nwg::Button::builder()
-                .text(&t("search.btn.replace", "Replace"))
+                .text(&t("search.btn.replace"))
                 .parent(&window)
                 .position((348, 47))
                 .size((85, 28))
@@ -267,7 +262,7 @@ impl FindReplaceDialog {
 
             let mut btn_replace_all = Default::default();
             nwg::Button::builder()
-                .text(&t("search.btn.replaceall", "Replace All"))
+                .text(&t("search.btn.replaceall"))
                 .parent(&window)
                 .position((438, 47))
                 .size((85, 28))
@@ -284,7 +279,7 @@ impl FindReplaceDialog {
         let checkbox_y = if replace_mode { 84 } else { 51 };
         let mut chk_case = Default::default();
         nwg::CheckBox::builder()
-            .text(&t("search.case", "Match case"))
+            .text(&t("search.case"))
             .parent(&window)
             .position((15, checkbox_y))
             .size((170, 22))
@@ -295,7 +290,7 @@ impl FindReplaceDialog {
 
         let mut chk_word = Default::default();
         nwg::CheckBox::builder()
-            .text(&t("search.wholeword", "Whole word"))
+            .text(&t("search.wholeword"))
             .parent(&window)
             .position((195, checkbox_y))
             .size((150, 22))
@@ -318,7 +313,7 @@ impl FindReplaceDialog {
 
         let mut btn_close = Default::default();
         nwg::Button::builder()
-            .text(&t("search.close", "Close"))
+            .text(&t("search.close"))
             .parent(&window)
             .position((438, status_y))
             .size((85, 28))
@@ -373,11 +368,11 @@ impl FindReplaceDialog {
             if tot == 0 {
                 lbl_status_upd.set_text("");
             } else if cur == 0 {
-                let s = t("search.count.total", "{total} matches")
+                let s = t("search.count.total")
                     .replace("{total}", &tot.to_string());
                 lbl_status_upd.set_text(&s);
             } else {
-                let s = t("search.count", "{current} / {total}")
+                let s = t("search.count")
                     .replace("{current}", &cur.to_string())
                     .replace("{total}", &tot.to_string());
                 lbl_status_upd.set_text(&s);
@@ -405,7 +400,7 @@ impl FindReplaceDialog {
             total_rc.set(tot);
             current_rc.set(0);
             if tot == 0 {
-                lbl_status_rc.set_text(&t("search.count.none", "No matches"));
+                lbl_status_rc.set_text(&t("search.count.none"));
             } else {
                 update_status_rc();
             }
@@ -459,7 +454,7 @@ impl FindReplaceDialog {
                                 update_status_cb();
                             }
                             None => {
-                                lbl_status_cb.set_text(&t("search.count.none", "No matches"));
+                                lbl_status_cb.set_text(&t("search.count.none"));
                             }
                         }
                     } else if handle == prev_h {
@@ -479,7 +474,7 @@ impl FindReplaceDialog {
                                 update_status_cb();
                             }
                             None => {
-                                lbl_status_cb.set_text(&t("search.count.none", "No matches"));
+                                lbl_status_cb.set_text(&t("search.count.none"));
                             }
                         }
                     } else if Some(handle) == replace_h {
@@ -524,7 +519,7 @@ impl FindReplaceDialog {
                                     None => break,
                                 }
                             }
-                            let msg = t("search.replaceall.msg", "{count} occurrences replaced.")
+                            let msg = t("search.replaceall.msg")
                                 .replace("{count}", &count.to_string());
                             lbl_status_cb.set_text(&msg);
                             total_cb.set(0);

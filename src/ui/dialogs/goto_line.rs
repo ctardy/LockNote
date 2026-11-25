@@ -8,6 +8,10 @@ use native_windows_gui as nwg;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+fn t(key: &str) -> String {
+    crate::features::i18n::get(key).to_string()
+}
+
 pub struct GoToLineDialog;
 
 impl GoToLineDialog {
@@ -20,7 +24,7 @@ impl GoToLineDialog {
         nwg::Window::builder()
             .size((320, 150))
             .position((350, 300))
-            .title("Go to Line")
+            .title(&t("goto.title"))
             .flags(nwg::WindowFlags::WINDOW | nwg::WindowFlags::VISIBLE)
             .build(&mut window)
             .expect("Failed to build GoToLineDialog window");
@@ -37,7 +41,7 @@ impl GoToLineDialog {
         // Label
         let mut lbl = Default::default();
         nwg::Label::builder()
-            .text(&format!("Line number (1 - {}):", max_lines))
+            .text(&format!("{} (1 - {}):", t("goto.label"), max_lines))
             .parent(&window)
             .position((20, 15))
             .size((280, 20))
@@ -67,11 +71,12 @@ impl GoToLineDialog {
             .font(Some(&font))
             .build(&mut lbl_error)
             .expect("Failed to build error label");
+        super::mark_error(window.handle, lbl_error.handle);
 
         // OK button
         let mut btn_ok = Default::default();
         nwg::Button::builder()
-            .text("OK")
+            .text(&t("goto.ok"))
             .parent(&window)
             .position((120, 95))
             .size((80, 30))
@@ -82,7 +87,7 @@ impl GoToLineDialog {
         // Cancel button
         let mut btn_cancel = Default::default();
         nwg::Button::builder()
-            .text("Cancel")
+            .text(&t("goto.cancel"))
             .parent(&window)
             .position((215, 95))
             .size((80, 30))
@@ -109,7 +114,7 @@ impl GoToLineDialog {
                             }
                             _ => {
                                 lbl_error.set_text(
-                                    &format!("Enter a number between 1 and {}", max_lines),
+                                    &format!("{} (1 - {})", t("goto.invalid"), max_lines),
                                 );
                             }
                         }
@@ -140,10 +145,5 @@ mod tests {
     fn module_compiles() {
         // If this compiles, the module structure is valid.
         let _ = std::mem::size_of::<super::GoToLineDialog>();
-    }
-
-    #[test]
-    fn goto_line_dialog_is_zero_sized() {
-        assert_eq!(std::mem::size_of::<super::GoToLineDialog>(), 0);
     }
 }

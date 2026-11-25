@@ -1,13 +1,24 @@
 // UnlockDialog — Password prompt with attempt limiting
 //
 // Max 5 attempts. On each failure displays "Wrong password (N/5)".
-// Returns Option<(String, String)>: (password, decrypted_text), or None if cancelled/max reached.
+// Returns Option<(Zeroizing<String>, String)>: (password, decrypted_text), or None if cancelled/max reached.
+// The password is wrapped in Zeroizing so its buffer is wiped when the caller drops it.
 // Clears TextBox on drop for security.
+//
+// Look: the shared card of `ui::lock_card` (padlock, title, prompt, password
+// field with a show/hide button, status line with Caps Lock hint, primary
+// Unlock button and a quieter Cancel), sized from the window's DPI.
+// Keyboard: Enter unlocks, Esc cancels, Tab goes field -> eye -> Unlock -> Cancel.
 
+use crate::ui::lock_card::{self, CardMode, Tone};
 use native_windows_gui as nwg;
 use std::cell::RefCell;
 use std::rc::Rc;
 use zeroize::Zeroizing;
+
+fn t(key: &str) -> String {
+    crate::features::i18n::get(key).to_string()
+}
 
 const MAX_ATTEMPTS: u32 = 5;
 
@@ -23,6 +34,17 @@ fn backoff_seconds(att: u32) -> u32 {
     }
 }
 
+/// Put the keyboard focus on the password field.
+fn focus_field(h: nwg::ControlHandle) {
+    if let nwg::ControlHandle::Hwnd(h) = h {
+        unsafe {
+            let _ = windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(Some(windows::Win32::Foundation::HWND(
+                h as *mut _,
+            )));
+        }
+    }
+}
+
 pub struct UnlockDialog;
 
 impl UnlockDialog {
@@ -31,144 +53,157 @@ impl UnlockDialog {
     /// `encrypted_data` is the raw encrypted payload.
     /// Uses `crate::crypto::decrypt` to attempt decryption.
     /// Returns Some((password, decrypted_text)) on success, None on cancel/max attempts.
-    pub fn show(encrypted_data: &[u8]) -> Option<(String, String)> {
+    pub fn show(encrypted_data: &[u8]) -> Option<(Zeroizing<String>, String)> {
+        Self::show_with_parent(encrypted_data, None)
+    }
+
+    /// Show the unlock dialog, optionally centered on a parent window.
+    pub fn show_with_parent(encrypted_data: &[u8], parent_hwnd: Option<isize>) -> Option<(Zeroizing<String>, String)> {
+        // Fix #036: hold the global persistence lock for the entire unlock
+        // session. An in-flight autosave (non-blocking, try_acquire) will
+        // simply skip its tick, and a concurrent autolock (blocking acquire)
+        // will wait until this dialog closes. Argon2id dominates the per-
+        // attempt cost (~1s), so blocking briefly is imperceptible compared
+        // to the decrypt workload itself.
+        let _persistence_guard = crate::features::persistence_lock::acquire();
+
         let data = encrypted_data.to_vec();
 
-        // --- Center on screen ---
-        #[link(name = "user32")]
-        extern "system" {
-            fn GetSystemMetrics(index: i32) -> i32;
-        }
-        let win_w: i32 = 420;
-        let win_h: i32 = 310;
-        let screen_w = unsafe { GetSystemMetrics(0) }; // SM_CXSCREEN
-        let screen_h = unsafe { GetSystemMetrics(1) }; // SM_CYSCREEN
-        let pos_x = (screen_w - win_w) / 2;
-        let pos_y = (screen_h - win_h) / 2;
+        // --- Window: created hidden, sized for its DPI, then shown ---
+        // This position only decides which monitor (hence which DPI) the
+        // window is created on: the parent's, else the primary one. The real
+        // placement is `lock_card::place_popup` below.
+        let parent_center = parent_hwnd.and_then(|raw| {
+            let hwnd = windows::Win32::Foundation::HWND(raw as *mut _);
+            let mut rect: windows::Win32::Foundation::RECT = unsafe { std::mem::zeroed() };
+            if unsafe { windows::Win32::UI::WindowsAndMessaging::GetWindowRect(hwnd, &mut rect) }.is_ok() {
+                Some(((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2))
+            } else {
+                eprintln!("WARN unlock: GetWindowRect failed on the parent hwnd=0x{raw:x}; centering on the screen");
+                None
+            }
+        });
+        let (probe_x, probe_y) = parent_center.unwrap_or((0, 0));
 
         let mut window = Default::default();
         nwg::Window::builder()
-            .size((win_w, win_h))
-            .position((pos_x, pos_y))
+            .size((440, 340))
+            .position((probe_x, probe_y))
             .title("LockNote")
-            .flags(nwg::WindowFlags::WINDOW | nwg::WindowFlags::VISIBLE)
+            .flags(nwg::WindowFlags::WINDOW)
+            .topmost(true)
             .build(&mut window)
             .expect("Failed to build UnlockDialog window");
 
-        super::apply_dialog_theme(&window);
+        // Taskbar entry: see `taskbar_ex_style` (set while the window is still
+        // hidden, so it is what the taskbar sees when the window appears).
+        let window_hwnd = lock_card::hwnd_of(&window.handle);
+        unsafe {
+            use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE};
+            let hwnd_w = windows::Win32::Foundation::HWND(window_hwnd as *mut _);
+            let ex_style = GetWindowLongPtrW(hwnd_w, GWL_EXSTYLE);
+            SetWindowLongPtrW(hwnd_w, GWL_EXSTYLE, taskbar_ex_style(ex_style, parent_hwnd.is_some()));
+        }
+        lock_card::add_clip_children(&window.handle);
 
-        // --- Fonts ---
-        let mut font = Default::default();
-        nwg::Font::builder()
-            .family("Segoe UI")
-            .size(16)
-            .build(&mut font)
-            .expect("Failed to build font");
+        // Dark/light title bar. Installed first so the card handler below,
+        // bound later, sees WM_CTLCOLOR* before it.
+        super::apply_window_chrome(&window);
 
-        let mut font_title = Default::default();
-        nwg::Font::builder()
-            .family("Segoe UI")
-            .size(24)
-            .weight(700)
-            .build(&mut font_title)
-            .expect("Failed to build title font");
+        let dpi = lock_card::window_dpi(window_hwnd);
+        let fonts = lock_card::CardFonts::build(dpi).expect("Failed to build the unlock fonts");
 
-        let mut font_desc = Default::default();
-        nwg::Font::builder()
-            .family("Segoe UI")
-            .size(15)
-            .build(&mut font_desc)
-            .expect("Failed to build description font");
-
-        let content_w: i32 = 370;
-        let margin: i32 = 25;
-
-        // --- Welcome title ---
-        let mut _lbl_title = Default::default();
+        // --- Controls (creation order = Tab order) ---
+        let mut lbl_title = Default::default();
         nwg::Label::builder()
-            .text("Welcome back")
+            .text(&t("unlock.title"))
             .parent(&window)
-            .position((margin, 18))
-            .size((content_w, 30))
-            .font(Some(&font_title))
-            .build(&mut _lbl_title)
+            .h_align(nwg::HTextAlign::Center)
+            .build(&mut lbl_title)
             .expect("Failed to build title label");
 
-        // --- Description ---
-        let mut _lbl_desc = Default::default();
+        let mut lbl_desc = Default::default();
         nwg::Label::builder()
-            .text("Enter your password to unlock your notes.")
+            .text(&t("unlock.desc"))
             .parent(&window)
-            .position((margin, 55))
-            .size((content_w, 22))
-            .font(Some(&font_desc))
-            .build(&mut _lbl_desc)
+            .h_align(nwg::HTextAlign::Center)
+            .build(&mut lbl_desc)
             .expect("Failed to build description label");
 
-        // --- Separator ---
-        let mut _separator = Default::default();
-        nwg::Frame::builder()
-            .parent(&window)
-            .position((margin, 85))
-            .size((content_w, 1))
-            .build(&mut _separator)
-            .expect("Failed to build separator");
+        // Borderless from birth; the focus is given once the card is ready.
+        let txt_password = lock_card::build_password_input(&window.handle);
 
-        // Password label
-        let mut _lbl_password = Default::default();
-        nwg::Label::builder()
-            .text("Password:")
+        let mut btn_eye = Default::default();
+        nwg::Button::builder()
+            .text(&t("unlock.show"))
             .parent(&window)
-            .position((margin, 100))
-            .size((content_w, 20))
-            .font(Some(&font))
-            .build(&mut _lbl_password)
-            .expect("Failed to build label");
+            .build(&mut btn_eye)
+            .expect("Failed to build the show/hide button");
+        lock_card::make_owner_draw(&btn_eye.handle);
 
-        // Password input
-        let mut txt_password = Default::default();
-        nwg::TextInput::builder()
-            .parent(&window)
-            .position((margin, 125))
-            .size((content_w, 28))
-            .password(Some('*'))
-            .font(Some(&font))
-            .focus(true)
-            .build(&mut txt_password)
-            .expect("Failed to build password input");
-
-        // Attempts / status label
         let mut lbl_status = Default::default();
         nwg::Label::builder()
             .text("")
             .parent(&window)
-            .position((margin, 160))
-            .size((content_w, 20))
-            .font(Some(&font))
+            .h_align(nwg::HTextAlign::Center)
             .build(&mut lbl_status)
             .expect("Failed to build status label");
 
-        // Unlock button
         let mut btn_unlock = Default::default();
         nwg::Button::builder()
-            .text("Unlock")
+            .text(&t("unlock.btn"))
             .parent(&window)
-            .position((200, 230))
-            .size((90, 32))
-            .font(Some(&font))
             .build(&mut btn_unlock)
             .expect("Failed to build Unlock button");
+        lock_card::make_owner_draw(&btn_unlock.handle);
 
-        // Cancel button
         let mut btn_cancel = Default::default();
         nwg::Button::builder()
-            .text("Cancel")
+            .text(&t("unlock.cancel"))
             .parent(&window)
-            .position((305, 230))
-            .size((90, 32))
-            .font(Some(&font))
             .build(&mut btn_cancel)
             .expect("Failed to build Cancel button");
+        lock_card::make_owner_draw(&btn_cancel.handle);
+
+        lock_card::set_role(&lbl_title.handle, lock_card::Role::Title);
+        lock_card::set_role(&lbl_desc.handle, lock_card::Role::Subtitle);
+        lock_card::set_role(&lbl_status.handle, lock_card::Role::Status);
+
+        // --- Geometry and fonts for this DPI ---
+        let (client_w, client_h) = lock_card::CardLayout::popup_client_size(dpi);
+        let layout = lock_card::CardLayout::compute(CardMode::Popup, client_w, client_h, dpi);
+        {
+            let card_controls = lock_card::CardControls {
+                title: &lbl_title,
+                subtitle: &lbl_desc,
+                input: &txt_password,
+                eye: &btn_eye,
+                status: &lbl_status,
+                primary: &btn_unlock,
+                secondary: Some(&btn_cancel),
+            };
+            card_controls.apply_fonts(&fonts);
+            card_controls.apply_layout(&layout);
+        }
+        lock_card::place_popup(window_hwnd, parent_hwnd, client_w, client_h);
+
+        // --- Shared card behaviour: painting, colours, eye button, status ---
+        let hw = lock_card::CardHwnds {
+            input: lock_card::hwnd_of(&txt_password.handle),
+            eye: lock_card::hwnd_of(&btn_eye.handle),
+            primary: lock_card::hwnd_of(&btn_unlock.handle),
+            secondary: lock_card::hwnd_of(&btn_cancel.handle),
+        };
+        lock_card::set_eye_names(&t("unlock.show"), &t("unlock.hide"));
+        let status = lock_card::StatusMsg::new();
+        status.bind_label(&lbl_status.handle);
+        status.set_caps_text(&t("unlock.capslock"));
+        let card_handler = nwg::bind_raw_event_handler(&window.handle, 0x20010, move |hwnd, msg, wparam, lparam| {
+            lock_card::handle_message(hwnd as isize, msg, wparam, lparam, CardMode::Popup, &hw)
+        })
+        .expect("Failed to bind the unlock card handler");
+        let input_hook = lock_card::hook_password_input(&txt_password.handle, 0x20011, status.clone())
+            .expect("Failed to hook the password input");
 
         // --- Enter key → Unlock button ---
         super::bind_enter_to_button(window.handle, btn_unlock.handle);
@@ -186,7 +221,7 @@ impl UnlockDialog {
         let backoff_remaining: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
 
         // Result: Some((password, decrypted_text))
-        let result: Rc<RefCell<Option<(String, String)>>> = Rc::new(RefCell::new(None));
+        let result: Rc<RefCell<Option<(Zeroizing<String>, String)>>> = Rc::new(RefCell::new(None));
         let attempts: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
 
         let window_handle = window.handle;
@@ -194,8 +229,15 @@ impl UnlockDialog {
         let result_clone = result.clone();
         let attempts_clone = attempts.clone();
         let backoff_remaining_clone = backoff_remaining.clone();
-
+        let handler_status = status.clone();
         let handler = nwg::full_bind_event_handler(&window_handle, move |evt, _evt_data, handle| {
+            let status = &handler_status;
+            // Cancel / close / Esc: wipe the field and leave the dialog.
+            let cancel = |backoff_timer: &nwg::AnimationTimer, txt_password: &nwg::TextInput| {
+                backoff_timer.stop();
+                txt_password.set_text("");
+                nwg::stop_thread_dispatch();
+            };
             match evt {
                 nwg::Event::OnTimerTick => {
                     if handle == backoff_timer.handle {
@@ -207,32 +249,29 @@ impl UnlockDialog {
                             backoff_timer.stop();
                             btn_unlock.set_enabled(true);
                             txt_password.set_enabled(true);
-                            lbl_status.set_text("");
+                            status.clear();
                             // Restore focus to the password field
-                            if let nwg::ControlHandle::Hwnd(h) = txt_password.handle {
-                                unsafe {
-                                    let _ = windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(
-                                        Some(windows::Win32::Foundation::HWND(h as *mut _)),
-                                    );
-                                }
-                            }
+                            focus_field(txt_password.handle);
                         } else {
-                            lbl_status.set_text(&format!("Retry in {}s…", *remaining));
+                            status.set(
+                                Tone::Error,
+                                &t("unlock.retryin").replace("{seconds}", &remaining.to_string()),
+                            );
                         }
                     }
                 }
                 nwg::Event::OnButtonClick => {
                     if handle == btn_unlock.handle {
                         // Wrap the password in Zeroizing so it is wiped from the stack
-                        // whether decryption succeeds or fails. On success we clone
-                        // the inner String out to the caller; the local wrapper still
-                        // zeroes its buffer on drop.
+                        // whether decryption succeeds or fails. On success we move the
+                        // wrapper out to the caller — no plain String clone — so the
+                        // caller keeps the zeroize-on-drop guarantee end-to-end.
                         let pw: Zeroizing<String> = Zeroizing::new(txt_password.text());
-                        lbl_status.set_text("Decrypting...");
+                        status.set(Tone::Neutral, &t("unlock.decrypting"));
 
                         match crate::crypto::decrypt(&data, pw.as_str()) {
                             Ok(plaintext) => {
-                                *result_clone.borrow_mut() = Some(((*pw).clone(), plaintext));
+                                *result_clone.borrow_mut() = Some((pw, plaintext));
                                 txt_password.set_text("");
                                 nwg::stop_thread_dispatch();
                             }
@@ -252,75 +291,111 @@ impl UnlockDialog {
 
                                 if !is_wrong_password {
                                     // Structural crypto error (bad params, KDF failure, ...)
-                                    lbl_status.set_text(&format!("Crypto error: {}", err));
+                                    status.set(
+                                        Tone::Error,
+                                        &t("unlock.cryptoerror").replace("{msg}", &err.to_string()),
+                                    );
                                     // Do not count this as a password attempt toward max-lock:
                                     // it's not a guess, it's a malformed payload.
                                     *att -= 1;
+                                    focus_field(txt_password.handle);
                                 } else if *att >= MAX_ATTEMPTS {
-                                    lbl_status.set_text("Maximum attempts reached.");
+                                    status.set(
+                                        Tone::Error,
+                                        &t("unlock.maxattempts"),
+                                    );
                                     nwg::modal_info_message(
                                         &window_handle,
-                                        "Locked Out",
-                                        "Maximum password attempts reached. The application will close.",
+                                        &t("unlock.maxattempts"),
+                                        &t("unlock.maxattempts"),
                                     );
                                     nwg::stop_thread_dispatch();
                                 } else {
                                     let delay = backoff_seconds(*att);
                                     if delay == 0 {
-                                        lbl_status.set_text(
-                                            &format!("Wrong password ({}/{})", att, MAX_ATTEMPTS),
+                                        status.set(
+                                            Tone::Error,
+                                            &format!("{} ({}/{})", t("unlock.wrong"), att, MAX_ATTEMPTS),
                                         );
-                                        if let nwg::ControlHandle::Hwnd(pwd_hwnd) = txt_password.handle {
-                                            unsafe {
-                                                let _ = windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(
-                                                    Some(windows::Win32::Foundation::HWND(pwd_hwnd as *mut _)),
-                                                );
-                                            }
-                                        }
+                                        // Keep focus on password input
+                                        focus_field(txt_password.handle);
                                     } else {
                                         // Start exponential backoff: disable controls and
                                         // run the 1s tick timer until the delay elapses.
                                         btn_unlock.set_enabled(false);
                                         txt_password.set_enabled(false);
                                         *backoff_remaining_clone.borrow_mut() = delay;
-                                        lbl_status.set_text(&format!(
-                                            "Wrong password ({}/{}) — Retry in {}s…",
-                                            att, MAX_ATTEMPTS, delay,
-                                        ));
+                                        let retry_msg = t("unlock.retryin")
+                                            .replace("{seconds}", &delay.to_string());
+                                        status.set(
+                                            Tone::Error,
+                                            &format!(
+                                                "{} ({}/{}) — {}",
+                                                t("unlock.wrong"),
+                                                att,
+                                                MAX_ATTEMPTS,
+                                                retry_msg,
+                                            ),
+                                        );
                                         backoff_timer.start();
                                     }
                                 }
                             }
                         }
                     } else if handle == btn_cancel.handle {
-                        backoff_timer.stop();
-                        txt_password.set_text("");
-                        nwg::stop_thread_dispatch();
+                        cancel(&backoff_timer, &txt_password);
                     }
                 }
-                nwg::Event::OnWindowClose => {
-                    backoff_timer.stop();
-                    txt_password.set_text("");
-                    nwg::stop_thread_dispatch();
-                }
+                // Esc (IsDialogMessage -> IDCANCEL) behaves like Cancel.
+                nwg::Event::OnKeyEsc => cancel(&backoff_timer, &txt_password),
+                nwg::Event::OnWindowClose => cancel(&backoff_timer, &txt_password),
                 _ => {}
             }
         });
 
-        // Force focus on password input before entering the message loop
-        if let nwg::ControlHandle::Hwnd(h) = txt_password_handle {
-            unsafe {
-                let _ = windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(
-                    Some(windows::Win32::Foundation::HWND(h as *mut _)),
-                );
-            }
+        // Show only now that the window is sized, placed and painted by the card.
+        window.set_visible(true);
+        unsafe {
+            let _ = windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(windows::Win32::Foundation::HWND(
+                window_hwnd as *mut _,
+            ));
         }
+
+        // Force focus on password input before entering the message loop
+        focus_field(txt_password_handle);
+
+        // Restore focus to the password field whenever the dialog is
+        // re-activated (user returns from another app). Without this the
+        // user has to click the field before typing.
+        let activate_handler = lock_card::keep_focus_on(&window_handle, &txt_password_handle)
+            .expect("Failed to bind the focus handler");
 
         nwg::dispatch_thread_events();
         nwg::unbind_event_handler(&handler);
+        nwg::unbind_raw_event_handler(&activate_handler).ok();
+        nwg::unbind_raw_event_handler(&card_handler).ok();
+        nwg::unbind_raw_event_handler(&input_hook).ok();
 
         let out = result.borrow_mut().take();
         out
+    }
+}
+
+/// WS_EX_TOOLWINDOW: a window with it has no taskbar entry.
+const WS_EX_TOOLWINDOW: isize = 0x0000_0080;
+
+/// Extended style of the unlock window for the taskbar.
+///
+/// Over the main window (`has_parent`: unlock after a manual lock) it is a
+/// tool window, so it does not add a second taskbar entry next to the main
+/// one. At launch it is the only window of the application: it keeps its
+/// taskbar entry, otherwise LockNote is nowhere in the taskbar until the
+/// password is typed.
+fn taskbar_ex_style(ex_style: isize, has_parent: bool) -> isize {
+    if has_parent {
+        ex_style | WS_EX_TOOLWINDOW
+    } else {
+        ex_style & !WS_EX_TOOLWINDOW
     }
 }
 
@@ -329,8 +404,13 @@ impl UnlockDialog {
 // ---------------------------------------------------------------------------
 
 /// Show the unlock dialog. Convenience wrapper.
-pub fn show(encrypted_data: &[u8]) -> Option<(String, String)> {
+pub fn show(encrypted_data: &[u8]) -> Option<(Zeroizing<String>, String)> {
     UnlockDialog::show(encrypted_data)
+}
+
+/// Show the unlock dialog centered on a parent window.
+pub fn show_with_parent(encrypted_data: &[u8], parent_hwnd: isize) -> Option<(Zeroizing<String>, String)> {
+    UnlockDialog::show_with_parent(encrypted_data, Some(parent_hwnd))
 }
 
 #[cfg(test)]
@@ -343,19 +423,18 @@ mod tests {
     }
 
     #[test]
-    fn max_attempts_is_reasonable() {
-        assert!(MAX_ATTEMPTS >= 3, "MAX_ATTEMPTS should be at least 3");
-        assert!(MAX_ATTEMPTS <= 10, "MAX_ATTEMPTS should be at most 10");
+    fn unlock_window_is_in_the_taskbar_at_launch_only() {
+        const WS_EX_WINDOWEDGE: isize = 0x0000_0100;
+        // At launch (no main window yet): the only window, it keeps its entry.
+        assert_eq!(taskbar_ex_style(WS_EX_WINDOWEDGE, false), WS_EX_WINDOWEDGE);
+        assert_eq!(taskbar_ex_style(WS_EX_WINDOWEDGE | WS_EX_TOOLWINDOW, false), WS_EX_WINDOWEDGE);
+        // Over the main window: no second entry, the other bits untouched.
+        assert_eq!(taskbar_ex_style(WS_EX_WINDOWEDGE, true), WS_EX_WINDOWEDGE | WS_EX_TOOLWINDOW);
     }
 
     #[test]
-    fn backoff_schedule() {
-        assert_eq!(backoff_seconds(0), 0);
-        assert_eq!(backoff_seconds(1), 0);
-        assert_eq!(backoff_seconds(2), 1);
-        assert_eq!(backoff_seconds(3), 2);
-        assert_eq!(backoff_seconds(4), 4);
-        assert_eq!(backoff_seconds(5), 8);
-        assert_eq!(backoff_seconds(10), 8);
+    fn backoff_schedule_is_frozen() {
+        let delays: Vec<u32> = (0..=6).map(backoff_seconds).collect();
+        assert_eq!(delays, [0, 0, 1, 2, 4, 8, 8]);
     }
 }

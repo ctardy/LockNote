@@ -1,0 +1,47 @@
+name: CI
+
+# Runs on every push and on pull requests, forks included: read-only token,
+# no secret, never `pull_request_target` (a fork's code never runs with the
+# rights of this repository).
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # Public repository only: there Actions minutes are free; anywhere else
+    # (a private copy) the job is skipped and costs nothing.
+    if: github.repository == 'ctardy/LockNote'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # The main binary embeds the swap helper (include_bytes! of
+      # assets/locknote-swap-embedded.exe, a generated file not in git):
+      # build it and stage it first.
+      - name: Build the swap helper
+        shell: cmd
+        run: |
+          cargo build --release --bin locknote-swap || exit /b 1
+          if not exist assets mkdir assets
+          copy /y target\release\locknote-swap.exe assets\locknote-swap-embedded.exe || exit /b 1
+
+      # Tests never touch the real %LOCALAPPDATA%\LockNote.
+      - name: Run tests
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "locknote-tests"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $env:LOCALAPPDATA = $dir
+          $env:TEMP = $dir
+          $env:TMP = $dir
+          cargo test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

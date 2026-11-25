@@ -5,6 +5,10 @@
 
 use native_windows_gui as nwg;
 
+fn t(key: &str) -> String {
+    crate::features::i18n::get(key).to_string()
+}
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const GITHUB_URL: &str = "https://github.com/ctardy/LockNote";
 
@@ -17,7 +21,7 @@ impl AboutDialog {
         nwg::Window::builder()
             .size((400, 310))
             .position((300, 200))
-            .title("About LockNote")
+            .title(&t("about.title"))
             .flags(nwg::WindowFlags::WINDOW | nwg::WindowFlags::VISIBLE)
             .build(&mut window)
             .expect("Failed to build AboutDialog window");
@@ -82,7 +86,7 @@ impl AboutDialog {
         // Description
         let mut lbl_desc = Default::default();
         nwg::Label::builder()
-            .text("Self-contained encrypted notepad for Windows")
+            .text(&t("about.desc"))
             .parent(&window)
             .position((20, 85))
             .size((360, 20))
@@ -102,7 +106,7 @@ impl AboutDialog {
         // Crypto info
         let mut lbl_crypto = Default::default();
         nwg::Label::builder()
-            .text("AES-256-CBC + HMAC-SHA256 | PBKDF2 100k iterations")
+            .text("AES-256-CBC + HMAC-SHA256 | PBKDF2 300k iterations")
             .parent(&window)
             .position((20, 130))
             .size((360, 20))
@@ -110,11 +114,13 @@ impl AboutDialog {
             .build(&mut lbl_crypto)
             .expect("Failed to build crypto label");
 
+        let y_offset: i32 = 160;
+
         // Separator 2
         let mut sep2 = Default::default();
         nwg::Frame::builder()
             .parent(&window)
-            .position((20, 160))
+            .position((20, y_offset))
             .size((360, 1))
             .build(&mut sep2)
             .expect("Failed to build separator 2");
@@ -124,7 +130,7 @@ impl AboutDialog {
         nwg::Label::builder()
             .text(GITHUB_URL)
             .parent(&window)
-            .position((20, 175))
+            .position((20, y_offset + 15))
             .size((360, 20))
             .font(Some(&font))
             .build(&mut lbl_github)
@@ -133,9 +139,9 @@ impl AboutDialog {
         // Open link button
         let mut btn_link = Default::default();
         nwg::Button::builder()
-            .text("Open in browser")
+            .text(&t("about.open"))
             .parent(&window)
-            .position((20, 200))
+            .position((20, y_offset + 40))
             .size((140, 28))
             .font(Some(&font))
             .build(&mut btn_link)
@@ -144,13 +150,15 @@ impl AboutDialog {
         // OK button
         let mut btn_ok = Default::default();
         nwg::Button::builder()
-            .text("OK")
+            .text(&t("settings.ok"))
             .parent(&window)
-            .position((290, 250))
+            .position((290, y_offset + 90))
             .size((85, 30))
             .font(Some(&font))
             .build(&mut btn_ok)
             .expect("Failed to build OK button");
+
+        super::bind_enter_to_button(window.handle, btn_ok.handle);
 
         let window_handle = window.handle;
 
@@ -176,11 +184,29 @@ impl AboutDialog {
     }
 }
 
-/// Open a URL in the default browser using `cmd /C start`.
+/// Open a URL in the default browser via `ShellExecuteW`. Bypasses cmd.exe
+/// so characters like `&`, `|`, `"`, `^` in the URL are never re-parsed by
+/// a shell (the previous `cmd /c start` path was vulnerable to command
+/// injection via crafted URLs pasted into a note).
 fn open_url(url: &str) {
-    let _ = std::process::Command::new("cmd")
-        .args(&["/C", "start", "", url])
-        .spawn();
+    // Refuse anything that is not a plain http(s) URL. cmd.exe accepts
+    // `file:`, `javascript:`, etc., which could trigger surprising
+    // behaviour even through ShellExecute. Belt-and-suspenders.
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return;
+    }
+    unsafe {
+        let wide_op: Vec<u16> = "open\0".encode_utf16().collect();
+        let wide_url: Vec<u16> = url.encode_utf16().chain(std::iter::once(0)).collect();
+        let _ = windows::Win32::UI::Shell::ShellExecuteW(
+            None,
+            windows::core::PCWSTR(wide_op.as_ptr()),
+            windows::core::PCWSTR(wide_url.as_ptr()),
+            windows::core::PCWSTR::null(),
+            windows::core::PCWSTR::null(),
+            windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
+        );
+    }
 }
 
 #[cfg(test)]

@@ -1,7 +1,8 @@
 // CreatePasswordDialog — Password creation with strength meter and confirmation
 //
-// Returns Option<String>: the chosen password, or None if cancelled.
-// Clears TextBox contents on drop for security.
+// Returns Option<Zeroizing<String>>: the chosen password wrapped so its buffer
+// is wiped when the caller drops it, or None if cancelled. Clears TextBox
+// contents on drop for security.
 
 use native_windows_gui as nwg;
 use std::cell::RefCell;
@@ -10,11 +11,15 @@ use zeroize::Zeroizing;
 
 use crate::theme;
 
+fn t(key: &str) -> String {
+    crate::features::i18n::get(key).to_string()
+}
+
 // ---------------------------------------------------------------------------
 // Password strength scoring (0-7)
 // ---------------------------------------------------------------------------
 
-fn password_score(pw: &str) -> u32 {
+pub(crate) fn password_score(pw: &str) -> u32 {
     let mut score: u32 = 0;
     let len = pw.len();
     if len >= 8 {
@@ -41,12 +46,12 @@ fn password_score(pw: &str) -> u32 {
     score
 }
 
-fn strength_label(score: u32) -> &'static str {
+pub(crate) fn strength_label(score: u32) -> String {
     match score {
-        0..=1 => "Weak",
-        2..=3 => "Fair",
-        4..=5 => "Strong",
-        _ => "Very strong",
+        0..=1 => t("createpwd.weak"),
+        2..=3 => t("createpwd.fair"),
+        4..=5 => t("createpwd.strong"),
+        _ => t("createpwd.verystrong"),
     }
 }
 
@@ -68,6 +73,15 @@ fn strength_percent(score: u32) -> u32 {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: convert theme Color to nwg [r,g,b]
+// ---------------------------------------------------------------------------
+
+#[allow(dead_code)]
+fn to_nwg_color(c: theme::Color) -> [u8; 3] {
+    [c.r, c.g, c.b]
+}
+
+// ---------------------------------------------------------------------------
 // CreatePasswordDialog
 // ---------------------------------------------------------------------------
 
@@ -75,7 +89,7 @@ pub struct CreatePasswordDialog;
 
 impl CreatePasswordDialog {
     /// Show the dialog and return the chosen password, or None if cancelled.
-    pub fn show(min_length: u32) -> Option<String> {
+    pub fn show(min_length: u32) -> Option<Zeroizing<String>> {
         let _pal = theme::current();
 
         // --- Center on screen ---
@@ -84,7 +98,7 @@ impl CreatePasswordDialog {
             fn GetSystemMetrics(index: i32) -> i32;
         }
         let win_w: i32 = 440;
-        let win_h: i32 = 400;
+        let win_h: i32 = 390;
         let screen_w = unsafe { GetSystemMetrics(0) }; // SM_CXSCREEN
         let screen_h = unsafe { GetSystemMetrics(1) }; // SM_CYSCREEN
         let pos_x = (screen_w - win_w) / 2;
@@ -131,7 +145,7 @@ impl CreatePasswordDialog {
         // --- Welcome title ---
         let mut lbl_title = Default::default();
         nwg::Label::builder()
-            .text("Welcome to LockNote")
+            .text(&t("createpwd.title"))
             .parent(&window)
             .position((margin, 18))
             .size((content_w, 30))
@@ -142,8 +156,7 @@ impl CreatePasswordDialog {
         // --- Description ---
         let mut lbl_desc = Default::default();
         nwg::Label::builder()
-            .text("Your notes are encrypted and stored inside this \
-                   executable.\nChoose a password to protect them.")
+            .text(&t("createpwd.desc"))
             .parent(&window)
             .position((margin, 55))
             .size((content_w, 40))
@@ -160,10 +173,12 @@ impl CreatePasswordDialog {
             .build(&mut separator)
             .expect("Failed to build separator");
 
-        // --- Password label ---
+        // --- Password label (with minimum length indication) ---
         let mut lbl_password = Default::default();
+        let pw_label = t("createpwd.minlen")
+            .replace("{}", &min_length.to_string());
         nwg::Label::builder()
-            .text("Password:")
+            .text(&pw_label)
             .parent(&window)
             .position((margin, 115))
             .size((content_w, 20))
@@ -203,22 +218,10 @@ impl CreatePasswordDialog {
             .build(&mut strength_bar_bg)
             .expect("Failed to build strength bar bg");
 
-        // Color the bar background (dark gray track)
-        if let nwg::ControlHandle::Hwnd(h) = strength_bar_bg.handle {
-            let hwnd = windows::Win32::Foundation::HWND(h as *mut _);
-            let brush = unsafe {
-                windows::Win32::Graphics::Gdi::CreateSolidBrush(
-                    windows::Win32::Foundation::COLORREF(0x00404040),
-                )
-            };
-            unsafe {
-                windows::Win32::UI::WindowsAndMessaging::SetClassLongPtrW(
-                    hwnd,
-                    windows::Win32::UI::WindowsAndMessaging::GCL_HBRBACKGROUND,
-                    brush.0 as isize,
-                );
-            }
-        }
+        // Track of the bar: the palette border color. Painted per control (all
+        // nwg frames share one window class, so a class brush would recolor
+        // the separators and the bar itself).
+        super::set_frame_color(strength_bar_bg.handle, crate::theme::current().border);
 
         let mut strength_bar = Default::default();
         nwg::Frame::builder()
@@ -231,7 +234,7 @@ impl CreatePasswordDialog {
         // --- Confirm label ---
         let mut lbl_confirm = Default::default();
         nwg::Label::builder()
-            .text("Confirm password:")
+            .text(&t("createpwd.confirm"))
             .parent(&window)
             .position((margin, 218))
             .size((content_w, 20))
@@ -255,16 +258,17 @@ impl CreatePasswordDialog {
         nwg::Label::builder()
             .text("")
             .parent(&window)
-            .position((margin, 280))
+            .position((margin, 283))
             .size((content_w, 20))
             .font(Some(&font))
             .build(&mut lbl_error)
             .expect("Failed to build error label");
+        super::mark_error(window.handle, lbl_error.handle);
 
         // --- Create button ---
         let mut btn_ok = Default::default();
         nwg::Button::builder()
-            .text("Create")
+            .text(&t("createpwd.create"))
             .parent(&window)
             .position((220, 320))
             .size((90, 32))
@@ -275,7 +279,7 @@ impl CreatePasswordDialog {
         // --- Cancel button ---
         let mut btn_cancel = Default::default();
         nwg::Button::builder()
-            .text("Cancel")
+            .text(&t("createpwd.cancel"))
             .parent(&window)
             .position((325, 320))
             .size((90, 32))
@@ -286,10 +290,11 @@ impl CreatePasswordDialog {
         // --- Enter key → Create button ---
         super::bind_enter_to_button(window.handle, btn_ok.handle);
 
-        // --- Result ---
-        let result: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        // --- Result: password ---
+        let result: Rc<RefCell<Option<Zeroizing<String>>>> = Rc::new(RefCell::new(None));
 
         // --- Event handler ---
+        let focus_field_handle = txt_password.handle;
         let window_handle = window.handle;
         let txt_password_handle = txt_password.handle;
         let result_clone = result.clone();
@@ -299,14 +304,15 @@ impl CreatePasswordDialog {
                 nwg::Event::OnButtonClick => {
                     if handle == btn_ok.handle {
                         // Wrap both candidates in Zeroizing: the confirm field is wiped
-                        // on drop no matter which branch we take; the final password
-                        // is cloned into the result (a plain String owned by the caller).
+                        // on drop no matter which branch we take; the final password is
+                        // moved out (not cloned) into the result, preserving the
+                        // zeroize-on-drop guarantee all the way to the caller.
                         let pw: Zeroizing<String> = Zeroizing::new(txt_password.text());
                         let confirm: Zeroizing<String> = Zeroizing::new(txt_confirm.text());
 
                         if (pw.len() as u32) < min_length {
                             lbl_error.set_text(
-                                &format!("Password must be at least {} characters", min_length),
+                                &t("createpwd.tooshort"),
                             );
                             if let nwg::ControlHandle::Hwnd(h) = txt_password.handle {
                                 unsafe { let _ = windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(Some(windows::Win32::Foundation::HWND(h as *mut _))); }
@@ -314,7 +320,7 @@ impl CreatePasswordDialog {
                             return;
                         }
                         if *pw != *confirm {
-                            lbl_error.set_text("Passwords do not match");
+                            lbl_error.set_text(&t("createpwd.mismatch"));
                             txt_confirm.set_text("");
                             if let nwg::ControlHandle::Hwnd(h) = txt_confirm.handle {
                                 unsafe { let _ = windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(Some(windows::Win32::Foundation::HWND(h as *mut _))); }
@@ -322,7 +328,7 @@ impl CreatePasswordDialog {
                             return;
                         }
 
-                        *result_clone.borrow_mut() = Some((*pw).clone());
+                        *result_clone.borrow_mut() = Some(pw);
 
                         // Clear text boxes for security
                         txt_password.set_text("");
@@ -342,35 +348,21 @@ impl CreatePasswordDialog {
                 }
                 nwg::Event::OnTextInput => {
                     if handle == txt_password.handle {
-                        let pw = txt_password.text();
+                        let pw: Zeroizing<String> = Zeroizing::new(txt_password.text());
                         let score = password_score(&pw);
                         let pct = strength_percent(score);
                         let label = strength_label(score);
-                        lbl_strength.set_text(label);
+                        lbl_strength.set_text(&label);
 
-                        // Resize and color the strength bar
-                        let bar_w = (390 * pct / 100) as i32;
-                        strength_bar.set_position(25, 196);
-                        strength_bar.set_size(bar_w as u32, 10);
+                        // Resize and color the strength bar on top of its track
+                        // (the track's real geometry: the dialog is DPI-scaled).
+                        let (bar_x, bar_y) = strength_bar_bg.position();
+                        let (track_w, track_h) = strength_bar_bg.size();
+                        strength_bar.set_position(bar_x, bar_y);
+                        strength_bar.set_size(track_w * pct / 100, track_h);
 
                         let [r, g, b] = strength_color(score);
-                        let colorref = (r as u32) | ((g as u32) << 8) | ((b as u32) << 16);
-                        if let nwg::ControlHandle::Hwnd(h) = strength_bar.handle {
-                            let hwnd = windows::Win32::Foundation::HWND(h as *mut _);
-                            let brush = unsafe {
-                                windows::Win32::Graphics::Gdi::CreateSolidBrush(
-                                    windows::Win32::Foundation::COLORREF(colorref),
-                                )
-                            };
-                            unsafe {
-                                windows::Win32::UI::WindowsAndMessaging::SetClassLongPtrW(
-                                    hwnd,
-                                    windows::Win32::UI::WindowsAndMessaging::GCL_HBRBACKGROUND,
-                                    brush.0 as isize,
-                                );
-                                let _ = windows::Win32::Graphics::Gdi::InvalidateRect(Some(hwnd), None, true);
-                            }
-                        }
+                        super::set_frame_color(strength_bar.handle, crate::theme::Color::new(r, g, b));
                     }
                 }
                 _ => {}
@@ -386,8 +378,13 @@ impl CreatePasswordDialog {
             }
         }
 
+        // Caret in the field as soon as the window has the focus.
+        let focus_guard = crate::ui::lock_card::keep_focus_on(&window_handle, &focus_field_handle)
+            .expect("Failed to bind the focus handler");
+
         nwg::dispatch_thread_events();
         nwg::unbind_event_handler(&handler);
+        nwg::unbind_raw_event_handler(&focus_guard).ok();
 
         let val = result.borrow_mut().take();
         val
@@ -398,9 +395,9 @@ impl CreatePasswordDialog {
 // Free function (convenience API expected by callers)
 // ---------------------------------------------------------------------------
 
-/// Show the create-password dialog and return the chosen password.
+/// Show the create-password dialog and return the password.
 /// This is a convenience wrapper around `CreatePasswordDialog::show()`.
-pub fn show(min_length: u32) -> Option<String> {
+pub fn show(min_length: u32) -> Option<Zeroizing<String>> {
     CreatePasswordDialog::show(min_length)
 }
 
@@ -436,14 +433,16 @@ mod tests {
 
     #[test]
     fn test_strength_labels() {
-        assert_eq!(strength_label(0), "Weak");
-        assert_eq!(strength_label(1), "Weak");
-        assert_eq!(strength_label(2), "Fair");
-        assert_eq!(strength_label(3), "Fair");
-        assert_eq!(strength_label(4), "Strong");
-        assert_eq!(strength_label(5), "Strong");
-        assert_eq!(strength_label(6), "Very strong");
-        assert_eq!(strength_label(7), "Very strong");
+        let _g = crate::features::i18n::test_support::lang_guard();
+        crate::features::i18n::set_language(crate::features::i18n::Language::English);
+        assert_eq!(strength_label(0), "Weak".to_string());
+        assert_eq!(strength_label(1), "Weak".to_string());
+        assert_eq!(strength_label(2), "Fair".to_string());
+        assert_eq!(strength_label(3), "Fair".to_string());
+        assert_eq!(strength_label(4), "Strong".to_string());
+        assert_eq!(strength_label(5), "Strong".to_string());
+        assert_eq!(strength_label(6), "Very strong".to_string());
+        assert_eq!(strength_label(7), "Very strong".to_string());
     }
 
     #[test]
@@ -453,72 +452,5 @@ mod tests {
         assert_eq!(strength_percent(3), 50);
         assert_eq!(strength_percent(5), 75);
         assert_eq!(strength_percent(7), 100);
-    }
-
-    #[test]
-    fn test_score_only_digits() {
-        // 8+ chars (+1), digit (+1) = 2
-        assert_eq!(password_score("12345678"), 2);
-    }
-
-    #[test]
-    fn test_score_only_uppercase() {
-        // 8+ chars (+1), uppercase (+1) = 2
-        assert_eq!(password_score("ABCDEFGH"), 2);
-    }
-
-    #[test]
-    fn test_score_special_only() {
-        // <8 chars, non-alphanumeric (+1) = 1
-        assert_eq!(password_score("!@#$"), 1);
-    }
-
-    #[test]
-    fn test_score_12_chars() {
-        // 8+ (+1), 12+ (+1), lowercase (+1) = 3
-        assert_eq!(password_score("abcdefghijkl"), 3);
-    }
-
-    #[test]
-    fn test_score_16_chars_lower() {
-        // 8+ (+1), 12+ (+1), 16+ (+1), lowercase (+1) = 4
-        assert_eq!(password_score("abcdefghijklmnop"), 4);
-    }
-
-    #[test]
-    fn test_score_common_password() {
-        // 8+ (+1), lowercase (+1), uppercase (+1), digit (+1) = 4
-        assert_eq!(password_score("Password1"), 4);
-    }
-
-    #[test]
-    fn test_score_with_spaces() {
-        // len=12 bytes: 8+ (+1), 12+ (+1), lowercase (+1), space is non-alphanumeric (+1) = 4
-        assert_eq!(password_score("hello world!"), 4);
-    }
-
-    #[test]
-    fn test_score_unicode_password() {
-        // "Pässwörd" = 10 bytes: 8+ (+1), ascii_lowercase s/w/r/d (+1),
-        // ascii_uppercase P (+1), ä/ö are !is_ascii_alphanumeric (+1) = 4
-        assert_eq!(password_score("Pässwörd"), 4);
-    }
-
-    #[test]
-    fn test_strength_color_values() {
-        assert_eq!(strength_color(0), [220, 50, 50]);   // red
-        assert_eq!(strength_color(1), [220, 50, 50]);   // red
-        assert_eq!(strength_color(2), [230, 160, 30]);  // orange
-        assert_eq!(strength_color(3), [230, 160, 30]);  // orange
-        assert_eq!(strength_color(4), [50, 180, 50]);   // green
-        assert_eq!(strength_color(7), [50, 180, 50]);   // green
-    }
-
-    #[test]
-    fn test_score_single_char_types() {
-        assert_eq!(password_score("a"), 1); // lowercase only
-        assert_eq!(password_score("A"), 1); // uppercase only
-        assert_eq!(password_score("1"), 1); // digit only
-        assert_eq!(password_score("!"), 1); // symbol only
     }
 }

@@ -57,10 +57,66 @@ impl ThemeChoice {
     }
 }
 
+/// Language of the interface.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Language {
+    En,
+    Fr,
+    Es,
+    De,
+}
+
+impl Language {
+    fn from_str(s: &str) -> Option<Language> {
+        match s.trim().to_lowercase().as_str() {
+            "en" => Some(Language::En),
+            "fr" => Some(Language::Fr),
+            "es" => Some(Language::Es),
+            "de" => Some(Language::De),
+            _ => None,
+        }
+    }
+
+    fn as_str(&self) -> &'static str {
+        match self {
+            Language::En => "en",
+            Language::Fr => "fr",
+            Language::Es => "es",
+            Language::De => "de",
+        }
+    }
+}
+
+/// TOTP entry.
+//
+// Debug is implemented manually below so `{:?}` redacts the base32 secret —
+// a crash log or debug print must never leak a 2FA seed, but we still want
+// assert_eq! etc. to work in tests. ZeroizeOnDrop wipes `secret` when the
+// entry is dropped or replaced.
+#[derive(Clone, PartialEq, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
+pub struct TotpEntry {
+    #[zeroize(skip)]
+    pub name: String,
+    pub secret: String,
+}
+
+impl std::fmt::Debug for TotpEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TotpEntry")
+            .field("name", &self.name)
+            .field("secret", &"<redacted>")
+            .finish()
+    }
+}
+
 /// User settings.
-#[derive(Debug, Clone, PartialEq)]
+//
+// Debug is implemented manually below so `{:?}` redacts the base32 2FA
+// seed — a panic log must never leak it — while still allowing
+// `assert_eq!` in tests and `{:?}` printing elsewhere.
+#[derive(Clone, PartialEq)]
 pub struct Settings {
-    // Public fields
+    // Fields of every version (1.2.1 included)
     pub save_on_close: CloseAction,
     pub theme: ThemeChoice,
     pub word_wrap: bool,
@@ -77,6 +133,79 @@ pub struct Settings {
     pub window_x: i32,
     pub window_y: i32,
     pub window_maximized: bool,
+
+    // Fields added by the former Pro edition (absent from 1.2.1 files)
+    pub language: Language,
+    pub active_tab: u32,
+    pub auto_lock: u32,
+    pub clipboard_clear: u32,
+    pub auto_save: u32,
+    pub show_line_numbers: bool,
+    pub totp_2fa: bool,
+    pub totp_2fa_secret: String,
+    pub totp_entries: Vec<TotpEntry>,
+    /// User vault categories (issue 052); empty = never customized, the
+    /// 7 defaults apply. Stored as repeated `vault_category=` keys.
+    pub vault_categories: Vec<String>,
+    pub hotkey_modifiers: u32,
+    pub hotkey_key: u32,
+    pub max_attachment_size_mb: u32,
+    pub max_total_attachments_mb: u32,
+    /// Password generator options (keys `passgen_*`).
+    pub passgen: crate::features::passgen::Options,
+    /// Width of each right-side panel, set by dragging its grip (machine
+    /// state, like the window geometry; see `ui::side_panel`).
+    pub vault_panel_width: u32,
+    pub totp_panel_width: u32,
+    pub attach_panel_width: u32,
+    pub prompts_panel_width: u32,
+}
+
+// Custom Debug: redact the 2FA seed. All other fields are fine to print
+// (they're UI config — font, theme, intervals, etc.). We list every field
+// explicitly instead of using `..` so a future sensitive field added to
+// the struct will cause a compile error here — forcing the developer to
+// decide whether it should be redacted or printed.
+impl std::fmt::Debug for Settings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut ds = f.debug_struct("Settings");
+        ds.field("save_on_close", &self.save_on_close)
+            .field("theme", &self.theme)
+            .field("word_wrap", &self.word_wrap)
+            .field("minimize_to_tray", &self.minimize_to_tray)
+            .field("min_password_length", &self.min_password_length)
+            .field("font_family", &self.font_family)
+            .field("font_size", &self.font_size)
+            .field("save_key", &self.save_key)
+            .field("save_modifiers", &self.save_modifiers)
+            .field("window_width", &self.window_width)
+            .field("window_height", &self.window_height)
+            .field("window_x", &self.window_x)
+            .field("window_y", &self.window_y)
+            .field("window_maximized", &self.window_maximized);
+        {
+            ds.field("language", &self.language)
+                .field("active_tab", &self.active_tab)
+                .field("auto_lock", &self.auto_lock)
+                .field("clipboard_clear", &self.clipboard_clear)
+                .field("auto_save", &self.auto_save)
+                .field("show_line_numbers", &self.show_line_numbers)
+                .field("totp_2fa", &self.totp_2fa)
+                .field("totp_2fa_secret", &"<redacted>")
+                .field("totp_entries", &self.totp_entries)
+                .field("vault_categories", &self.vault_categories)
+                .field("hotkey_modifiers", &self.hotkey_modifiers)
+                .field("hotkey_key", &self.hotkey_key)
+                .field("max_attachment_size_mb", &self.max_attachment_size_mb)
+                .field("max_total_attachments_mb", &self.max_total_attachments_mb)
+                .field("passgen", &self.passgen)
+                .field("vault_panel_width", &self.vault_panel_width)
+                .field("totp_panel_width", &self.totp_panel_width)
+                .field("attach_panel_width", &self.attach_panel_width)
+                .field("prompts_panel_width", &self.prompts_panel_width);
+        }
+        ds.finish()
+    }
 }
 
 fn parse_bool(s: &str) -> Option<bool> {
@@ -102,15 +231,17 @@ fn clamp_u32(v: u32, min: u32, max: u32) -> u32 {
 const HEADER: &str = "[LOCKNOTE_SETTINGS]";
 const FOOTER: &str = "[/LOCKNOTE_SETTINGS]";
 
-impl Settings {
-    /// Default settings for the public build.
-    pub fn default_public() -> Self {
+/// The settings a new note starts with (issue 059, D9: those of the former
+/// Pro edition, the only ones since 2.0). `Settings::parse` starts from
+/// `parse_fallback` instead.
+impl Default for Settings {
+    fn default() -> Self {
         Settings {
             save_on_close: CloseAction::Ask,
             theme: ThemeChoice::Dark,
             word_wrap: true,
             minimize_to_tray: false,
-            min_password_length: 4,
+            min_password_length: 6,
             font_family: "Consolas".to_string(),
             font_size: 11.0,
             save_key: 0x53, // 'S'
@@ -120,26 +251,56 @@ impl Settings {
             window_x: i32::MIN,
             window_y: i32::MIN,
             window_maximized: false,
+            language: Language::En,
+            active_tab: 0,
+            auto_lock: 15,
+            clipboard_clear: 30,
+            auto_save: 30,
+            show_line_numbers: true,
+            totp_2fa: false,
+            totp_2fa_secret: String::new(),
+            totp_entries: Vec::new(),
+            vault_categories: Vec::new(),
+            hotkey_modifiers: 6,
+            hotkey_key: 76,
+            max_attachment_size_mb: 10,
+            max_total_attachments_mb: 50,
+            passgen: crate::features::passgen::Options::default(),
+            vault_panel_width: crate::ui::side_panel::default_width(crate::ui::side_panel::SidePanel::Vault),
+            totp_panel_width: crate::ui::side_panel::default_width(crate::ui::side_panel::SidePanel::Totp),
+            attach_panel_width: crate::ui::side_panel::default_width(crate::ui::side_panel::SidePanel::Attach),
+            prompts_panel_width: crate::ui::side_panel::default_width(crate::ui::side_panel::SidePanel::Prompts),
         }
+    }
+
+}
+
+impl Settings {
+    /// What `parse` gives the keys a file does not hold, and a file without
+    /// settings: the defaults, but a minimum password length of 4, the value
+    /// every build up to 1.2.27 fell back to. Kept so that existing files read
+    /// back the same (issue 059, D9).
+    fn parse_fallback() -> Self {
+        Settings { min_password_length: 4, ..Self::default() }
     }
 
     /// Parse settings from input text. Returns (settings, remaining_note_text).
     /// If no header is found, all defaults are used and the entire input is note text.
     pub fn parse(input: &str) -> (Settings, String) {
         if input.is_empty() {
-            return (Self::default_public(), String::new());
+            return (Self::parse_fallback(), String::new());
         }
 
         // Check for header
         let trimmed = input.trim_start();
         if !trimmed.starts_with(HEADER) {
-            return (Self::default_public(), input.to_string());
+            return (Self::parse_fallback(), input.to_string());
         }
 
         // Find header end (after the header line)
         let header_start = match input.find(HEADER) {
             Some(pos) => pos,
-            None => return (Self::default_public(), input.to_string()),
+            None => return (Self::parse_fallback(), input.to_string()),
         };
         let after_header = header_start + HEADER.len();
 
@@ -148,7 +309,7 @@ impl Settings {
             Some(pos) => after_header + pos,
             None => {
                 // No footer — treat entire input as note text
-                return (Self::default_public(), input.to_string());
+                return (Self::parse_fallback(), input.to_string());
             }
         };
 
@@ -163,7 +324,7 @@ impl Settings {
         }
         let note_text = &input[note_start..];
 
-        let mut settings = Self::default_public();
+        let mut settings = Self::parse_fallback();
 
         for line in settings_block.lines() {
             let line = line.trim();
@@ -207,10 +368,16 @@ impl Settings {
                     self.min_password_length = clamp_u32(v, 1, 64);
                 }
             }
+            "pbkdf2_iterations" => {
+                // Ignored — KDF migrated from PBKDF2 to Argon2id, kept for backward compatibility
+            }
             "font_family" => {
                 if !value.is_empty() {
                     self.font_family = value.to_string();
                 }
+            }
+            "password_hint" => {
+                // Ignored — password hint feature removed, kept for backward compatibility
             }
             "font_size" => {
                 if let Ok(v) = value.parse::<f64>() {
@@ -256,6 +423,134 @@ impl Settings {
                     self.window_maximized = v;
                 }
             }
+            "language" => {
+                if let Some(v) = Language::from_str(value) {
+                    self.language = v;
+                }
+            }
+            "active_tab" => {
+                if let Ok(v) = value.parse::<u32>() {
+                    self.active_tab = v;
+                }
+            }
+            "auto_lock" => {
+                if let Ok(v) = value.parse::<u32>() {
+                    self.auto_lock = v;
+                }
+            }
+            "clipboard_clear" => {
+                if let Ok(v) = value.parse::<u32>() {
+                    self.clipboard_clear = v;
+                }
+            }
+            "auto_save" => {
+                if let Ok(v) = value.parse::<u32>() {
+                    self.auto_save = v;
+                }
+            }
+            "show_line_numbers" => {
+                if let Some(v) = parse_bool(value) {
+                    self.show_line_numbers = v;
+                }
+            }
+            "totp_2fa" => {
+                if let Some(v) = parse_bool(value) {
+                    self.totp_2fa = v;
+                }
+            }
+            "totp_2fa_secret" => {
+                self.totp_2fa_secret = value.to_string();
+            }
+            "totp_entry" => {
+                // Format: name|BASE32SECRET
+                if let Some(pipe) = value.find('|') {
+                    let name = value[..pipe].to_string();
+                    let secret = value[pipe + 1..].to_string();
+                    if !name.is_empty() && !secret.is_empty() {
+                        self.totp_entries.push(TotpEntry { name, secret });
+                    }
+                }
+            }
+            "vault_category" => {
+                let name = value.trim();
+                let valid = !name.is_empty()
+                    && !name.chars().any(|c| crate::features::vault::categories::FORBIDDEN_CHARS.contains(&c));
+                if valid {
+                    self.vault_categories.push(name.to_string());
+                } else {
+                    eprintln!("settings: invalid vault_category ignored");
+                }
+            }
+            "hotkey_modifiers" => {
+                if let Ok(v) = value.parse::<u32>() {
+                    self.hotkey_modifiers = v;
+                }
+            }
+            "hotkey_key" => {
+                if let Ok(v) = value.parse::<u32>() {
+                    self.hotkey_key = v;
+                }
+            }
+            "max_attachment_size_mb" => {
+                if let Ok(v) = value.parse::<u32>() {
+                    self.max_attachment_size_mb = clamp_u32(v, 1, 50);
+                }
+            }
+            "max_total_attachments_mb" => {
+                if let Ok(v) = value.parse::<u32>() {
+                    self.max_total_attachments_mb = clamp_u32(v, 10, 200);
+                }
+            }
+            "vault_panel_width" | "totp_panel_width" | "attach_panel_width" | "prompts_panel_width" => {
+                use crate::ui::side_panel::{MAX_PANEL_W, MIN_PANEL_W};
+                if let Ok(v) = value.parse::<u32>() {
+                    let v = clamp_u32(v, MIN_PANEL_W, MAX_PANEL_W);
+                    match key {
+                        "vault_panel_width" => self.vault_panel_width = v,
+                        "totp_panel_width" => self.totp_panel_width = v,
+                        "attach_panel_width" => self.attach_panel_width = v,
+                        _ => self.prompts_panel_width = v,
+                    }
+                }
+            }
+            "passgen_length" => {
+                if let Ok(v) = value.parse::<u32>() {
+                    self.passgen.length =
+                        clamp_u32(v, crate::features::passgen::MIN_LENGTH, crate::features::passgen::MAX_LENGTH);
+                }
+            }
+            "passgen_upper" => {
+                if let Some(v) = parse_bool(value) {
+                    self.passgen.upper = v;
+                }
+            }
+            "passgen_lower" => {
+                if let Some(v) = parse_bool(value) {
+                    self.passgen.lower = v;
+                }
+            }
+            "passgen_digits" => {
+                if let Some(v) = parse_bool(value) {
+                    self.passgen.digits = v;
+                }
+            }
+            "passgen_symbols" => {
+                if let Some(v) = parse_bool(value) {
+                    self.passgen.symbols = v;
+                }
+            }
+            "passgen_exclude_ambiguous" => {
+                if let Some(v) = parse_bool(value) {
+                    self.passgen.exclude_ambiguous = v;
+                }
+            }
+            "passgen_symbol_set" => {
+                // An empty value is a valid, empty list.
+                match crate::features::passgen::normalize_symbols(value) {
+                    Ok(set) => self.passgen.symbol_set = set,
+                    Err(_) => eprintln!("settings: invalid passgen_symbol_set ignored"),
+                }
+            }
             _ => {
                 // Unknown keys silently ignored
             }
@@ -293,6 +588,48 @@ impl Settings {
             out.push_str(&format!("window_maximized={}\n", bool_str(self.window_maximized)));
         }
 
+        {
+            out.push_str(&format!("language={}\n", self.language.as_str()));
+            out.push_str(&format!("active_tab={}\n", self.active_tab));
+            out.push_str(&format!("auto_lock={}\n", self.auto_lock));
+            out.push_str(&format!("clipboard_clear={}\n", self.clipboard_clear));
+            out.push_str(&format!("auto_save={}\n", self.auto_save));
+            out.push_str(&format!("show_line_numbers={}\n", bool_str(self.show_line_numbers)));
+            out.push_str(&format!("totp_2fa={}\n", bool_str(self.totp_2fa)));
+            out.push_str(&format!("totp_2fa_secret={}\n", self.totp_2fa_secret));
+            for entry in &self.totp_entries {
+                out.push_str(&format!("totp_entry={}|{}\n", entry.name, entry.secret));
+            }
+            for cat in &self.vault_categories {
+                out.push_str(&format!("vault_category={}\n", cat));
+            }
+            out.push_str(&format!("hotkey_modifiers={}\n", self.hotkey_modifiers));
+            out.push_str(&format!("hotkey_key={}\n", self.hotkey_key));
+            out.push_str(&format!("max_attachment_size_mb={}\n", self.max_attachment_size_mb));
+            out.push_str(&format!("max_total_attachments_mb={}\n", self.max_total_attachments_mb));
+            out.push_str(&format!("passgen_length={}\n", self.passgen.length));
+            out.push_str(&format!("passgen_upper={}\n", bool_str(self.passgen.upper)));
+            out.push_str(&format!("passgen_lower={}\n", bool_str(self.passgen.lower)));
+            out.push_str(&format!("passgen_digits={}\n", bool_str(self.passgen.digits)));
+            out.push_str(&format!("passgen_symbols={}\n", bool_str(self.passgen.symbols)));
+            out.push_str(&format!("passgen_exclude_ambiguous={}\n", bool_str(self.passgen.exclude_ambiguous)));
+            // ASCII punctuation only (no space, no line break): safe on one line.
+            out.push_str(&format!("passgen_symbol_set={}\n", self.passgen.symbol_set));
+            // Side panel widths: only once resized, so a note whose panels
+            // were never resized keeps the header of earlier versions.
+            use crate::ui::side_panel::{default_width, SidePanel};
+            for (key, width, panel) in [
+                ("vault_panel_width", self.vault_panel_width, SidePanel::Vault),
+                ("totp_panel_width", self.totp_panel_width, SidePanel::Totp),
+                ("attach_panel_width", self.attach_panel_width, SidePanel::Attach),
+                ("prompts_panel_width", self.prompts_panel_width, SidePanel::Prompts),
+            ] {
+                if width != default_width(panel) {
+                    out.push_str(&format!("{key}={width}\n"));
+                }
+            }
+        }
+
         out.push_str(FOOTER);
         out.push('\n');
         out.push_str(note_text);
@@ -305,21 +642,98 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_public() {
-        let s = Settings::default_public();
-        assert_eq!(s.save_on_close, CloseAction::Ask);
-        assert_eq!(s.theme, ThemeChoice::Dark);
-        assert!(s.word_wrap);
-        assert!(!s.minimize_to_tray);
-        assert_eq!(s.min_password_length, 4);
-        assert_eq!(s.font_family, "Consolas");
-        assert_eq!(s.font_size, 11.0);
+    fn test_default() {
+        let s = Settings::default();
+        assert_eq!(s.min_password_length, 6);
+        assert_eq!(s.language, Language::En);
+        assert_eq!(s.active_tab, 0);
+        assert_eq!(s.auto_lock, 15);
+        assert_eq!(s.clipboard_clear, 30);
+        assert_eq!(s.auto_save, 30);
+        assert!(s.show_line_numbers);
+        assert!(!s.totp_2fa);
+        assert_eq!(s.totp_2fa_secret, "");
+        assert!(s.totp_entries.is_empty());
+        assert_eq!(s.hotkey_modifiers, 6);
+        assert_eq!(s.hotkey_key, 76);
+    }
+
+    /// Every field of the defaults a new note starts with (issue 059, D9:
+    /// those of the 1.2.27 Pro build, the only ones from 2.0 on). Written out
+    /// on purpose: a default that moves, or a field added without one, fails
+    /// here.
+    fn frozen_defaults() -> Settings {
+        Settings {
+            save_on_close: CloseAction::Ask,
+            theme: ThemeChoice::Dark,
+            word_wrap: true,
+            minimize_to_tray: false,
+            min_password_length: 6,
+            font_family: "Consolas".to_string(),
+            font_size: 11.0,
+            save_key: 0x53,
+            save_modifiers: 0x02,
+            window_width: 900,
+            window_height: 650,
+            window_x: i32::MIN,
+            window_y: i32::MIN,
+            window_maximized: false,
+            language: Language::En,
+            active_tab: 0,
+            auto_lock: 15,
+            clipboard_clear: 30,
+            auto_save: 30,
+            show_line_numbers: true,
+            totp_2fa: false,
+            totp_2fa_secret: String::new(),
+            totp_entries: Vec::new(),
+            vault_categories: Vec::new(),
+            hotkey_modifiers: 6,
+            hotkey_key: 76,
+            max_attachment_size_mb: 10,
+            max_total_attachments_mb: 50,
+            passgen: crate::features::passgen::Options {
+                length: 16,
+                upper: true,
+                lower: true,
+                digits: true,
+                symbols: true,
+                exclude_ambiguous: false,
+                symbol_set: "!@#$%^&*()-_=+[]{};:,.?".to_string(),
+            },
+            vault_panel_width: 300,
+            totp_panel_width: 280,
+            attach_panel_width: 280,
+            prompts_panel_width: 320,
+        }
+    }
+
+    #[test]
+    fn single_defaults_are_frozen() {
+        assert_eq!(Settings::default(), frozen_defaults());
+        assert_eq!(crate::features::autolock::AutoLock::default().timeout_minutes(), 15);
+        assert_eq!(crate::features::autosave::AutoSave::default().interval_seconds(), 30);
+        assert_eq!(crate::features::clipboard_guard::ClipboardGuard::default().timeout_seconds(), 30);
+        assert_eq!(crate::features::hotkey::GlobalHotkey::default().display(), "Ctrl+Shift+L");
+    }
+
+    /// What `Settings::parse` gives the keys a file does not hold (and a file
+    /// without settings): the defaults, but a minimum password length of 4,
+    /// as in every build up to 1.2.27 (D9: kept, so that existing files read
+    /// back the same).
+    #[test]
+    fn parse_fallback_is_frozen() {
+        let mut expected = frozen_defaults();
+        expected.min_password_length = 4;
+        for input in ["", "plain note", "[LOCKNOTE_SETTINGS]\n[/LOCKNOTE_SETTINGS]\nnote", "[LOCKNOTE_SETTINGS]\nno footer"] {
+            assert_eq!(Settings::parse(input).0, expected, "input {:?}", input);
+        }
     }
 
     #[test]
     fn test_parse_empty() {
         let (s, note) = Settings::parse("");
-        assert_eq!(s, Settings::default_public());
+        assert_eq!(s, Settings::parse_fallback());
         assert_eq!(note, "");
     }
 
@@ -327,7 +741,7 @@ mod tests {
     fn test_parse_no_header() {
         let input = "Hello, world!\nThis is my note.";
         let (s, note) = Settings::parse(input);
-        assert_eq!(s, Settings::default_public());
+        assert_eq!(s, Settings::parse_fallback());
         assert_eq!(note, input);
     }
 
@@ -389,7 +803,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip() {
-        let mut s = Settings::default_public();
+        let mut s = Settings::parse_fallback();
         s.theme = ThemeChoice::Light;
         s.save_on_close = CloseAction::Never;
         s.font_size = 14.5;
@@ -411,7 +825,7 @@ mod tests {
     #[test]
     fn test_multiline_note_content() {
         let note = "First line\n\nThird line\n\n\nSixth line";
-        let s = Settings::default_public();
+        let s = Settings::parse_fallback();
         let serialized = s.serialize(note);
         let (_, note2) = Settings::parse(&serialized);
         assert_eq!(note2, note);
@@ -426,7 +840,7 @@ mod tests {
 
     #[test]
     fn test_serialize_format() {
-        let s = Settings::default_public();
+        let s = Settings::parse_fallback();
         let out = s.serialize("hello");
         assert!(out.starts_with("[LOCKNOTE_SETTINGS]\n"));
         assert!(out.contains("[/LOCKNOTE_SETTINGS]\n"));
@@ -443,18 +857,59 @@ mod tests {
     }
 
     #[test]
+    fn vault_categories_roundtrip() {
+        let mut s = Settings::default();
+        assert!(s.vault_categories.is_empty()); // never customized
+        s.vault_categories = vec!["General".into(), "Banque perso".into(), "Serveurs".into()];
+        let (p, note) = Settings::parse(&s.serialize("note"));
+        assert_eq!(p.vault_categories, s.vault_categories);
+        assert_eq!(note, "note");
+        let (p, _) = Settings::parse(&Settings::default().serialize("x"));
+        assert!(p.vault_categories.is_empty());
+    }
+
+    #[test]
+    fn test_pro_totp_entries() {
+        let input = "[LOCKNOTE_SETTINGS]\ntotp_entry=Gmail|JBSWY3DPEHPK3PXP\ntotp_entry=AWS|KZXW6YTBOI======\n[/LOCKNOTE_SETTINGS]\nNote";
+        let (s, _) = Settings::parse(input);
+        assert_eq!(s.totp_entries.len(), 2);
+        assert_eq!(s.totp_entries[0].name, "Gmail");
+        assert_eq!(s.totp_entries[0].secret, "JBSWY3DPEHPK3PXP");
+        assert_eq!(s.totp_entries[1].name, "AWS");
+    }
+
+    #[test]
+    fn test_pro_roundtrip() {
+        let mut s = Settings::default();
+        s.language = Language::Fr;
+        s.active_tab = 2;
+        s.auto_lock = 0;
+        s.totp_2fa = true;
+        s.totp_entries.push(TotpEntry { name: "Test".into(), secret: "SECRET".into() });
+
+        let serialized = s.serialize("Pro note");
+        let (s2, note) = Settings::parse(&serialized);
+        assert_eq!(s2.language, Language::Fr);
+        assert_eq!(s2.active_tab, 2);
+        assert_eq!(s2.auto_lock, 0);
+        assert!(s2.totp_2fa);
+        assert_eq!(s2.totp_entries.len(), 1);
+        assert_eq!(note, "Pro note");
+    }
+
+    #[test]
     fn test_no_footer_returns_all_as_note() {
         let input = "[LOCKNOTE_SETTINGS]\ntheme=light\nSome text without footer";
         let (s, note) = Settings::parse(input);
         // No footer → defaults, entire input is note
-        assert_eq!(s, Settings::default_public());
+        assert_eq!(s, Settings::parse_fallback());
         assert_eq!(note, input);
     }
 
     #[test]
     fn test_crypto_chain_settings_then_note() {
         // Simulates what happens after decryption: settings block + note
-        let settings = Settings::default_public();
+        let settings = Settings::parse_fallback();
         let note_content = "Sensitive data here\nWith multiple lines\nAnd special chars: <>&\"'";
         let combined = settings.serialize(note_content);
 
@@ -476,14 +931,14 @@ mod tests {
     fn test_parse_only_whitespace() {
         let input = "   \n  \n  ";
         let (s, note) = Settings::parse(input);
-        assert_eq!(s, Settings::default_public());
+        assert_eq!(s, Settings::parse_fallback());
         assert_eq!(note, input);
     }
 
     #[test]
     fn test_parse_unicode_note_content() {
         let note = "Café ☕ 日本語 Привет 🔒📝";
-        let s = Settings::default_public();
+        let s = Settings::parse_fallback();
         let serialized = s.serialize(note);
         let (_, parsed_note) = Settings::parse(&serialized);
         assert_eq!(parsed_note, note);
@@ -493,7 +948,7 @@ mod tests {
     fn test_parse_empty_settings_block() {
         let input = "[LOCKNOTE_SETTINGS]\n[/LOCKNOTE_SETTINGS]\nJust a note";
         let (s, note) = Settings::parse(input);
-        assert_eq!(s, Settings::default_public());
+        assert_eq!(s, Settings::parse_fallback());
         assert_eq!(note, "Just a note");
     }
 
@@ -501,7 +956,7 @@ mod tests {
 
     #[test]
     fn test_window_defaults() {
-        let s = Settings::default_public();
+        let s = Settings::parse_fallback();
         assert_eq!(s.window_width, 900);
         assert_eq!(s.window_height, 650);
         assert_eq!(s.window_x, i32::MIN);
@@ -511,7 +966,7 @@ mod tests {
 
     #[test]
     fn test_window_not_serialized_when_default() {
-        let s = Settings::default_public();
+        let s = Settings::parse_fallback();
         let out = s.serialize("note");
         assert!(!out.contains("window_width"));
         assert!(!out.contains("window_x"));
@@ -519,7 +974,7 @@ mod tests {
 
     #[test]
     fn test_window_serialized_when_set() {
-        let mut s = Settings::default_public();
+        let mut s = Settings::parse_fallback();
         s.window_x = 100;
         s.window_y = 200;
         s.window_width = 1024;
@@ -536,7 +991,7 @@ mod tests {
 
     #[test]
     fn test_window_roundtrip() {
-        let mut s = Settings::default_public();
+        let mut s = Settings::parse_fallback();
         s.window_x = 50;
         s.window_y = -10;
         s.window_width = 1200;
@@ -579,139 +1034,98 @@ mod tests {
         assert_eq!(s.window_x, i32::MIN);
     }
 
-    // ── Edge-case and robustness tests ──
+    // ── Side panel widths ──
 
     #[test]
-    fn test_note_containing_settings_header() {
-        // Note body literally contains "[LOCKNOTE_SETTINGS]" — should survive roundtrip
-        let note = "Here is a fake header: [LOCKNOTE_SETTINGS] in my note";
-        let s = Settings::default_public();
-        let serialized = s.serialize(note);
-        let (s2, note2) = Settings::parse(&serialized);
-        assert_eq!(s2, s);
-        assert_eq!(note2, note);
+    fn panel_widths_default_to_the_historical_widths() {
+        let s = Settings::default();
+        assert_eq!((s.vault_panel_width, s.totp_panel_width, s.attach_panel_width), (300, 280, 280));
+        assert_eq!(s.prompts_panel_width, 320);
     }
 
     #[test]
-    fn test_note_containing_settings_footer() {
-        // Note body literally contains "[/LOCKNOTE_SETTINGS]"
-        let note = "Some text [/LOCKNOTE_SETTINGS] more text";
-        let s = Settings::default_public();
-        let serialized = s.serialize(note);
-        let (s2, note2) = Settings::parse(&serialized);
-        assert_eq!(s2, s);
-        assert_eq!(note2, note);
+    fn panel_widths_not_serialized_when_default() {
+        let out = Settings::default().serialize("note");
+        assert!(!out.contains("panel_width"), "{out}");
     }
 
     #[test]
-    fn test_duplicate_keys_last_wins() {
-        let input = "[LOCKNOTE_SETTINGS]\ntheme=dark\ntheme=light\n[/LOCKNOTE_SETTINGS]\n";
+    fn panel_widths_roundtrip_each_on_its_own() {
+        let mut s = Settings::default();
+        s.totp_panel_width = 412;
+        let out = s.serialize("note");
+        assert!(out.contains("totp_panel_width=412\n"));
+        assert!(!out.contains("vault_panel_width") && !out.contains("attach_panel_width"));
+        s.vault_panel_width = 640;
+        s.attach_panel_width = 221;
+        assert!(!s.serialize("note").contains("prompts_panel_width"));
+        s.prompts_panel_width = 777;
+        assert!(s.serialize("note").contains("prompts_panel_width=777\n"));
+        let (back, note) = Settings::parse(&s.serialize("note"));
+        assert_eq!((back.vault_panel_width, back.totp_panel_width, back.attach_panel_width), (640, 412, 221));
+        assert_eq!(back.prompts_panel_width, 777);
+        assert_eq!(note, "note");
+    }
+
+    #[test]
+    fn panel_widths_are_bounded_when_read() {
+        let input = "[LOCKNOTE_SETTINGS]\nvault_panel_width=10\ntotp_panel_width=999999\nattach_panel_width=0\nprompts_panel_width=9999999\n[/LOCKNOTE_SETTINGS]\n";
         let (s, _) = Settings::parse(input);
-        assert_eq!(s.theme, ThemeChoice::Light);
+        assert_eq!(s.prompts_panel_width, crate::ui::side_panel::MAX_PANEL_W);
+        assert_eq!(s.vault_panel_width, crate::ui::side_panel::MIN_PANEL_W);
+        assert_eq!(s.totp_panel_width, crate::ui::side_panel::MAX_PANEL_W);
+        assert_eq!(s.attach_panel_width, crate::ui::side_panel::MIN_PANEL_W);
     }
 
     #[test]
-    fn test_key_with_equals_in_value() {
-        // find('=') returns the first '=', so value should be "Courier=New"
-        let input = "[LOCKNOTE_SETTINGS]\nfont_family=Courier=New\n[/LOCKNOTE_SETTINGS]\n";
+    fn panel_widths_invalid_or_absent_keep_the_default() {
+        let input = "[LOCKNOTE_SETTINGS]\nvault_panel_width=wide\ntotp_panel_width=-5\nprompts_panel_width=x\n[/LOCKNOTE_SETTINGS]\n";
         let (s, _) = Settings::parse(input);
-        assert_eq!(s.font_family, "Courier=New");
+        assert_eq!((s.vault_panel_width, s.totp_panel_width, s.attach_panel_width), (300, 280, 280));
+        assert_eq!(s.prompts_panel_width, 320);
     }
 
     #[test]
-    fn test_empty_value() {
-        // "font_family=" → empty value, should NOT override default due to !value.is_empty() guard
-        let input = "[LOCKNOTE_SETTINGS]\nfont_family=\n[/LOCKNOTE_SETTINGS]\n";
-        let (s, _) = Settings::parse(input);
-        assert_eq!(s.font_family, "Consolas");
+    fn passgen_options_roundtrip_with_every_symbol() {
+        use crate::features::passgen::Options;
+        // Every ASCII punctuation character, `=`, `[`, `]`, `"` and `\` included.
+        let all: String = (0x21u8..0x7F).map(char::from).filter(|c| c.is_ascii_punctuation()).collect();
+        let mut s = Settings::default();
+        s.passgen = Options {
+            length: 41,
+            upper: false,
+            lower: true,
+            digits: false,
+            symbols: true,
+            exclude_ambiguous: true,
+            symbol_set: all.clone(),
+        };
+        let (back, note) = Settings::parse(&s.serialize("the note"));
+        assert_eq!(back.passgen, s.passgen);
+        assert_eq!(note, "the note");
+
+        // An empty list is a value, not "absent".
+        s.passgen.symbol_set = String::new();
+        s.passgen.symbols = false;
+        assert_eq!(Settings::parse(&s.serialize("")).0.passgen, s.passgen);
     }
 
     #[test]
-    fn test_window_height_clamping() {
-        let input = "[LOCKNOTE_SETTINGS]\nwindow_height=50\n[/LOCKNOTE_SETTINGS]\n";
-        let (s, _) = Settings::parse(input);
-        assert_eq!(s.window_height, 150);
+    fn passgen_defaults_apply_to_older_notes_and_bad_values() {
+        use crate::features::passgen::{Options, MAX_LENGTH, MIN_LENGTH};
+        // Written before the generator existed: no passgen_* key.
+        let (s, _) = Settings::parse("[LOCKNOTE_SETTINGS]\ntheme=light\n[/LOCKNOTE_SETTINGS]\nOld note");
+        assert_eq!(s.passgen, Options::default());
 
-        let input = "[LOCKNOTE_SETTINGS]\nwindow_height=9999\n[/LOCKNOTE_SETTINGS]\n";
-        let (s, _) = Settings::parse(input);
-        assert_eq!(s.window_height, 8000);
-    }
-
-    #[test]
-    fn test_bool_yes_no_variants() {
-        let input = "[LOCKNOTE_SETTINGS]\nword_wrap=yes\n[/LOCKNOTE_SETTINGS]\n";
-        let (s, _) = Settings::parse(input);
-        assert!(s.word_wrap);
-
-        let input = "[LOCKNOTE_SETTINGS]\nword_wrap=no\n[/LOCKNOTE_SETTINGS]\n";
-        let (s, _) = Settings::parse(input);
-        assert!(!s.word_wrap);
-    }
-
-    #[test]
-    fn test_invalid_bool_uses_default() {
-        // word_wrap default is true; "maybe" is invalid and should keep default
-        let input = "[LOCKNOTE_SETTINGS]\nword_wrap=maybe\n[/LOCKNOTE_SETTINGS]\n";
-        let (s, _) = Settings::parse(input);
-        assert!(s.word_wrap);
-    }
-
-    #[test]
-    fn test_invalid_theme_uses_default() {
-        // Default theme is Dark; "blue" is invalid
-        let input = "[LOCKNOTE_SETTINGS]\ntheme=blue\n[/LOCKNOTE_SETTINGS]\n";
-        let (s, _) = Settings::parse(input);
-        assert_eq!(s.theme, ThemeChoice::Dark);
-    }
-
-    #[test]
-    fn test_invalid_close_action_uses_default() {
-        // Default is Ask; "sometimes" is invalid
-        let input = "[LOCKNOTE_SETTINGS]\nsave_on_close=sometimes\n[/LOCKNOTE_SETTINGS]\n";
-        let (s, _) = Settings::parse(input);
-        assert_eq!(s.save_on_close, CloseAction::Ask);
-    }
-
-    #[test]
-    fn test_settings_block_with_blank_lines() {
-        let input = "[LOCKNOTE_SETTINGS]\n\ntheme=light\n\nword_wrap=off\n\n[/LOCKNOTE_SETTINGS]\nNote";
-        let (s, note) = Settings::parse(input);
-        assert_eq!(s.theme, ThemeChoice::Light);
-        assert!(!s.word_wrap);
-        assert_eq!(note, "Note");
-    }
-
-    #[test]
-    fn test_very_long_note() {
-        let note: String = "x".repeat(100_000);
-        let s = Settings::default_public();
-        let serialized = s.serialize(&note);
-        let (s2, note2) = Settings::parse(&serialized);
-        assert_eq!(s2, s);
-        assert_eq!(note2.len(), 100_000);
-        assert_eq!(note2, note);
-    }
-
-    #[test]
-    fn test_note_with_only_newlines() {
-        // Note text is just newlines — after footer stripping, leading \n are consumed
-        let s = Settings::default_public();
-        let serialized = s.serialize("\n\n\n\n");
-        let (s2, note2) = Settings::parse(&serialized);
-        assert_eq!(s2, s);
-        // The serialize format is: ...FOOTER\n + note_text
-        // On parse, leading \r\n after footer are stripped, so "\n\n\n\n" becomes ""
-        // because the parser eats all leading newlines after the footer
-        assert_eq!(note2, "");
-    }
-
-    #[test]
-    fn test_crlf_in_settings_block() {
-        // Settings block with \r\n line endings — .lines() handles both
-        let input = "[LOCKNOTE_SETTINGS]\r\ntheme=light\r\nword_wrap=off\r\n[/LOCKNOTE_SETTINGS]\r\nMy note";
-        let (s, note) = Settings::parse(input);
-        assert_eq!(s.theme, ThemeChoice::Light);
-        assert!(!s.word_wrap);
-        assert_eq!(note, "My note");
+        // Out-of-range lengths are clamped; unreadable values keep the default.
+        let parse = |body: &str| Settings::parse(&format!("[LOCKNOTE_SETTINGS]\n{body}\n[/LOCKNOTE_SETTINGS]\n")).0.passgen;
+        assert_eq!(parse("passgen_length=3").length, MIN_LENGTH);
+        assert_eq!(parse("passgen_length=500").length, MAX_LENGTH);
+        assert_eq!(parse("passgen_length=abc").length, Options::default().length);
+        assert_eq!(parse("passgen_upper=maybe").upper, Options::default().upper);
+        // A list holding anything but punctuation is ignored as a whole.
+        assert_eq!(parse("passgen_symbol_set=!a#").symbol_set, Options::default().symbol_set);
+        // Duplicates are dropped.
+        assert_eq!(parse("passgen_symbol_set=##--").symbol_set, "#-");
     }
 }

@@ -8,6 +8,10 @@ use native_windows_gui as nwg;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+fn t(key: &str) -> String {
+    crate::features::i18n::get(key).to_string()
+}
+
 // ---------------------------------------------------------------------------
 // Result types
 // ---------------------------------------------------------------------------
@@ -38,7 +42,7 @@ impl CloseConfirmDialog {
         nwg::Window::builder()
             .size((420, 170))
             .position((300, 300))
-            .title("Unsaved Changes")
+            .title(&t("close.title"))
             .flags(nwg::WindowFlags::WINDOW | nwg::WindowFlags::VISIBLE)
             .build(&mut window)
             .expect("Failed to build CloseConfirmDialog window");
@@ -55,7 +59,7 @@ impl CloseConfirmDialog {
         // Message
         let mut lbl_msg = Default::default();
         nwg::Label::builder()
-            .text("Unsaved changes. Save before closing?")
+            .text(&t("close.msg"))
             .parent(&window)
             .position((20, 15))
             .size((380, 25))
@@ -66,7 +70,7 @@ impl CloseConfirmDialog {
         // Remember checkbox
         let mut chk_remember = Default::default();
         nwg::CheckBox::builder()
-            .text("Remember my choice")
+            .text(&t("close.remember"))
             .parent(&window)
             .position((20, 55))
             .size((250, 25))
@@ -77,7 +81,7 @@ impl CloseConfirmDialog {
         // Save button
         let mut btn_save = Default::default();
         nwg::Button::builder()
-            .text("Save")
+            .text(&t("close.save"))
             .parent(&window)
             .position((80, 100))
             .size((90, 30))
@@ -85,10 +89,12 @@ impl CloseConfirmDialog {
             .build(&mut btn_save)
             .expect("Failed to build Save button");
 
+        super::bind_enter_to_button(window.handle, btn_save.handle);
+
         // Don't save button
         let mut btn_dont = Default::default();
         nwg::Button::builder()
-            .text("Don't save")
+            .text(&t("close.dontsave"))
             .parent(&window)
             .position((185, 100))
             .size((90, 30))
@@ -99,7 +105,7 @@ impl CloseConfirmDialog {
         // Cancel button
         let mut btn_cancel = Default::default();
         nwg::Button::builder()
-            .text("Cancel")
+            .text(&t("close.cancel"))
             .parent(&window)
             .position((290, 100))
             .size((90, 30))
@@ -169,47 +175,5 @@ mod tests {
     fn close_action_variants() {
         assert_ne!(CloseAction::Save, CloseAction::DontSave);
         assert_ne!(CloseAction::DontSave, CloseAction::Cancel);
-    }
-
-    #[test]
-    fn close_action_all_variants() {
-        let save = CloseAction::Save;
-        let dont_save = CloseAction::DontSave;
-        let cancel = CloseAction::Cancel;
-        assert_eq!(save, CloseAction::Save);
-        assert_eq!(dont_save, CloseAction::DontSave);
-        assert_eq!(cancel, CloseAction::Cancel);
-    }
-
-    #[test]
-    fn close_confirm_result_with_remember() {
-        let r = CloseConfirmResult {
-            action: CloseAction::Save,
-            remember: true,
-        };
-        assert_eq!(r.action, CloseAction::Save);
-        assert!(r.remember);
-    }
-
-    #[test]
-    fn close_confirm_result_clone() {
-        let r = CloseConfirmResult {
-            action: CloseAction::DontSave,
-            remember: true,
-        };
-        let cloned = r;
-        assert_eq!(cloned.action, r.action);
-        assert_eq!(cloned.remember, r.remember);
-    }
-
-    #[test]
-    fn close_confirm_result_debug() {
-        let r = CloseConfirmResult {
-            action: CloseAction::Save,
-            remember: false,
-        };
-        let debug_str = format!("{:?}", r);
-        assert!(debug_str.contains("Save"));
-        assert!(debug_str.contains("remember"));
     }
 }

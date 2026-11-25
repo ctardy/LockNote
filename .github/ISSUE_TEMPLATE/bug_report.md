@@ -6,6 +6,9 @@ labels: bug
 assignees: ''
 ---
 
+<!-- Security issue? Do not open an issue: see SECURITY.md (private report). -->
+<!-- Never paste a note, a secret, a password or a file that holds notes. -->
+
 ## Description
 A clear description of the bug.
 
@@ -20,7 +23,11 @@ What you expected to happen.
 ## Actual behavior
 What actually happened.
 
+## Logs
+Relevant lines of `%LOCALAPPDATA%\LockNote\swap-error.log` or `import.log`,
+if any (they hold no secret, but check before pasting).
+
 ## Environment
-- Windows version: [e.g. Windows 11 23H2]
-- LockNote version: [e.g. v0.1.0 or commit hash]
-- .NET Framework version: [e.g. 4.8]
+- Windows version: [e.g. Windows 11 24H2]
+- LockNote version: [Help > About, e.g. 2.0.0]
+- Where the exe is: [local disk, USB drive, network share]

@@ -9,96 +9,94 @@ pub mod about;
 pub mod settings_dialog;
 pub mod preferences_dialog;
 pub mod security_dialog;
+pub mod temp_files_dialog;
+
+pub mod drop_choice;
+
+pub mod rename_tab;
+
+pub mod secret_edit;
+
+pub mod prompt_edit;
+
+pub mod ssh_keygen;
+
+pub mod totp_setup;
+
+pub mod totp_verify;
+
+pub mod totp_manager;
+
+pub mod backups_dialog;
+
+pub mod export_encoding;
+
+pub mod confirm_password;
+
+pub mod backup_password;
+
+pub mod password_generator;
 
 use native_windows_gui as nwg;
 
-/// Apply theme colors to a dialog window and its child controls.
+pub mod metrics;
+pub mod style;
+
+#[cfg(test)]
+mod snapshot;
+
+pub use style::{mark_error, set_frame_color};
+
+/// Give a dialog the shared look. Call right after the window is built, before
+/// its controls: the styling pass runs from the first message of the dialog's
+/// loop, when every control exists (see `style.rs`).
+///
+/// Dark title bar and window background, then, per control: palette colors for
+/// labels / edit boxes / lists (`WM_CTLCOLOR*`), DPI scaling, the font
+/// hierarchy, reflow of text that does not fit, uniform footer buttons, dark
+/// native controls (Dark theme), Esc = close, centering on the main window.
 pub fn apply_dialog_theme(window: &nwg::Window) {
+    apply_window_chrome(window);
+    style::register(window);
+
+    // Install raw event handler for the shared look
+    let raw = nwg::bind_raw_event_handler(
+        &window.handle,
+        0x30000, // unique handler ID
+        move |hwnd, msg, wparam, lparam| style::handle_message(hwnd as isize, msg, wparam as usize, lparam),
+    );
+    // Keep the handler alive for the dialog lifetime
+    std::mem::forget(raw);
+}
+
+/// Title bar and background brush only, for windows that lay out and paint
+/// their own content (the unlock card): no DPI rescale, no restyled controls.
+pub fn apply_window_chrome(window: &nwg::Window) {
     use nwg::ControlHandle;
     use crate::theme;
 
     let pal = theme::current();
 
+    // Dark/light title bar (no-op look change in the Light theme)
+    crate::ui::dark_chrome::apply_title_bar(&window.handle);
+
+    // Set window background brush
     if let ControlHandle::Hwnd(hwnd) = window.handle {
         let hwnd_w = windows::Win32::Foundation::HWND(hwnd as *mut _);
-        let brush = unsafe {
-            windows::Win32::Graphics::Gdi::CreateSolidBrush(
-                windows::Win32::Foundation::COLORREF(pal.background.to_colorref()),
-            )
-        };
+        // Shared, colour-keyed brush: nothing to leak when the theme changes.
+        let brush = windows::Win32::Graphics::Gdi::HBRUSH(
+            crate::ui::lock_card::cached_brush(pal.background) as *mut _,
+        );
         unsafe {
             windows::Win32::UI::WindowsAndMessaging::SetClassLongPtrW(
                 hwnd_w,
                 windows::Win32::UI::WindowsAndMessaging::GCL_HBRBACKGROUND,
                 brush.0 as isize,
             );
+            // Force repaint
             let _ = windows::Win32::Graphics::Gdi::InvalidateRect(Some(hwnd_w), None, true);
         }
     }
-
-    let bg_colorref = pal.background.to_colorref();
-    let text_colorref = pal.text_primary.to_colorref();
-    let input_bg_colorref = pal.input_background.to_colorref();
-
-    let bg_brush = unsafe {
-        windows::Win32::Graphics::Gdi::CreateSolidBrush(
-            windows::Win32::Foundation::COLORREF(bg_colorref),
-        )
-    };
-    let input_brush = unsafe {
-        windows::Win32::Graphics::Gdi::CreateSolidBrush(
-            windows::Win32::Foundation::COLORREF(input_bg_colorref),
-        )
-    };
-
-    let raw = nwg::bind_raw_event_handler(
-        &window.handle,
-        0x30000,
-        move |_hwnd, msg, _wparam, _lparam| {
-            const WM_CTLCOLORSTATIC: u32 = 0x0138;
-            const WM_CTLCOLOREDIT: u32 = 0x0133;
-            const WM_CTLCOLORBTN: u32 = 0x0135;
-
-            match msg {
-                WM_CTLCOLORSTATIC | WM_CTLCOLORBTN => {
-                    let hdc = _wparam as *mut std::ffi::c_void;
-                    let hdc = windows::Win32::Graphics::Gdi::HDC(hdc);
-                    unsafe {
-                        windows::Win32::Graphics::Gdi::SetTextColor(
-                            hdc,
-                            windows::Win32::Foundation::COLORREF(text_colorref),
-                        );
-                        windows::Win32::Graphics::Gdi::SetBkColor(
-                            hdc,
-                            windows::Win32::Foundation::COLORREF(bg_colorref),
-                        );
-                        windows::Win32::Graphics::Gdi::SetBkMode(
-                            hdc,
-                            windows::Win32::Graphics::Gdi::TRANSPARENT,
-                        );
-                    }
-                    Some(bg_brush.0 as isize)
-                }
-                WM_CTLCOLOREDIT => {
-                    let hdc = _wparam as *mut std::ffi::c_void;
-                    let hdc = windows::Win32::Graphics::Gdi::HDC(hdc);
-                    unsafe {
-                        windows::Win32::Graphics::Gdi::SetTextColor(
-                            hdc,
-                            windows::Win32::Foundation::COLORREF(text_colorref),
-                        );
-                        windows::Win32::Graphics::Gdi::SetBkColor(
-                            hdc,
-                            windows::Win32::Foundation::COLORREF(input_bg_colorref),
-                        );
-                    }
-                    Some(input_brush.0 as isize)
-                }
-                _ => None,
-            }
-        },
-    );
-    std::mem::forget(raw);
 }
 
 /// Disable Windows visual themes on a control so WM_CTLCOLOR* messages are respected.
@@ -122,7 +120,10 @@ pub fn disable_control_theme(handle: nwg::ControlHandle) {
 /// nwg's dispatch loop uses `IsDialogMessage` which intercepts VK_RETURN
 /// and sends WM_COMMAND with IDOK (1) to the parent window.
 /// This function installs a handler on the **window** to catch that command.
+///
+/// The button also becomes the dialog's primary button (accent fill).
 pub fn bind_enter_to_button(window_handle: nwg::ControlHandle, button_handle: nwg::ControlHandle) {
+    style::set_primary(window_handle, button_handle);
     let raw = nwg::bind_raw_event_handler(
         &window_handle,
         0x20000,

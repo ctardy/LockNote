@@ -1,238 +1,118 @@
 # LockNote
 
-[![License](https://img.shields.io/badge/License-Free%20for%20personal%20use-green.svg)](LICENSE)
-[![Platform: Windows](https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D6)](https://github.com/ctardy/LockNote/releases)
-
-A single `.exe` that is both a text editor **and** an encrypted vault. Your notes are stored inside the executable itself — no config files, no temp files, no installation, no dependencies.
-
-```
- ┌─────────────────────────────────────────┐
- │            LockNote.exe                 │
- │  ┌───────────────┬───────────────────┐  │
- │  │   Program     │  Encrypted data   │  │
- │  │   (Rust)      │  (AES-256-CBC)    │  │
- │  └───────────────┴───────────────────┘  │
- └─────────────────────────────────────────┘
-        One file. Zero footprint.
-```
-
----
-
-## The problem
-
-You need to store sensitive text (passwords, keys, private notes) on a USB stick, a shared PC, or a network drive. Traditional note apps leave cleartext files on disk. Password managers require installation. Cloud solutions require connectivity and trust.
-
-## The solution
-
-LockNote is a **self-contained** encrypted notepad. Copy a single `.exe` anywhere — USB drive, desktop, network share — and your encrypted notes travel with it. Nothing is ever written to disk in cleartext.
-
-| What you type | What's on disk | What an attacker sees |
-|---------------|----------------|----------------------|
-| `my secret API key: sk-1234` | `AES-256 ciphertext` | Random bytes |
-
----
-
-## Quick start
-
-### Download
-
-Grab `LockNote.exe` from the [latest release](../../releases/latest) — a single portable file, ready to use.
-
-### Build from source
-
-Requires Rust (stable, `x86_64-pc-windows-gnu` target):
-
-```cmd
-scripts\build.cmd
-```
-
-Output: `build\LockNote.exe`
-
-### First launch
-
-1. Create a password (entry + confirmation, with strength indicator)
-2. Type your notes in the editor
-3. `Ctrl+S` to encrypt and save — data is written inside the .exe itself
-
-### Subsequent launches
-
-1. Enter your password (5 attempts max)
-2. Edit your notes
-3. `Ctrl+S` to re-encrypt with fresh salt and IV
-
----
+Self-contained encrypted notepad for Windows: the program and your notes are
+one `.exe`. Nothing to install, no account, no cloud. Free and open source
+(GPL-3.0-or-later), written in **Rust** with a native Windows GUI
+(native-windows-gui).
 
 ## Features
 
-### Editor
-- Find (`Ctrl+F`) and Find & Replace (`Ctrl+H`) popups with Previous/Next navigation, live match counter (3 / 12), match case, whole word
-- Go to line (`Ctrl+G`)
-- Undo / redo (`Ctrl+Z` / `Ctrl+Y`)
-- Line numbers gutter (auto-adjusting width)
-- Insert timestamp (`F5` — inserts `yyyy-MM-dd HH:mm`)
-- Duplicate line (`Ctrl+D`) and delete line (`Ctrl+Shift+K`)
-- Word, character, and line count in status bar
-- Cut / Copy / Paste / Paste plain text (`Ctrl+Shift+V`)
-- Right-click context menu with clipboard operations
-- Select all (`Ctrl+A`)
+| Feature | Description |
+|---------|-------------|
+| Encryption | AES-256-CBC + HMAC-SHA256 (encrypt-then-MAC), key derived with Argon2id (64 MiB, 3 iterations, 4 lanes); every plaintext buffer is wiped after use |
+| Multi-tab notes | Organize notes in separate tabs within a single encrypted file; drag & drop to reorder them, the active tab is highlighted, overflowing tabs go into a "…" menu, the active tab and caret line are restored after lock/unlock |
+| Encrypted vault | Secret manager shown as a category tree, open at launch: click a secret to copy it ("Copied: name" indicator), search by name, create/rename/delete categories, drag & drop secrets between them, reveal (5 s, dedicated field), multi-line secrets with a Copy button in the edit dialog |
+| Prompts | Stored prompts, searched by name and text, copied in one click |
+| TOTP two-factor auth | Time-based one-time passwords (RFC 6238), and an optional 2FA code at unlock |
+| Attachments | Files stored encrypted inside the note |
+| Safety backups | An encrypted backup of the whole note is written before every import and update, and on demand; File > Safety backups lists them, restores one or creates a new one |
+| Full backup | File > Export / Import full backup: all tabs, vault, prompts, attachments and settings in one encrypted `.lnbak` file, versioned so future versions keep reading it |
+| Import from another LockNote | File > Import from another LockNote...: moves the data of another LockNote exe into the running one |
+| SSH keys | Tools > SSH Keys: generate Ed25519 / ECDSA / RSA keys (optional passphrase), save them in the vault, export owner-only files, load them into the Windows ssh-agent; LockNote removes the keys it loaded at lock, close and next unlock |
+| Password generator | Tools > Password Generator, and a Generate... button in the vault's secret dialog: length 8–64, uppercase / lowercase / digits / symbols, your own symbol list, optional exclusion of look-alike characters |
+| Auto-lock, auto-save, clipboard auto-clear | Each with its own delay |
+| Global hotkey | `Ctrl+Shift+L` to show/hide from anywhere |
+| Multi-language | English, French, Spanish, German |
+| Find & Replace | Previous/Next, live match counter, match case, whole word |
+| Updates | Checked against the signed releases of this repository: `SHA256SUMS.txt` is verified with an Ed25519 signature before any hash is trusted |
 
-### Security
-- AES-256-CBC encryption with HMAC-SHA256 authentication
-- Argon2id key derivation (64 MiB memory cost, tunable)
-- Password strength indicator on creation
-- 5 unlock attempts max (brute-force protection)
-- Zero cleartext on disk — ever
-- All sensitive buffers zeroed after use
+Window size and position are restored between sessions. A double-click
+selects the exact text between spaces (passwords stay whole, nothing is copied
+automatically).
 
-### Settings
-- Dark / light theme with system-aware defaults
-- Save-on-close behavior: Ask / Always / Never
-- Configurable font family and size
-- Minimize to system tray
-- Always on top (View menu toggle)
-- Auto-update check via GitHub releases
+## How the notes are stored
 
----
+The notes live at the end of the exe, after a marker. A running program cannot
+rewrite its own file, so every save goes to a staging file in
+`%LOCALAPPDATA%\LockNote` (`<hash>.tmp`, with its companion `<hash>.base`);
+when LockNote closes, a small helper embedded in the exe copies it over the
+exe. Until then, that `.tmp` is the only copy of the latest save: never delete
+it by hand (File > Settings > Temporary files shows them). See `docs/SPEC.md`.
 
-## Keyboard shortcuts
+## Build
 
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl+S` | Save (encrypt & write) |
-| `Ctrl+F` | Find (popup) |
-| `Ctrl+H` | Find & Replace (popup) |
-| `Ctrl+G` | Go to line |
-| `Ctrl+Z` / `Ctrl+Y` | Undo / Redo |
-| `Ctrl+D` | Duplicate current line |
-| `Ctrl+A` | Select all |
-| `Ctrl+Q` | Quit |
-| `Ctrl+Shift+V` | Paste as plain text |
-| `Ctrl+Shift+K` | Delete current line |
-| `F5` | Insert timestamp |
-| `Enter` (in Find popup) | Find next |
-
----
-
-## How it works
-
-### Self-modifying executable
-
-LockNote appends encrypted data after a binary marker at the end of its own `.exe`. Since Windows locks a running executable, saves go through an atomic swap mechanism.
-
-```
-┌──────────────────────┬────────┬──────────────────────────────┐
-│   Rust PE executable │ Marker │  [salt][iv][hmac][ciphertext] │
-│                      │(16 B)  │        (variable)            │
-└──────────────────────┴────────┴──────────────────────────────┘
-```
-
-### Cryptography
-
-| Component | Detail |
-|-----------|--------|
-| Cipher | AES-256-CBC (PKCS7 padding) |
-| Authentication | HMAC-SHA256 (encrypt-then-MAC) |
-| Key derivation | Argon2id (m_cost 64 MiB, t_cost 3, 4 lanes) |
-| Salt | 16 bytes, random per save |
-| IV | 16 bytes, random per save |
-| KDF params stored | m_cost, t_cost, p_lanes (12 bytes, allows cost bump without format change) |
-| Key material | 64 bytes (32 enc + 32 mac) from a single Argon2id call |
-| Verification | HMAC checked before decryption (constant-time comparison) |
-
-Wire format: `[salt 16B][IV 16B][argon2 params 12B][HMAC 32B][ciphertext]`
-
-### Security properties
-
-- **Zero cleartext on disk** — no temp files, no swap, no config
-- **Fresh randomness** — salt and IV regenerated on every save
-- **Encrypt-then-MAC** — ciphertext integrity verified before decryption
-- **Constant-time comparison** — HMAC check is not vulnerable to timing attacks
-- **Buffer cleanup** — all sensitive byte arrays zeroed after use
-- **Brute-force protection** — 5 password attempts max, then the program exits
-
----
-
-## Architecture
-
-```
-src/
-├── main.rs                     Entry point, panic handling
-├── crypto/mod.rs               AES-256-CBC + HMAC-SHA256, Argon2id
-├── storage/mod.rs              Binary marker, read/write encrypted payload
-├── settings/mod.rs             User settings (theme, save-on-close)
-├── theme/mod.rs                Dark/light theme system
-├── updater.rs                  Auto-update check via GitHub releases
-├── integration_tests.rs        Integration tests
-├── ui/
-│   ├── mod.rs                  UI entry point, password flow
-│   ├── editor.rs               Editor, menus, shortcuts, status bar
-│   └── dialogs/
-│       ├── create_password.rs  Password creation dialog
-│       ├── unlock.rs           Password prompt (5 attempts max)
-│       ├── close_confirm.rs    Save-on-close confirmation
-│       ├── goto_line.rs        Go-to-line dialog
-│       ├── find_replace.rs     Find / Find & Replace popup
-│       ├── settings_dialog.rs  Settings UI
-│       ├── preferences_dialog.rs  User preferences (font, behavior)
-│       ├── security_dialog.rs  Security settings (password change)
-│       └── about.rs            About dialog
-```
-
-Built with Rust using [native-windows-gui](https://github.com/aspect-build/native-windows-gui) for the native Windows UI, and pure Rust cryptography crates (aes, cbc, hmac, sha2, pbkdf2).
-
----
-
-## Testing
+Requires Rust (stable) on Windows. The Windows resources (icon, version,
+manifest) are compiled by `rc.exe` (Windows SDK, MSVC toolchain) or `windres`
+(MinGW, GNU toolchain); the build fails if they cannot be.
 
 ```cmd
-cargo test
+scripts\build.cmd     REM → build\LockNote.exe
 ```
 
----
+The main binary embeds the swap helper (`assets\locknote-swap-embedded.exe`,
+generated, not in git): `build.cmd` builds it first. To do it by hand:
 
-## Requirements
+```cmd
+cargo build --release --bin locknote-swap
+copy /y target\release\locknote-swap.exe assets\locknote-swap-embedded.exe
+cargo build --release --bin locknote
+```
 
-| Component | Requirement |
-|-----------|-------------|
-| **OS** | Windows 10 or 11 (x64) |
-| **Runtime** | None — native Rust executable |
-| **Build** | Rust stable (`x86_64-pc-windows-gnu`) |
-| **Dependencies** | None at runtime |
+## Test
 
----
+```cmd
+scripts\test.cmd
+```
 
-## LockNote Pro
+It stages the swap helper, then runs `cargo test` with `LOCALAPPDATA`, `TEMP`
+and `TMP` pointing to a throwaway folder, so that no test ever touches the
+real `%LOCALAPPDATA%\LockNote` (it may hold the only copy of a save). Run
+`cargo test` by hand only with the same redirection.
 
-Looking for more features? [LockNote Pro](https://uitguard.com) adds:
+## Migrating from LockNote 1.2.x
 
-| Category | Features |
-|----------|----------|
-| **Editor** | Multi-tab notes with color labels, Markdown preview (split or full) |
-| **Security** | Auto-lock after inactivity, clipboard auto-clear, TOTP two-factor authentication, duress password (decoy content under coercion) |
-| **Vault** | Built-in encrypted password & secrets manager with categories, reveal-on-click, copy with auto-clear |
-| **Attachments** | Embed encrypted files (images, PDFs, documents) inside the executable |
-| **Steganography** | Hide your encrypted notes inside a normal-looking image (JPEG, PNG, BMP) |
-| **QR code export** | Transfer encrypted notes to your phone via QR code — no network needed |
-| **Snapshots** | Named version history with instant restore |
-| **Localization** | English, French, Spanish, German |
-| **Productivity** | Auto-save, GZip compression, global hotkey (Ctrl+Shift+L), import/export text files |
+- **Update every LockNote copy you have.** A LockNote 1.2.1 deletes, when it
+  starts, the pending `.tmp` files of the other copies (older than one
+  minute) in `%LOCALAPPDATA%\LockNote`, which may hold their latest save.
+- **LockNote 1.2.1 (free edition)**: it updates itself to 2.0 and keeps your
+  notes (2.0 reads the 1.2.1 format; a frozen 1.2.1 file is part of the
+  tests). Known limitation: a line made only of a LockNote block header
+  (such as `[LOCKNOTE_VAULT]`) in a 1.2.1 note is read as that block by 2.0
+  (see CHANGELOG 2.0.0); check your note before the update.
+- **LockNote Pro 1.2.x**: it does not see 2.0 (it reads another release
+  feed). Migrate by hand:
+  1. In the old LockNote: File > Export full backup (`.lnbak`), then **close**
+     it.
+  2. Put the new `LockNote.exe` next to the old exe, open it and choose a
+     password.
+  3. File > Import full backup with the `.lnbak` of step 1. Or File > Import
+     from another LockNote..., choosing the old exe **by its usual path** (the
+     drive letter you always use, not a UNC path: a pending save is tied to
+     the path). Check the tabs, the vault, the TOTP codes, the prompts and the
+     attachments. Not imported: the password hint, the session state and
+     the keys loaded into ssh-agent.
+  4. Before deleting the old exe, check in File > Settings > Temporary files that it has
+     no pending `.tmp` left.
+  5. Do not run a LockNote 1.2.1 on those PCs: its cleanup deletes the `.tmp`
+     files older than one minute in `%LOCALAPPDATA%\LockNote`.
+  6. `%LOCALAPPDATA%\LockNote\license.dat` (the licence of the Pro
+     edition) is no longer used: delete it by hand if you wish.
 
-[Get LockNote Pro](https://uitguard.com)
+## Documentation
 
----
-
-## Contributing
-
-1. Fork the repo
-2. Create a feature branch
-3. Make sure `scripts\build.cmd` and `cargo test` pass
-4. Open a Pull Request
-
----
+- `docs/SPEC.md`: full specification (formats, cryptography, file swap, UI).
+- `docs/release-signing-setup.md`: release signing keys.
+- `scripts/migrate-exe.ps1`: replace the program of an exe that already
+  holds notes.
+- `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`.
 
 ## License
 
-[Custom License](LICENSE) — Created by [UITGuard](https://uitguard.com)
+Copyright (C) 2025-2026 Christophe Tardy.
 
-- **Personal use**: Free to use, modify, and redistribute
-- **Commercial / Enterprise use**: Paid license required — contact [contact@uitguard.com](mailto:contact@uitguard.com)
+LockNote is free software: you can redistribute it and/or modify it under the
+terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. It is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+A PARTICULAR PURPOSE. See [LICENSE](LICENSE) for the full text.

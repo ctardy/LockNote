@@ -1,0 +1,3 @@
+# Frozen binary fixtures: never convert line endings.
+*.lnbak binary
+*.bin binary

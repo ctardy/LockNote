@@ -1,16 +1,13 @@
 fn main() {
     if cfg!(target_os = "windows") {
-        // Add MinGW to PATH for windres
-        if let Ok(current) = std::env::var("PATH") {
-            let mingw = r"C:\dev\tools\mingw\mingw64\bin";
-            std::env::set_var("PATH", format!("{};{}", mingw, current));
-        }
+        // rc.exe of the Windows SDK (MSVC toolchain), or windres of a MinGW
+        // found on PATH (GNU toolchain): winres picks the one of the target.
         let mut res = winres::WindowsResource::new();
         res.set_icon("assets/icon.ico");
         res.set("ProductName", "LockNote");
         res.set("FileDescription", "LockNote — Encrypted notepad for Windows");
         res.set("CompanyName", "uitguard.com");
-        res.set("LegalCopyright", "\u{00A9} 2026 Chris Tardy — uitguard.com");
+        res.set("LegalCopyright", "\u{00A9} 2025-2026 Christophe Tardy — GPL-3.0-or-later");
         res.set("OriginalFilename", "LockNote.exe");
         res.set_manifest(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
@@ -35,8 +32,10 @@ fn main() {
   </compatibility>
 </assembly>
 "#);
+        // No silent fallback: an exe without its icon, version and manifest
+        // (common controls 6, per-monitor DPI) must not be produced.
         if let Err(e) = res.compile() {
-            eprintln!("Warning: could not compile Windows resources: {}", e);
+            panic!("could not compile Windows resources (windres or rc.exe): {}", e);
         }
     }
 }

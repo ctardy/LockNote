@@ -4,29 +4,33 @@ on:
   push:
     tags: ['v*']
 
+# Read-only by default; only the release job writes (the release itself).
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust (GNU toolchain)
-        uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-pc-windows-gnu
+          persist-credentials: false
+
+      # MSVC toolchain: the Windows resources are compiled by rc.exe.
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Build
         shell: cmd
         run: scripts\build.cmd
 
+      # Swap helper staged again, LOCALAPPDATA / TEMP / TMP redirected to a
+      # throwaway folder (see the script).
       - name: Run tests
         shell: cmd
-        run: cargo test
+        run: scripts\test.cmd
 
-      - name: Sign executable
+      - name: Sign executables
         uses: azure/trusted-signing-action@v0.5.0
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -50,26 +54,77 @@ jobs:
           cd staging
           sha256sum LockNote.exe > SHA256SUMS.txt
           7z a ../LockNote-windows-x64.zip .
+          # The updater downloads the zip and looks up its SHA256 in the
+          # standalone SHA256SUMS.txt asset. Append the zip's own hash to
+          # a copy published next to the zip. The copy inside the zip
+          # intentionally omits the zip hash (self-reference impossible).
+          cp SHA256SUMS.txt ../SHA256SUMS.txt
+          (cd .. && sha256sum LockNote-windows-x64.zip) >> ../SHA256SUMS.txt
+
+      # Ed25519 signature over the raw SHA256SUMS.txt bytes. The client
+      # refuses to trust the hash file without a matching .sig when
+      # RELEASE_PUBLIC_KEY is set in src/updater.rs. See
+      # docs/release-signing-setup.md for how the keypair is generated and
+      # how the private key is installed as a GitHub Actions secret.
+      - name: Install signing deps
+        shell: bash
+        run: pip install --disable-pip-version-check 'cryptography>=42,<46'
+
+      - name: Sign SHA256SUMS.txt
+        shell: bash
+        env:
+          RELEASE_SIGNING_KEY_HEX: ${{ secrets.RELEASE_SIGNING_KEY_HEX }}
+        run: |
+          if [ -z "$RELEASE_SIGNING_KEY_HEX" ]; then
+            echo "::error::RELEASE_SIGNING_KEY_HEX secret is not set — configure it per docs/release-signing-setup.md"
+            exit 1
+          fi
+          python scripts/sign-sha256sums.py SHA256SUMS.txt
+          # Paranoia: verify what we just produced using the public key
+          # derived from the same seed, so a silently-corrupt signature
+          # cannot ship to users.
+          python - <<'PY'
+          import os
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+          seed = bytes.fromhex(os.environ['RELEASE_SIGNING_KEY_HEX'])
+          pk = Ed25519PrivateKey.from_private_bytes(seed).public_key()
+          with open('SHA256SUMS.txt', 'rb') as f: payload = f.read()
+          with open('SHA256SUMS.txt.sig', 'rb') as f: sig = f.read()
+          pk.verify(sig, payload)
+          print('signature self-check: OK')
+          PY
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: LockNote-windows-x64
-          path: LockNote-windows-x64.zip
+          path: |
+            LockNote-windows-x64.zip
+            SHA256SUMS.txt
+            SHA256SUMS.txt.sig
 
   release:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
+      # Published in this repository, the one the updater reads
+      # (`GITHUB_REPO` in src/updater.rs). No mirror any more (issue 059).
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: artifacts/LockNote-windows-x64/LockNote-windows-x64.zip
+          files: |
+            artifacts/LockNote-windows-x64/LockNote-windows-x64.zip
+            artifacts/LockNote-windows-x64/SHA256SUMS.txt
+            artifacts/LockNote-windows-x64/SHA256SUMS.txt.sig
