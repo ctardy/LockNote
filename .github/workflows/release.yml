@@ -92,6 +92,19 @@ jobs:
           with open('SHA256SUMS.txt.sig', 'rb') as f: sig = f.read()
           pk.verify(sig, payload)
           print('signature self-check: OK')
+          # The seed must match RELEASE_PUBLIC_KEY in src/updater.rs, or
+          # every installed client refuses the release.
+          import re
+          from cryptography.hazmat.primitives import serialization as ser
+          src = open('src/updater.rs', encoding='utf-8').read()
+          block = re.search(r'RELEASE_PUBLIC_KEY: Option<\[u8; 32\]> = Some\(\[(.*?)\]\)', src, re.S)
+          if block is None:
+              raise SystemExit('RELEASE_PUBLIC_KEY not found in src/updater.rs')
+          embedded = bytes(int(h, 16) for h in re.findall(r'0x([0-9a-fA-F]{2})', block.group(1)))
+          derived = pk.public_bytes(ser.Encoding.Raw, ser.PublicFormat.Raw)
+          if embedded != derived:
+              raise SystemExit('RELEASE_SIGNING_KEY_HEX does not match RELEASE_PUBLIC_KEY in src/updater.rs')
+          print('embedded public key: OK')
           PY
 
       - name: Upload artifact
