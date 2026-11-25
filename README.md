@@ -1,5 +1,10 @@
 # LockNote
 
+English | [Français](README.fr.md)
+
+**Documentation:** [User guide](docs/en/user-guide.md) (every function of the
+app, step by step) · [Guide utilisateur](docs/fr/guide-utilisateur.md)
+
 Self-contained encrypted notepad for Windows: the program and your notes are
 one `.exe`. Nothing to install, no account, no cloud. Free and open source
 (GPL-3.0-or-later), written in **Rust** with a native Windows GUI
@@ -100,6 +105,10 @@ real `%LOCALAPPDATA%\LockNote` (it may hold the only copy of a save). Run
 
 ## Documentation
 
+- [docs/en/user-guide.md](docs/en/user-guide.md): user guide, one section per
+  feature (English).
+- [docs/fr/guide-utilisateur.md](docs/fr/guide-utilisateur.md): the same guide
+  in French.
 - `docs/SPEC.md`: full specification (formats, cryptography, file swap, UI).
 - `docs/release-signing-setup.md`: release signing keys.
 - `scripts/migrate-exe.ps1`: replace the program of an exe that already
