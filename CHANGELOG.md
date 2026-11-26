@@ -7,6 +7,8 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
 ## [Unreleased]
 
 ### Fixed
+- **F2 renames the tab**: the Tabs menu showed F2 next to "Rename Tab..."
+  but the key did nothing. F2 in the vault tree still does nothing (#24).
 - **About box**: the crypto line said "PBKDF2 300k iterations"; it now
   states the Argon2id parameters actually used (64 MiB, 3 iterations,
   4 lanes), taken from the crypto constants so it cannot drift again

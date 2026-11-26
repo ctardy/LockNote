@@ -693,3 +693,28 @@ pub(super) fn detect_and_decode(bytes: &[u8]) -> (String, String) {
     let (cow, _, _) = encoding_rs::WINDOWS_1252.decode(bytes);
     (cow.into_owned(), "Windows-1252".to_string())
 }
+
+/// What a key pressed without Ctrl or Shift does in `handle_shortcut`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum PlainKey {
+    /// F5: insert the date and time.
+    InsertTimestamp,
+    /// Escape.
+    Escape,
+    /// F2: rename the active tab (Tabs > Rename Tab...).
+    RenameTab,
+}
+
+/// The action of a key pressed without Ctrl or Shift, `None` when it is not
+/// a shortcut (the key goes on to the control).
+pub(super) fn plain_key_action(vk: u32) -> Option<PlainKey> {
+    match vk {
+        0x74 => Some(PlainKey::InsertTimestamp), // F5
+        0x1B => Some(PlainKey::Escape),          // Escape
+        // Shown next to Tabs > Rename Tab... (issue #24). The vault tree
+        // gets its own keys (handle_shortcut is not called there) and has
+        // no label editing (build.rs), so F2 stays inert in it.
+        0x71 => Some(PlainKey::RenameTab),       // F2
+        _ => None,
+    }
+}

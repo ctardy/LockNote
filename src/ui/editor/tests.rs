@@ -735,3 +735,20 @@
         assert!(p.contains(149));
         assert!(!p.contains(150));
     }
+
+    // ── plain_key_action (handle_shortcut without Ctrl/Shift) ──
+
+    /// Issue #24: the Tabs menu shows F2 for "Rename Tab...", so F2 must
+    /// reach the rename action like the menu item.
+    #[test]
+    fn f2_is_routed_to_tab_rename() {
+        assert_eq!(plain_key_action(0x71), Some(PlainKey::RenameTab));
+    }
+
+    #[test]
+    fn plain_keys_keep_their_actions() {
+        assert_eq!(plain_key_action(0x74), Some(PlainKey::InsertTimestamp));
+        assert_eq!(plain_key_action(0x1B), Some(PlainKey::Escape));
+        // Plain letters go to the editor.
+        assert_eq!(plain_key_action(0x41), None);
+    }

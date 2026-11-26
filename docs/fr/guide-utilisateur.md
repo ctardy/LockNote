@@ -281,7 +281,7 @@ son texte, son nom et une couleur facultative.
   clic droit > Fermer l’onglet. Un onglet qui contient du texte demande
   d'abord : « Fermer l’onglet « nom » ? Son contenu sera perdu. » Le dernier
   onglet ne peut pas être fermé.
-- **Renommer** : Onglet > Renommer l'onglet..., ou clic droit sur l'onglet >
+- **Renommer** : Onglet > Renommer l'onglet... (**F2**), ou clic droit sur l'onglet >
   Renommer l’onglet.... Le nom ne peut pas être vide.
 - **Couleur** : clic droit sur l'onglet > Couleur > une couleur (affichées en
   anglais : blue, green, red, orange, purple, yellow, pink, gray), ou Aucune
@@ -1042,6 +1042,7 @@ Voir la [section 23](#23-fichiers-temporaires).
 | F5 | Insérer un horodatage |
 | Ctrl+T | Nouvel onglet |
 | Ctrl+W | Fermer l'onglet |
+| F2 | Renommer l'onglet |
 | Ctrl+Tab, Ctrl+Maj+Tab | Onglet suivant, onglet précédent |
 | Ctrl+B | Panneau Coffre |
 | Ctrl+J | Panneau Pièces jointes |

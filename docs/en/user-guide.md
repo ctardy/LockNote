@@ -257,7 +257,7 @@ text, name and optional colour.
 - **Close**: the close box on the tab, Tab > Close Tab, **Ctrl+W**, or right
   click > Close Tab. A tab that holds text asks first: "Close tab "name"? Its
   content will be lost." The last tab cannot be closed.
-- **Rename**: Tab > Rename Tab..., or right click on the tab > Rename Tab....
+- **Rename**: Tab > Rename Tab... (**F2**), or right click on the tab > Rename Tab....
   The name cannot be empty.
 - **Colour**: right click on the tab > Color > a colour (blue, green, red,
   orange, purple, yellow, pink, gray), or No color. The tab shows a dot of that
@@ -952,6 +952,7 @@ See [section 23](#23-temporary-files).
 | F5 | Insert timestamp |
 | Ctrl+T | New tab |
 | Ctrl+W | Close tab |
+| F2 | Rename tab |
 | Ctrl+Tab, Ctrl+Shift+Tab | Next tab, previous tab |
 | Ctrl+B | Vault panel |
 | Ctrl+J | Attachments panel |

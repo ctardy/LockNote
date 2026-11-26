@@ -1775,6 +1775,7 @@ It never removes a `.tmp`, whichever exe it belongs to. The only way a `.tmp` of
 | F5 | Insert timestamp (`yyyy-MM-dd HH:mm`) |
 | Ctrl+T | New tab |
 | Ctrl+W | Close tab |
+| F2 | Rename the active tab (issue #24; inert in the vault tree, see §8) |
 | Ctrl+Tab | Next tab |
 | Ctrl+Shift+Tab | Previous tab |
 | Ctrl+B | Toggle vault panel |

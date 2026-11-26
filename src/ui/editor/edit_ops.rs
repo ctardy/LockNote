@@ -156,10 +156,11 @@ impl EditorForm {
                 _ => {}
             }
         } else if !ctrl && !shift {
-            match vk {
-                0x74 => { self.on_insert_timestamp(); return true; } // F5
-                0x1B => { self.on_escape(); return true; }           // Escape
-                _ => {}
+            match plain_key_action(vk) {
+                Some(PlainKey::InsertTimestamp) => { self.on_insert_timestamp(); return true; }
+                Some(PlainKey::Escape) => { self.on_escape(); return true; }
+                Some(PlainKey::RenameTab) => { self.on_rename_tab(); return true; }
+                None => {}
             }
         }
         false
