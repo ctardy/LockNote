@@ -439,7 +439,7 @@ impl EditorForm {
             &self.window.handle, &t("totp.add.title"), &t("totp.add.prompt"),
         ) {
             if !name.is_empty() {
-                if let Some(entry) = crate::ui::dialogs::totp_setup::TotpSetupDialog::show(&name, None) {
+                if let Some(entry) = crate::ui::dialogs::totp_setup::TotpSetupDialog::show_add_key(&name) {
                     // Add to settings
                     let settings_entry = crate::settings::TotpEntry {
                         name: entry.name.clone(),

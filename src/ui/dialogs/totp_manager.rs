@@ -251,7 +251,7 @@ impl TotpManagerDialog {
                         // Ask for a name via a simple input dialog
                         if let Some(name) = simple_input_dialog(&window_handle, &t("totp.add.title"), &t("totp.add.prompt")) {
                             if !name.is_empty() {
-                                if let Some(entry) = super::totp_setup::TotpSetupDialog::show(&name, None) {
+                                if let Some(entry) = super::totp_setup::TotpSetupDialog::show_add_key(&name) {
                                     entries_for_handler.borrow_mut().push(entry);
                                     *modified_for_handler.borrow_mut() = true;
                                     refresh_list(&list_entries, &entries_for_handler.borrow());

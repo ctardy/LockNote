@@ -284,6 +284,91 @@ fn uri_decode(s: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Secret typed or pasted by the user (issue #23)
+// ---------------------------------------------------------------------------
+
+/// Why a secret given when adding a TOTP key is refused.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SecretInputError {
+    /// Nothing but spaces.
+    Empty,
+    /// Not Base32 (RFC 4648 alphabet), or no data once decoded.
+    InvalidBase32,
+    /// An `otpauth://` link that is not `otpauth://totp/` (e.g. `hotp`), or
+    /// another scheme.
+    NotTotpUri,
+    /// An `otpauth://totp/` link without a `secret=` parameter.
+    UriWithoutSecret,
+    /// The link asks for an algorithm, a number of digits or a period other
+    /// than SHA1 / 6 / 30 s, the only ones `generate_code` computes: the codes
+    /// would never match the site's.
+    UnsupportedParameters,
+}
+
+/// The Base32 secret to store for what the user pasted when adding a key:
+/// Base32 text (spaces, lowercase and `=` padding accepted) or an
+/// `otpauth://totp/` link (its `secret`). Returns the secret uppercase,
+/// without spaces or padding, or why it is refused. Nothing is guessed: an
+/// input that is not exactly one of these forms is refused.
+pub fn parse_secret_input(input: &str) -> Result<String, SecretInputError> {
+    let input = input.trim();
+    if input.is_empty() {
+        return Err(SecretInputError::Empty);
+    }
+    const PREFIX: &str = "otpauth://totp/";
+    // `get`, not `[..n]`: a pasted text may have a multi-byte character there.
+    let starts_with = |p: &str| input.get(..p.len()).map_or(false, |s| s.eq_ignore_ascii_case(p));
+    if starts_with("otpauth:") {
+        let is_totp = starts_with(PREFIX);
+        if !is_totp {
+            return Err(SecretInputError::NotTotpUri);
+        }
+        // `parse_uri` expects the scheme in lowercase.
+        let uri = format!("{}{}", PREFIX, &input[PREFIX.len()..]);
+        let (_label, secret, _issuer) = parse_uri(&uri).ok_or(SecretInputError::UriWithoutSecret)?;
+        let query = uri.split_once('?').map(|(_, q)| q).unwrap_or("");
+        for param in query.split('&') {
+            let Some((key, value)) = param.split_once('=') else { continue };
+            let supported = match key.to_ascii_lowercase().as_str() {
+                "algorithm" => value.eq_ignore_ascii_case("SHA1"),
+                "digits" => value == TOTP_DIGITS.to_string(),
+                "period" => value == TOTP_PERIOD.to_string(),
+                _ => true,
+            };
+            if !supported {
+                return Err(SecretInputError::UnsupportedParameters);
+            }
+        }
+        return normalize_base32_secret(&uri_decode(&secret));
+    }
+    normalize_base32_secret(input)
+}
+
+/// `s` without spaces or trailing `=`, uppercase, when it is Base32 holding
+/// at least one byte.
+fn normalize_base32_secret(s: &str) -> Result<String, SecretInputError> {
+    let clean: String = s
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .trim_end_matches('=')
+        .to_ascii_uppercase();
+    if s.trim().is_empty() {
+        return Err(SecretInputError::Empty);
+    }
+    if !clean.bytes().all(|b| BASE32_ALPHABET.contains(&b)) {
+        return Err(SecretInputError::InvalidBase32);
+    }
+    match base32_decode(&clean) {
+        Some(mut bytes) if !bytes.is_empty() => {
+            bytes.zeroize();
+            Ok(clean)
+        }
+        _ => Err(SecretInputError::InvalidBase32),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Entry serialization
 // ---------------------------------------------------------------------------
 
@@ -537,6 +622,63 @@ mod tests {
         assert_eq!(label, "My App:user name");
         assert_eq!(secret, "JBSWY3DP");
         assert_eq!(issuer.unwrap(), "My App");
+    }
+
+    // -- parse_secret_input (issue #23) -------------------------------------
+
+    #[test]
+    fn pasted_base32_with_spaces_and_lowercase_is_accepted() {
+        let s = parse_secret_input("  gezd gnbv gy3t qojq gezd gnbv gy3t qojq ").unwrap();
+        assert_eq!(s, TEST_SECRET_B32);
+        // Padding and tabs too.
+        assert_eq!(parse_secret_input("JBSW\tY3DP====").unwrap(), "JBSWY3DP");
+    }
+
+    #[test]
+    fn pasted_otpauth_uri_gives_its_secret() {
+        let uri = "otpauth://totp/Example:alice@example.com?secret=gezdgnbvgy3tqojqgezdgnbvgy3tqojq&issuer=Example";
+        assert_eq!(parse_secret_input(uri).unwrap(), TEST_SECRET_B32);
+        // The defaults written out are accepted.
+        let uri = "otpauth://totp/x?secret=JBSWY3DP&algorithm=SHA1&digits=6&period=30";
+        assert_eq!(parse_secret_input(uri).unwrap(), "JBSWY3DP");
+        // Percent-encoded spaces in the secret, as some sites write it.
+        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSW%20Y3DP").unwrap(), "JBSWY3DP");
+    }
+
+    #[test]
+    fn stored_secret_gives_the_rfc6238_codes() {
+        for input in [
+            "gezd gnbv gy3t qojq gezd gnbv gy3t qojq",
+            "otpauth://totp/RFC?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+        ] {
+            let s = parse_secret_input(input).unwrap();
+            assert_eq!(generate_code(&s, 59).unwrap(), "287082");
+            assert_eq!(generate_code(&s, 1111111109).unwrap(), "081804");
+            assert_eq!(generate_code(&s, 2000000000).unwrap(), "279037");
+        }
+    }
+
+    #[test]
+    fn refused_secrets_say_why() {
+        use SecretInputError::*;
+        assert_eq!(parse_secret_input(""), Err(Empty));
+        assert_eq!(parse_secret_input("   "), Err(Empty));
+        assert_eq!(parse_secret_input("JBSWY3DP1"), Err(InvalidBase32)); // 1 is not Base32
+        assert_eq!(parse_secret_input("hello world!"), Err(InvalidBase32));
+        assert_eq!(parse_secret_input("===="), Err(InvalidBase32));
+        // Multi-byte characters: refused, never a panic on a char boundary.
+        assert_eq!(parse_secret_input("ééééééééé"), Err(InvalidBase32));
+        assert_eq!(parse_secret_input("otpaut\u{e9}://totp/x?secret=JBSWY3DP"), Err(InvalidBase32));
+        assert_eq!(parse_secret_input("otpauth://tot\u{e9}/x?secret=JBSWY3DP"), Err(NotTotpUri));
+        assert_eq!(parse_secret_input("otpauth://hotp/x?secret=JBSWY3DP&counter=1"), Err(NotTotpUri));
+        assert_eq!(parse_secret_input("https://example.com/?secret=JBSWY3DP"), Err(InvalidBase32));
+        assert_eq!(parse_secret_input("OTPAUTH://HOTP/x?secret=JBSWY3DP"), Err(NotTotpUri));
+        assert_eq!(parse_secret_input("otpauth://totp/x?issuer=X"), Err(UriWithoutSecret));
+        assert_eq!(parse_secret_input("otpauth://totp/x"), Err(UriWithoutSecret));
+        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3D1"), Err(InvalidBase32));
+        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DP&algorithm=SHA256"), Err(UnsupportedParameters));
+        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DP&digits=8"), Err(UnsupportedParameters));
+        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DP&period=60"), Err(UnsupportedParameters));
     }
 
     // -- Entry serialization ------------------------------------------------
