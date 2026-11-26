@@ -3,11 +3,14 @@
 // Every dialog of LockNote runs its own message loop: the main window's
 // timers keep firing under it. Auto-save could write changes the user is
 // about to decline: it is suspended while a modal is open and its delay
-// restarts when the last one closes. Auto-lock is never postponed past its
-// delay (owner decision on #30): when it is due with dialogs open, they are
-// cancelled (their input is lost, the note is not) and the lock runs once
-// they are gone (`pending_step`); the manual lock and the close requested
-// under a dialog do the same. A modal is "open" when an RAII `ModalGuard`
+// restarts when the last one closes. Auto-lock (owner decision on #30,
+// pass 5): when it is due with dialogs open, they are cancelled (their input
+// is lost, the note is not) and the lock runs from the application's loop
+// once they are gone. A dialog that does not close (busy, a box without
+// Cancel / No) cannot postpone the hiding of the note: at `LOCK_DEADLINE` a
+// curtain covers the window and hides the LockNote dialogs; the wipe runs
+// when the last dialog is gone (`lock_step`). The manual lock and the close
+// requested under a dialog go through the same path. A modal is "open" when an RAII `ModalGuard`
 // is alive, or when a LockNote dialog or message box of this thread is shown
 // (the probe in `EditorForm::modal_open` catches the dialogs opened without
 // a guard).
@@ -118,6 +121,45 @@ pub(super) fn pending_step(modal_open: bool, since_cancel: std::time::Duration) 
     }
 }
 
+/// What a tick does with a pending lock (pass 5, owner decision): past
+/// `LOCK_DEADLINE` with a dialog still open, a curtain hides the note on
+/// time; the wipe itself still waits until no dialog remains.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum LockStep {
+    Wait,
+    CancelAgain,
+    /// Hide the note now (overlay without unlock field, LockNote dialogs
+    /// hidden); the lock becomes a manual one, it cannot be undone by a
+    /// mouse move.
+    ShowCurtain,
+    /// No dialog left: lock from the application's own loop.
+    Run,
+}
+
+pub(super) fn lock_step(modal_open: bool, since_cancel: std::time::Duration, waited: std::time::Duration, curtain_shown: bool) -> LockStep {
+    if !modal_open {
+        LockStep::Run
+    } else if waited >= LOCK_DEADLINE && !curtain_shown {
+        LockStep::ShowCurtain
+    } else if since_cancel >= RECANCEL_EVERY {
+        LockStep::CancelAgain
+    } else {
+        LockStep::Wait
+    }
+}
+
+/// A second lock request while one is pending: a manual one wins (pass 5:
+/// Ctrl+L under a dialog was lost behind a pending auto lock).
+pub(super) fn merged_manual(pending_manual: bool, new_manual: bool) -> bool {
+    pending_manual || new_manual
+}
+
+/// Whether a pending lock still locks when it runs: a manual one always;
+/// an automatic one only if the inactivity is still there (`still_due`).
+pub(super) fn lock_goes_on(manual: bool, still_due: bool) -> bool {
+    manual || still_due
+}
+
 /// Whether a lock waiting for `waited` is overdue (ERROR, once).
 pub(super) fn lock_overdue(waited: std::time::Duration) -> bool {
     waited >= LOCK_DEADLINE
@@ -131,12 +173,14 @@ pub(super) struct Pending {
     /// Lock only: the Lock button / Ctrl+L.
     pub(super) manual: bool,
     pub(super) error_logged: bool,
+    /// The curtain hides the note (lock only).
+    pub(super) curtain: bool,
 }
 
 impl Pending {
     pub(super) fn new(manual: bool) -> Pending {
         let now = std::time::Instant::now();
-        Pending { since: now, last_cancel: now, manual, error_logged: false }
+        Pending { since: now, last_cancel: now, manual, error_logged: false, curtain: false }
     }
 }
 
@@ -169,12 +213,19 @@ impl EditorForm {
     /// `manual`: the Lock button / Ctrl+L (always locks); otherwise the
     /// auto-lock, whose decision (save first or not) is taken when it runs.
     pub(super) fn request_lock(&self, manual: bool) {
+        // The lock's own save-error box (on_autolock) must not be cancelled
+        // by a lock request made under it.
+        if self.lock_in_progress.get() {
+            eprintln!("INFO lock: request ignored, a lock is in progress manual={}", manual);
+            return;
+        }
         match lock_request(self.modal_open()) {
             LockRequest::LockNow => self.execute_lock(manual),
             LockRequest::CancelDialogsThenLock => {
-                if self.lock_pending.get().is_none() {
-                    self.lock_pending.set(Some(Pending::new(manual)));
-                }
+                // One pending lock; a manual request wins (pass 5).
+                let mut p = self.lock_pending.get().unwrap_or_else(|| Pending::new(manual));
+                p.manual = merged_manual(p.manual, manual);
+                self.lock_pending.set(Some(p));
                 let n = cancel_open_dialogs();
                 eprintln!("INFO lock: due with dialogs open, cancelled={} manual={}", n, manual);
             }
@@ -196,23 +247,33 @@ impl EditorForm {
     /// tick of a nested loop finds `modal_open()` true and only waits).
     pub(super) fn run_pending_requests(&self) {
         if let Some(mut p) = self.lock_pending.get() {
-            match pending_step(self.modal_open(), p.last_cancel.elapsed()) {
-                PendingStep::Wait => {}
-                PendingStep::CancelAgain => {
+            match lock_step(self.modal_open(), p.last_cancel.elapsed(), p.since.elapsed(), p.curtain) {
+                LockStep::Wait => {}
+                LockStep::CancelAgain => {
                     let n = cancel_open_dialogs();
                     p.last_cancel = std::time::Instant::now();
-                    if lock_overdue(p.since.elapsed()) && !p.error_logged {
+                    eprintln!("INFO lock: dialogs asked to close again count={}", n);
+                    self.lock_pending.set(Some(p));
+                }
+                LockStep::ShowCurtain => {
+                    // On time, whatever stays open: the note is hidden now,
+                    // wiped as soon as the last dialog is gone. Committed: a
+                    // mouse move must not lift it (manual from now on).
+                    p.curtain = true;
+                    p.manual = true;
+                    if !p.error_logged {
                         p.error_logged = true;
                         eprintln!(
-                            "ERROR lock: waiting {} ms, dialogs still open: {}",
+                            "WARN lock: dialogs still open after {} ms, note hidden, lock when they close: {}",
                             p.since.elapsed().as_millis(),
                             describe_open_dialogs()
                         );
                     }
-                    eprintln!("INFO lock: dialogs asked to close again count={}", n);
                     self.lock_pending.set(Some(p));
+                    self.show_curtain();
+                    hide_registered_dialogs();
                 }
-                PendingStep::Run => {
+                LockStep::Run => {
                     self.lock_pending.set(None);
                     eprintln!("INFO lock: running after the dialogs closed delay_ms={}", p.since.elapsed().as_millis());
                     self.execute_lock(p.manual);
@@ -241,28 +302,22 @@ impl EditorForm {
         if *self.is_locked.borrow() {
             return;
         }
-        if manual {
-            self.on_autolock();
+        use crate::features::autolock::LockDecision;
+        let still_due = !matches!(self.autolock.borrow().lock_decision(), LockDecision::Wait);
+        if !lock_goes_on(manual, still_due) {
+            eprintln!("INFO lock: pending auto lock dropped, the user is active again");
             return;
         }
-        use crate::features::autolock::LockDecision;
-        let decision = self.autolock.borrow().lock_decision();
-        match decision {
-            LockDecision::Wait => {}
-            LockDecision::LockNow => self.on_autolock(),
-            LockDecision::SaveThenLock => {
-                // Try to save first. If the save succeeds we lock; if it
-                // fails we keep the data visible and reset the inactivity
-                // timer so the user gets another cycle to react.
-                match self.on_save() {
-                    Ok(()) => self.on_autolock(),
-                    Err(msg) => {
-                        self.autolock.borrow_mut().reset();
-                        eprintln!("WARN autolock: skip due to save failure: {}", msg);
-                    }
-                }
-            }
-        }
+        // on_autolock saves first and, if that save fails, keeps the note
+        // open with the reason instead of wiping the unsaved changes.
+        self.on_autolock();
+    }
+
+    /// A message of the main window (pass 5: counted as a modal, owned by
+    /// the main window), for every information box of the editor.
+    pub(super) fn inform(&self, title: &str, content: &str) {
+        let _modal = self.modal();
+        nwg::modal_info_message(&self.window, title, content);
     }
 
     /// Whether a modal of LockNote is open: a guard is alive, or a LockNote
@@ -308,6 +363,18 @@ impl EditorForm {
 /// opened, and the note neither locked nor exiting.
 pub(super) fn result_applies(epoch_before: u64, epoch_now: u64, locked: bool, exiting: bool) -> bool {
     epoch_before == epoch_now && !locked && !exiting
+}
+
+/// Hide the LockNote dialogs under the curtain (pass 5). They stay
+/// registered, so `modal_open()` stays true and the lock still waits for
+/// them; standard dialogs (#32770) are not hidden: they are counted by their
+/// visibility.
+fn hide_registered_dialogs() {
+    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+    for h in crate::ui::dialogs::style::registered_dialogs() {
+        // The return value is the previous visibility, not an error.
+        let _was_visible = unsafe { ShowWindow(windows::Win32::Foundation::HWND(h as *mut _), SW_HIDE) };
+    }
 }
 
 /// Class and title of the windows of this thread still open, for the
@@ -465,6 +532,35 @@ mod tests {
         assert!(!result_applies(3, 4, false, false), "epoch changed");
         assert!(!result_applies(3, 3, true, false), "locked");
         assert!(!result_applies(3, 3, false, true), "exiting");
+    }
+
+    /// Pass 5: a dialog that never closes no longer postpones the lock
+    /// forever: the curtain hides the note at the deadline, the lock runs
+    /// once the dialog is gone.
+    #[test]
+    fn past_the_deadline_a_curtain_hides_the_note_then_the_lock_runs() {
+        use std::time::Duration;
+        let s = Duration::from_millis;
+        assert_eq!(lock_step(true, s(200), s(200), false), LockStep::Wait);
+        assert_eq!(lock_step(true, RECANCEL_EVERY, s(1000), false), LockStep::CancelAgain);
+        assert_eq!(lock_step(true, s(200), LOCK_DEADLINE, false), LockStep::ShowCurtain);
+        // Curtain up: keep asking the dialog to close, never run under it.
+        assert_eq!(lock_step(true, RECANCEL_EVERY, s(60_000), true), LockStep::CancelAgain);
+        assert_eq!(lock_step(true, s(100), s(60_000), true), LockStep::Wait);
+        // The dialog closed: the real lock.
+        assert_eq!(lock_step(false, s(100), s(60_000), true), LockStep::Run);
+    }
+
+    /// Pass 5: auto then manual under a dialog keeps the manual one, and
+    /// user activity cancels only an automatic lock.
+    #[test]
+    fn a_manual_request_wins_and_activity_cancels_only_an_auto_lock() {
+        assert!(merged_manual(false, true));
+        assert!(merged_manual(true, false));
+        assert!(!merged_manual(false, false));
+        assert!(lock_goes_on(true, false), "manual: always");
+        assert!(!lock_goes_on(false, false), "auto, the user came back");
+        assert!(lock_goes_on(false, true));
     }
 
     /// Owner decision on #30: the lock is not postponed by a dialog.

@@ -149,6 +149,11 @@ pub struct EditorForm {
     /// +1 at every lock (pass 4): a dialog result is applied only if it did
     /// not change while the dialog was open.
     lock_epoch: Cell<u64>,
+    /// on_autolock is showing the reason of its failed save: lock requests
+    /// meanwhile are ignored (they would cancel that box).
+    lock_in_progress: Cell<bool>,
+    /// The curtain (lock screen without unlock field) hides the note.
+    curtain: Cell<bool>,
     /// A failed save blocked the shutdown (issue #29): the reason is removed
     /// at WM_ENDSESSION.
     shutdown_blocked: Cell<bool>,

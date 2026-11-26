@@ -53,10 +53,12 @@ impl EditorForm {
     /// `unload_agent_keys`). The failure is logged here, in English, before
     /// the translated text is built.
     pub(super) fn save_note(&self) -> Result<(), SaveFailure> {
-        // The Windows session ended: the stores are wiped, nothing is saved.
-        if super::end_session::exit_refuses_save(self.exiting.get()).is_err() {
-            eprintln!("INFO save: refused reason=exiting");
-            return Err(SaveFailure::Refused("exiting".to_string()));
+        // Locked or the Windows session ended: the stores are wiped, nothing
+        // is saved (pass 5: a deferred password wipe must not let wiped tabs
+        // be encrypted over the notes).
+        if let Err(reason) = save_allowed(*self.is_locked.borrow(), self.exiting.get()) {
+            eprintln!("INFO save: refused reason={}", reason);
+            return Err(SaveFailure::Refused(reason.to_string()));
         }
         // Fail fast before touching the payload.
         let precondition = save_precondition(&self.password.borrow());

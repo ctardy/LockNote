@@ -745,6 +745,29 @@ pub(super) fn wipe_or_defer<T: zeroize::Zeroize>(cell: &RefCell<T>, pending: &Ce
     }
 }
 
+/// Whether the lock goes on after its save: not when there were unsaved
+/// changes and the save failed (pass 5: the wipe lost them).
+pub(super) fn lock_proceeds(modified: bool, save_ok: bool) -> bool {
+    !modified || save_ok
+}
+
+/// Whether a save may run: never while locked or once the session ended.
+pub(super) fn save_allowed(locked: bool, exiting: bool) -> Result<(), &'static str> {
+    if exiting {
+        Err("exiting")
+    } else if locked {
+        Err("locked")
+    } else {
+        Ok(())
+    }
+}
+
+/// The text of a failed save at lock: the reason, and that the note stays
+/// open and unsaved.
+pub(super) fn lock_save_failed_text(reason: &str) -> String {
+    crate::features::i18n::get("lock.save_failed").replace("{error}", reason)
+}
+
 /// Whether a deferred wipe runs now: only while locked or exiting.
 pub(super) fn wipe_retry_due(pending: bool, locked: bool, exiting: bool) -> bool {
     pending && (locked || exiting)

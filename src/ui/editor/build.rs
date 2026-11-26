@@ -1420,6 +1420,8 @@ impl EditorForm {
             lock_pending: Cell::new(None),
             close_pending: Cell::new(None),
             lock_epoch: Cell::new(0),
+            lock_in_progress: Cell::new(false),
+            curtain: Cell::new(false),
             shutdown_blocked: Cell::new(false),
             wipe_pending: Cell::new(false),
             exiting: Cell::new(false),

@@ -83,6 +83,26 @@ impl EditorForm {
         // Take the global persistence lock for the whole lock sequence:
         // save-if-dirty + clear editor + zeroize password.
         let _persistence_guard = crate::features::persistence_lock::acquire();
+
+        // Save first. Pass 5: a failed save no longer leads to a wipe of the
+        // unsaved changes (data loss): the curtain hides the note, the
+        // reason is shown, and once the user closes it the note is shown
+        // again, still unsaved, the inactivity delay restarted. Nothing else
+        // of the lock is done.
+        let modified = self.is_modified.load(Ordering::Relaxed);
+        let saved = if modified { self.save_note() } else { Ok(()) };
+        if !lock_proceeds(modified, saved.is_ok()) {
+            if let Err(f) = saved {
+                eprintln!("WARN lock: save before the lock failed, the note stays open (hidden while the reason is shown)");
+                self.lock_in_progress.set(true);
+                self.show_curtain();
+                self.inform(&t("save.error.title"), &lock_save_failed_text(f.message()));
+                self.hide_curtain();
+                self.lock_in_progress.set(false);
+                self.autolock.borrow_mut().reset();
+                return;
+            }
+        }
         // Every dialog result from before this lock is now stale (pass 4).
         self.lock_epoch.set(self.lock_epoch.get() + 1);
 
@@ -90,15 +110,6 @@ impl EditorForm {
         // No modal (the lock must not block, issue 049): failures are logged
         // and the keys stay listed for the next unlock.
         self.unload_agent_keys(false);
-
-        // Auto-save if modified. If the save failed, we still proceed with
-        // locking: the timer handler already gave us a chance to bail out
-        // before calling `on_autolock()`; at this point the user's intent is
-        // to lock — discarding in-memory data unsaved is better than leaving
-        // plaintext on screen.
-        if self.is_modified.load(Ordering::Relaxed) {
-            let _ = self.on_save();
-        }
         // Remember where the user was (tab + caret line) before the editor
         // is cleared. The disk copy may be stale (tab switches are not a
         // modification, and the save above may have failed), so unlock
@@ -112,6 +123,8 @@ impl EditorForm {
         // Show lock overlay — unlock popup will appear on focus (WM_ACTIVATE) or click
         *self.is_locked.borrow_mut() = true;
         self.set_menus_for_lock(true);
+        // A curtain shown before becomes the real lock screen.
+        self.curtain.set(false);
         self.show_lock_overlay();
     }
 
@@ -314,8 +327,9 @@ impl EditorForm {
                 // that child's siblings (= other children of `main`). We
                 // also verify GetParent(cur) == main for safety — a stray
                 // top-level window must never be hidden.
+                // Appended, not cleared: under a curtain the siblings it hid
+                // are already listed (pass 5); hide_lock_overlay drains it.
                 let mut hidden = self.lock_hidden_siblings.borrow_mut();
-                hidden.clear();
                 let mut cur = GetWindow(main, GW_CHILD).unwrap_or(HWND(std::ptr::null_mut()));
                 while !cur.0.is_null() {
                     let next = GetWindow(cur, GW_HWNDNEXT).unwrap_or(HWND(std::ptr::null_mut()));
@@ -349,6 +363,34 @@ impl EditorForm {
                 );
             }
         }
+    }
+
+    /// Hide the note without locking it (pass 5): the lock screen without
+    /// its unlock field, with a "locking" text. Used while dialogs that do
+    /// not close delay the lock, and while the reason of a failed save at
+    /// lock is shown.
+    pub(super) fn show_curtain(&self) {
+        if self.curtain.replace(true) {
+            return;
+        }
+        eprintln!("INFO lock: curtain shown");
+        self.show_lock_overlay();
+        // Not locked: nothing to unlock, no field to type into.
+        self.lock_input.set_visible(false);
+        self.lock_eye.set_visible(false);
+        self.lock_btn.set_visible(false);
+        self.lock_input.set_enabled(false);
+        self.lock_btn.set_enabled(false);
+        self.lock_subtitle.set_text(&t("lock.curtain"));
+    }
+
+    /// Lift the curtain (the note was not locked).
+    pub(super) fn hide_curtain(&self) {
+        if !self.curtain.replace(false) {
+            return;
+        }
+        eprintln!("INFO lock: curtain lifted");
+        self.hide_lock_overlay();
     }
 
     /// Hide the lock overlay.

@@ -816,6 +816,27 @@
         assert!(prefs[at..].find("self.arm_clipboard_guard(copied);").map_or(false, |i| i < 400));
     }
 
+    /// Pass 5: a failed save before the lock keeps the note (no wipe of the
+    /// unsaved changes); an unmodified note or a saved one locks.
+    #[test]
+    fn a_failed_save_before_the_lock_keeps_the_note() {
+        assert!(!lock_proceeds(true, false), "unsaved changes and a failed save");
+        assert!(lock_proceeds(true, true));
+        assert!(lock_proceeds(false, false), "nothing to save");
+        let _g = crate::features::i18n::test_support::lang_guard();
+        let t = lock_save_failed_text("disk full");
+        assert!(t.contains("disk full") && !t.contains("{error}"), "{}", t);
+    }
+
+    /// Pass 5: nothing is saved while locked (the stores are wiped, a
+    /// deferred password wipe could leave a password to save them with).
+    #[test]
+    fn no_save_while_locked_or_exiting() {
+        assert_eq!(save_allowed(false, false), Ok(()));
+        assert_eq!(save_allowed(true, false), Err("locked"));
+        assert_eq!(save_allowed(false, true), Err("exiting"));
+    }
+
     /// Pass 4: a wipe deferred at lock is retried while locked, never after
     /// the unlock restored the notes.
     #[test]
