@@ -16,9 +16,13 @@ use crate::features::case_convert::{self, CaseOp};
 /// The edit converting the selection `sel`, or the word under the caret
 /// when it is empty. `Ok(None)` when there is nothing to convert (caret on
 /// whitespace, empty tab) or the text would not change. A selection end
-/// that does not fall on a character of `text` is an error.
+/// that does not fall on a character of `text` is an error, except one
+/// position past the end: RichEdit's final paragraph mark, which WM_GETTEXT
+/// leaves out (EM_SETSEL(0, -1), triple-click on the last line), is the end.
 pub(super) fn case_edit(text: &str, sel: (u32, u32), op: CaseOp) -> Result<Option<LineEdit>, Utf16RangeError> {
-    let (lo, hi) = (sel.0.min(sel.1), sel.0.max(sel.1));
+    let max = utf16_len(text) as u32;
+    let end_mark = |p: u32| if p == max + 1 { max } else { p };
+    let (lo, hi) = (end_mark(sel.0.min(sel.1)), end_mark(sel.0.max(sel.1)));
     let (b0, b1) = if lo == hi {
         let caret = utf16_to_byte_exact(text, lo as usize)?;
         match expand_word_selection(text, caret, caret) {
@@ -57,8 +61,11 @@ impl EditorForm {
                 }
             }
             // The selection comes from the RichEdit itself: a mismatch is a
-            // bug, logged; the text was not touched.
-            Err(e) => eprintln!("ERROR case: op={:?} selection not mapped onto the text: {:?}", op, e),
+            // bug, logged and shown; the text was not touched.
+            Err(e) => {
+                eprintln!("ERROR case: op={:?} selection not mapped onto the text: {:?}", op, e);
+                self.inform(&t("case.error.title"), &t("case.error.mapping").replace("{msg}", &format!("{:?}", e)));
+            }
         }
     }
 }
@@ -233,6 +240,39 @@ mod tests {
         }
     }
 
+    #[test]
+    fn select_all_covers_every_utf16_unit() {
+        // nwg's len() counts chars: one unit short per astral character.
+        let body = src("edit_ops.rs");
+        let start = body.find("fn on_select_all").expect("on_select_all");
+        let end = start + body[start..].find("\n    }\n").expect("end of on_select_all");
+        let f = &body[start..end];
+        assert!(!f.contains("self.editor.len()"), "on_select_all must not use the char count");
+        assert!(f.contains("utf16_len"), "on_select_all must select utf16_len positions");
+        assert_eq!(utf16_len("a😀b straße"), 11);
+    }
+
+    #[test]
+    fn convert_case_error_is_reported_to_the_user() {
+        let body = src("case_ops.rs");
+        let start = body.find("fn on_convert_case").expect("on_convert_case");
+        let err = start + body[start..].find("Err(e) =>").expect("Err branch");
+        let tail = &body[err..err + body[err..].find("\n        }\n").expect("end of match")];
+        assert!(tail.contains("self.inform(") && tail.contains("case.error.mapping"), "Err branch informs");
+    }
+
+    #[test]
+    fn selection_one_past_the_end_is_the_end() {
+        // RichEdit's final paragraph mark (not in WM_GETTEXT) can be selected.
+        let e = edit("abc", (0, 4), CaseOp::Upper);
+        assert_eq!((e.start, e.end, e.text.as_str(), e.sel), (0, 3, "ABC", (0, 3)));
+        let e = edit("ab\r\ncd", (6, 3), CaseOp::Upper);
+        assert_eq!((e.start, e.end, e.text.as_str(), e.sel), (3, 5, "CD", (3, 5)));
+        // Further out stays an error.
+        assert!(matches!(case_edit("abc", (0, 9), CaseOp::Upper), Err(Utf16RangeError::OutOfBounds { .. })));
+        assert!(matches!(case_edit("abc", (5, 5), CaseOp::Upper), Err(Utf16RangeError::OutOfBounds { .. })));
+    }
+
     // ── Live RichEdit: length change, selection and one undo step ──
 
     #[test]
@@ -256,5 +296,30 @@ mod tests {
         assert_eq!(r.text(), "x STRASSE😀\r\nNOËL y");
         send(r.ed, 0x00C7, 0, 0); // EM_UNDO: the uppercase
         assert_eq!(r.text(), "x straße😀\r\nnoël y");
+    }
+
+    #[test]
+    fn live_select_all_then_upper_converts_past_an_emoji() {
+        use super::super::line_ops::tests::live::make;
+        use super::super::line_ops::LineEditSteps;
+        let r = make("a😀b straße");
+        r.select(0, utf16_len(&r.text()) as u32);
+        assert_eq!(run_line_edit(&r, |t, s| case_edit(t, s, CaseOp::Upper)), Ok(true));
+        assert_eq!(r.text(), "A😀B STRASSE");
+        assert_eq!(r.selection(), (0, 12));
+    }
+
+    #[test]
+    fn live_whole_text_selection_with_minus_one_is_converted() {
+        use super::super::line_ops::tests::live::{make, send};
+        use super::super::line_ops::LineEditSteps;
+        let r = make("abc");
+        send(r.ed, 0x00B1, 0, -1); // EM_SETSEL(0, -1): everything
+        assert_eq!(run_line_edit(&r, |t, s| case_edit(t, s, CaseOp::Upper)), Ok(true));
+        assert_eq!(r.text(), "ABC");
+        let r = make("ab\r\ncd");
+        send(r.ed, 0x00B1, 0, -1);
+        assert_eq!(run_line_edit(&r, |t, s| case_edit(t, s, CaseOp::Upper)), Ok(true));
+        assert_eq!(r.text(), "AB\r\nCD");
     }
 }

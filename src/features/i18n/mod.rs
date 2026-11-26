@@ -267,6 +267,8 @@ fn build_en() -> Dict {
     m.insert("menu.edit.case.upper", "&UPPERCASE\tCtrl+Shift+U");
     m.insert("menu.edit.case.lower", "&lowercase\tCtrl+U");
     m.insert("menu.edit.case.title", "&Title Case");
+    m.insert("case.error.title", "Convert Case");
+    m.insert("case.error.mapping", "The case was not converted: {msg}");
     m.insert("menu.edit.lines", "Li&nes");
     m.insert("menu.edit.lines.sortasc", "Sort Lines &Ascending");
     m.insert("menu.edit.lines.sortdesc", "Sort Lines &Descending");
@@ -987,6 +989,8 @@ fn build_fr() -> Dict {
     m.insert("menu.edit.case.upper", "&MAJUSCULES\tCtrl+Shift+U");
     m.insert("menu.edit.case.lower", "m&inuscules\tCtrl+U");
     m.insert("menu.edit.case.title", "&Premi\u{00e8}re lettre des mots en majuscule");
+    m.insert("case.error.title", "Convertir la casse");
+    m.insert("case.error.mapping", "La casse n'a pas \u{00e9}t\u{00e9} convertie : {msg}");
     m.insert("menu.edit.lines", "Lig&nes");
     m.insert("menu.edit.lines.sortasc", "Trier par ordre &croissant");
     m.insert("menu.edit.lines.sortdesc", "Trier par ordre &d\u{00e9}croissant");
@@ -1684,6 +1688,8 @@ fn build_es() -> Dict {
     m.insert("menu.edit.case.upper", "&MAY\u{00da}SCULAS\tCtrl+Shift+U");
     m.insert("menu.edit.case.lower", "mi&n\u{00fa}sculas\tCtrl+U");
     m.insert("menu.edit.case.title", "&Tipo T\u{00ed}tulo");
+    m.insert("case.error.title", "Convertir may\u{00fa}sculas");
+    m.insert("case.error.mapping", "No se convirtieron las may\u{00fa}sculas: {msg}");
     m.insert("menu.edit.lines", "L\u{00ed}&neas");
     m.insert("menu.edit.lines.sortasc", "Ordenar l\u{00ed}neas &ascendente");
     m.insert("menu.edit.lines.sortdesc", "Ordenar l\u{00ed}neas &descendente");
@@ -2382,6 +2388,8 @@ fn build_de() -> Dict {
     m.insert("menu.edit.case.upper", "&GROSSBUCHSTABEN\tStrg+Umschalt+U");
     m.insert("menu.edit.case.lower", "&kleinbuchstaben\tStrg+U");
     m.insert("menu.edit.case.title", "&Wortanf\u{00e4}nge gro\u{00df}");
+    m.insert("case.error.title", "Gro\u{00df}-/Kleinschreibung");
+    m.insert("case.error.mapping", "Die Schreibweise wurde nicht umgewandelt: {msg}");
     m.insert("menu.edit.lines", "Ze&ilen");
     m.insert("menu.edit.lines.sortasc", "&Aufsteigend sortieren");
     m.insert("menu.edit.lines.sortdesc", "Ab&steigend sortieren");
@@ -3152,7 +3160,7 @@ mod tests {
         let edit = [
             "menu.edit.cut", "menu.edit.copy", "menu.edit.paste", "menu.edit.pasteplain", "menu.edit.find",
             "menu.edit.replace", "menu.edit.goto", "menu.edit.dupline", "menu.edit.delline",
-            "menu.edit.selectall", "menu.edit.timestamp",
+            "menu.edit.case", "menu.edit.selectall", "menu.edit.timestamp",
         ];
         let lines = [
             "menu.edit.lines.sortasc", "menu.edit.lines.sortdesc", "menu.edit.lines.dedup",
@@ -3197,8 +3205,16 @@ mod tests {
                 assert!(k.is_some(), "{} of {lang:?} has no access key", items[i]);
                 assert!(!keys[..i].contains(k), "{} of {lang:?} repeats an access key", items[i]);
             }
-            assert!(d["menu.edit.case.upper"].ends_with("+U") && d["menu.edit.case.upper"].contains("+Shift+") != (lang == Language::German));
-            assert!(d["menu.edit.case.lower"].ends_with("\tCtrl+U") || d["menu.edit.case.lower"].ends_with("\tStrg+U"));
+            let (upper, lower) = match lang {
+                Language::German => ("\tStrg+Umschalt+U", "\tStrg+U"),
+                _ => ("\tCtrl+Shift+U", "\tCtrl+U"),
+            };
+            assert!(d["menu.edit.case.upper"].ends_with(upper), "UPPERCASE shortcut of {lang:?}");
+            assert!(d["menu.edit.case.lower"].ends_with(lower), "lowercase shortcut of {lang:?}");
+            for key in ["case.error.title", "case.error.mapping"] {
+                assert!(!d[key].is_empty(), "{key} of {lang:?}");
+            }
+            assert!(d["case.error.mapping"].contains("{msg}"), "case.error.mapping of {lang:?} shows the cause");
             assert!(!d["menu.edit.case.title"].contains('\t'), "Title Case has no shortcut");
         }
     }

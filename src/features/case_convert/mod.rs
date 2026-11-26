@@ -53,6 +53,11 @@ fn title_word(word: &str) -> String {
     };
     let rest = &word[i + first.len_utf8()..];
     let mut out = word[..i].to_lowercase();
+    if let Some(title) = digraph_title(first) {
+        out.push(title);
+        out.push_str(&rest.to_lowercase());
+        return out;
+    }
     // Rust has no titlecase mapping: the uppercase form's first character,
     // then the others lowercased ("ß" -> "SS" -> "Ss", "ﬁ" -> "FI" -> "Fi").
     let mut upper = first.to_uppercase();
@@ -62,6 +67,18 @@ fn title_word(word: &str) -> String {
     out.extend(upper.flat_map(char::to_lowercase));
     out.push_str(&rest.to_lowercase());
     out
+}
+
+/// The title form of the four Latin digraphs whose uppercase differs from
+/// it (UnicodeData.txt titlecase mapping): "dž"/"DŽ" -> "Dž", and LJ, NJ, DZ.
+fn digraph_title(c: char) -> Option<char> {
+    match c {
+        '\u{01C4}'..='\u{01C6}' => Some('\u{01C5}'),
+        '\u{01C7}'..='\u{01C9}' => Some('\u{01C8}'),
+        '\u{01CA}'..='\u{01CC}' => Some('\u{01CB}'),
+        '\u{01F1}'..='\u{01F3}' => Some('\u{01F2}'),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -138,5 +155,16 @@ mod tests {
                 assert_eq!(convert(op, &once), once, "{op:?} of {s:?}");
             }
         }
+    }
+
+    #[test]
+    fn title_of_a_latin_digraph_uses_its_title_form() {
+        // U+01C4..U+01C6 (DŽ, Dž, dž): the title form is the middle one.
+        assert_eq!(convert(CaseOp::Title, "\u{01C6}emal"), "\u{01C5}emal");
+        assert_eq!(convert(CaseOp::Title, "\u{01C4}EMAL"), "\u{01C5}emal");
+        assert_eq!(convert(CaseOp::Title, "\u{01C9}ubav"), "\u{01C8}ubav");
+        assert_eq!(convert(CaseOp::Title, "\u{01CA}EGO"), "\u{01CB}ego");
+        assert_eq!(convert(CaseOp::Title, "\u{01F3}ur"), "\u{01F2}ur");
+        assert_eq!(convert(CaseOp::Title, "\u{01C5}emal"), "\u{01C5}emal");
     }
 }

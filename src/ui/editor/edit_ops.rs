@@ -240,7 +240,9 @@ impl EditorForm {
     }
 
     pub(super) fn on_select_all(&self) {
-        let len = self.editor.len() as u32;
+        // RichEdit positions are UTF-16 units; nwg's len() counts chars and
+        // would stop short of the end after an emoji.
+        let len = utf16_len(&self.get_content()) as u32;
         self.editor.set_selection(0..len);
     }
 
