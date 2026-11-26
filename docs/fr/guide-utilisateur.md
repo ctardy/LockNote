@@ -270,7 +270,11 @@ et les paramètres.
 demander. Il enregistre les notes, comme si vous aviez répondu Enregistrer,
 sauf si À la fermeture vaut **Ne jamais enregistrer** (les modifications non
 enregistrées sont alors perdues, comme pour une fermeture normale) ; un
-LockNote verrouillé a déjà enregistré au verrouillage. Puis il se ferme comme
+LockNote verrouillé a déjà enregistré au verrouillage. La même règle
+s'applique pendant que les notes sont masquées après un verrouillage qui n'a
+pas encore pu enregistrer : elles sont enregistrées avec leurs
+modifications, sauf si À la fermeture vaut **Ne jamais enregistrer**, votre
+choix : ces modifications non enregistrées sont alors perdues. Puis il se ferme comme
 d'habitude (clés SSH retirées de ssh-agent, mise à jour ou enregistrement en
 attente appliqué). Si l'enregistrement échoue, Windows affiche « LockNote n'a
 pas pu enregistrer vos notes (…) » sur son écran d'arrêt : annulez, puis
@@ -765,7 +769,9 @@ nouvelle période. Une nouvelle valeur s'applique tout de suite.
 
 Tant qu'une fenêtre ou un message de LockNote est ouvert sur la fenêtre
 principale (une boîte de dialogue, la question de fermeture…), la sauvegarde
-auto attend et son délai repart à sa fermeture.
+auto attend et son délai repart à sa fermeture. Elle attend aussi pendant que
+les notes sont masquées (voir plus bas) : seules les tentatives
+d'enregistrement de LockNote ont lieu alors.
 
 **Quand LockNote se verrouille** (délai du verrouillage auto atteint, bouton
 Verrouiller, Ctrl+L), vos notes sont masquées tout de suite (« Notes
@@ -789,9 +795,14 @@ modifications et la raison de l'échec. Pour abandonner les modifications,
 affichez les notes, puis fermez sans enregistrer.
 
 LockNote ne peut pas être fermé pendant que les notes sont masquées
-(Quitter le signale sur cet écran). Un arrêt forcé de Windows (confirmé
-malgré l'avertissement de LockNote) perd les modifications non
-enregistrées, comme pour toute note non enregistrée.
+(Quitter le signale sur cet écran). Une fermeture de session ou un arrêt de
+Windows suit sa règle habituelle ([section 6](#6-enregistrer-et-fermer)) :
+les notes masquées sont enregistrées avec leurs modifications, sauf si À la
+fermeture vaut **Ne jamais enregistrer** (rien n'est alors enregistré et ces
+modifications sont perdues, puisque vous avez choisi de ne jamais enregistrer
+à la fermeture). Si cet enregistrement échoue, Windows affiche
+l'avertissement de LockNote ; un arrêt forcé malgré tout perd les
+modifications non enregistrées.
 
 Fermer LockNote (Quitter de la zone de notification) pendant qu'une fenêtre
 est ouverte annule d'abord cette fenêtre, puis ferme comme d'habitude ; si

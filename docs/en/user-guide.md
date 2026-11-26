@@ -248,7 +248,10 @@ also stores the window position and the settings.
 **Windows logoff or shutdown.** LockNote cannot ask anything then. It saves
 the notes, as if you had answered Save, unless On close is **Never save**
 (then unsaved changes are lost, as with a normal close); a locked LockNote
-was already saved when it locked. Then it closes as usual (SSH keys removed
+was already saved when it locked. The same rule applies while the notes are
+hidden after a lock that could not save yet: they are saved with their
+changes, unless On close is **Never save**, which you chose: then those
+unsaved changes are lost. Then it closes as usual (SSH keys removed
 from ssh-agent, an update or a pending save applied). If the save fails,
 Windows shows "LockNote could not save your notes (...)" on its shutdown
 screen: cancel, then save or copy your text. The list of SSH keys this file
@@ -706,7 +709,8 @@ period. A new value applies at once.
 
 While a LockNote window or message is open over the main window (a dialog,
 the close question...), auto-save waits and its delay starts again when it
-closes.
+closes. It also waits while the notes are hidden (see below): LockNote's own
+save attempts are the only ones then.
 
 **When LockNote locks** (auto-lock delay reached, Lock button, Ctrl+L), your
 notes are hidden at once ("Notes hidden"); only your password shows them
@@ -726,8 +730,12 @@ password they come back with their changes and the reason of the failed
 save. To drop the changes, show the notes, then close without saving.
 
 LockNote cannot be closed while the notes are hidden (Quit says so on that
-screen). A forced Windows shutdown (one you confirm despite LockNote's
-warning) loses unsaved changes, as for any unsaved note.
+screen). A Windows logoff or shutdown follows its usual rule
+([section 6](#6-saving-and-closing)): the hidden notes are saved with their
+changes, unless On close is **Never save** (then nothing is saved and those
+changes are lost, since you chose never to save on close). If that save
+fails, Windows shows LockNote's warning; a shutdown you force anyway loses
+the unsaved changes.
 
 Closing LockNote (tray Quit) while a window is open cancels that window
 first, then closes as usual; if the window still has not closed after 10
