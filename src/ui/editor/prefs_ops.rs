@@ -90,7 +90,11 @@ impl EditorForm {
     /// Open security dialog (password, encryption, locks).
     pub(super) fn on_security(&self) {
         let current = self.settings.borrow().clone();
-        if let Some(changes) = crate::ui::dialogs::security_dialog::SecurityDialog::show(&current) {
+        let mut copied = None;
+        let changes = crate::ui::dialogs::security_dialog::SecurityDialog::show(&current, &mut copied);
+        // The 2FA secret copied in its setup is cleared like any copy.
+        self.arm_clipboard_guard(copied);
+        if let Some(changes) = changes {
             let mut settings = self.settings.borrow_mut();
             settings.min_password_length = changes.min_password_length;
             {

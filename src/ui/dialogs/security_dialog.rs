@@ -129,8 +129,12 @@ pub struct SecurityDialog;
 
 impl SecurityDialog {
     /// Show the security dialog. `current` is the current settings to pre-fill.
-    /// Returns Some(changes) on OK, None on Cancel.
-    pub fn show(current: &Settings) -> Option<SecurityChanges> {
+    /// Returns Some(changes) on OK, None on Cancel. `copied_out` receives the
+    /// 2FA secret copied in the setup dialog (OK or Cancel), for the caller's
+    /// clipboard guard.
+    pub fn show(current: &Settings, copied_out: &mut Option<String>) -> Option<SecurityChanges> {
+        let copied: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        let copied_in_handler = copied.clone();
         // Window height from the rows:
         // Change Password button area: 50
         // Security section header: SECTION_H
@@ -349,7 +353,12 @@ impl SecurityDialog {
                         let secret = secret.clone();
                         if checked && secret.is_empty() {
                             // Enabling TOTP: launch setup dialog immediately
-                            if let Some(entry) = super::totp_setup::TotpSetupDialog::show("LockNote 2FA", None) {
+                            let mut setup_copied = None;
+                            let setup = super::totp_setup::TotpSetupDialog::show("LockNote 2FA", None, &mut setup_copied);
+                            if setup_copied.is_some() {
+                                *copied_in_handler.borrow_mut() = setup_copied;
+                            }
+                            if let Some(entry) = setup {
                                 *totp_state_clone.borrow_mut() = (true, entry.secret.clone());
                             } else {
                                 // User cancelled setup — uncheck
@@ -402,6 +411,7 @@ impl SecurityDialog {
         drop(lbl_autolock);
         drop(lbl_clipboard);
 
+        *copied_out = copied.borrow_mut().take();
         let out = result.borrow_mut().take();
         out
     }

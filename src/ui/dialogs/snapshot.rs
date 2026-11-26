@@ -235,11 +235,11 @@ fn dialog_snapshots() {
     });
     shot!("password_generator", super::password_generator::PasswordGeneratorDialog::show(
         &crate::features::passgen::Options::default(), true, None));
-    shot!("security", super::security_dialog::SecurityDialog::show(&settings));
+    shot!("security", super::security_dialog::SecurityDialog::show(&settings, &mut None));
     shot!("settings", super::settings_dialog::SettingsDialog::show(&settings));
     shot!("ssh_keygen", super::ssh_keygen::SshKeygenDialog::show(&[]));
     shot!("ssh_agent", super::ssh_keygen::SshAgentDialog::show(&["deploy key".to_string()]));
-    shot!("totp_setup", super::totp_setup::TotpSetupDialog::show("Mail", None));
+    shot!("totp_setup", super::totp_setup::TotpSetupDialog::show("Mail", None, &mut None));
     shot!("totp_add_key", super::totp_setup::TotpSetupDialog::show_add_key("Mail", &mut None));
     shot!("totp_verify", super::totp_verify::TotpVerifyDialog::show("JBSWY3DPEHPK3PXP"));
     // The unlock popup (shared card of ui::lock_card, not the shared dialog pass).

@@ -52,8 +52,12 @@ impl TotpSetupDialog {
     /// `name` is the label for the entry.
     /// `existing_secret` pre-fills if Some, otherwise generates a new one.
     /// Returns Some(entry) on confirmed + verified, None on Cancel.
-    pub fn show(name: &str, existing_secret: Option<&str>) -> Option<TotpEntry> {
-        Self::show_mode(name, existing_secret, Mode::Generate).0
+    /// `copied` receives the secret last copied with the Copy button (OK or
+    /// Cancel), for the caller's clipboard guard (pass 4: it was dropped).
+    pub fn show(name: &str, existing_secret: Option<&str>, copied: &mut Option<String>) -> Option<TotpEntry> {
+        let (entry, last_copied) = Self::show_mode(name, existing_secret, Mode::Generate);
+        *copied = last_copied;
+        entry
     }
 
     /// Add Key of the TOTP panel: the field holds a new secret, which the user

@@ -803,6 +803,19 @@
         assert!(body.contains("Zeroizing::new(encoding.encode(&content).0)"), "the bytes written are not wiped");
     }
 
+    /// Pass 4: a secret copied in the 2FA setup arms the clipboard guard:
+    /// the setup hands it back and on_security arms it.
+    #[test]
+    fn the_2fa_setup_copy_arms_the_clipboard_guard() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui");
+        let sec = std::fs::read_to_string(root.join("dialogs").join("security_dialog.rs")).unwrap();
+        assert!(sec.contains("TotpSetupDialog::show(\"LockNote 2FA\", None, &mut setup_copied)"));
+        assert!(sec.contains("*copied_out = copied.borrow_mut().take();"));
+        let prefs = std::fs::read_to_string(root.join("editor").join("prefs_ops.rs")).unwrap();
+        let at = prefs.find("SecurityDialog::show(&current, &mut copied)").expect("copied passed");
+        assert!(prefs[at..].find("self.arm_clipboard_guard(copied);").map_or(false, |i| i < 400));
+    }
+
     /// Pass 4: a wipe deferred at lock is retried while locked, never after
     /// the unlock restored the notes.
     #[test]
