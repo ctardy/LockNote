@@ -422,6 +422,8 @@ fn build_en() -> Dict {
     m.insert("totp.remove", "Remove");
     m.insert("totp.remove.confirm", "Remove this TOTP key?");
     m.insert("totp.copied", "Code copied to clipboard.");
+    m.insert("clipboard.failed", "Copy failed: {err}");
+    m.insert("totp.secret.copied", "Secret copied.");
     m.insert("totp.select_first", "Select an entry first.");
     m.insert("totp.added", "Entry added.");
     m.insert("totp.removed", "Entry removed.");
@@ -1076,6 +1078,8 @@ fn build_fr() -> Dict {
     m.insert("totp.remove", "Supprimer");
     m.insert("totp.remove.confirm", "Supprimer cette cl\u{00e9} TOTP ?");
     m.insert("totp.copied", "Code copi\u{00e9} dans le presse-papiers.");
+    m.insert("clipboard.failed", "\u{00c9}chec de la copie : {err}");
+    m.insert("totp.secret.copied", "Secret copi\u{00e9}.");
     m.insert("totp.select_first", "S\u{00e9}lectionnez d\u{2019}abord une entr\u{00e9}e.");
     m.insert("totp.added", "Entr\u{00e9}e ajout\u{00e9}e.");
     m.insert("totp.removed", "Entr\u{00e9}e supprim\u{00e9}e.");
@@ -1723,6 +1727,8 @@ fn build_es() -> Dict {
     m.insert("totp.remove", "Eliminar");
     m.insert("totp.remove.confirm", "\u{00bf}Eliminar esta clave TOTP?");
     m.insert("totp.copied", "C\u{00f3}digo copiado al portapapeles.");
+    m.insert("clipboard.failed", "Error al copiar: {err}");
+    m.insert("totp.secret.copied", "Secreto copiado.");
     m.insert("totp.select_first", "Seleccione una entrada primero.");
     m.insert("totp.added", "Entrada a\u{00f1}adida.");
     m.insert("totp.removed", "Entrada eliminada.");
@@ -2371,6 +2377,8 @@ fn build_de() -> Dict {
     m.insert("totp.remove", "Entfernen");
     m.insert("totp.remove.confirm", "Diesen TOTP-Schl\u{00fc}ssel entfernen?");
     m.insert("totp.copied", "Code in die Zwischenablage kopiert.");
+    m.insert("clipboard.failed", "Kopieren fehlgeschlagen: {err}");
+    m.insert("totp.secret.copied", "Geheimnis kopiert.");
     m.insert("totp.select_first", "Bitte zuerst einen Eintrag ausw\u{00e4}hlen.");
     m.insert("totp.added", "Eintrag hinzugef\u{00fc}gt.");
     m.insert("totp.removed", "Eintrag entfernt.");

@@ -44,15 +44,29 @@ impl EditorForm {
         };
 
         if snapshot_matches_clipboard {
-            unsafe {
-                if windows::Win32::System::DataExchange::OpenClipboard(None).is_ok() {
-                    let _ = windows::Win32::System::DataExchange::EmptyClipboard();
-                    let _ = windows::Win32::System::DataExchange::CloseClipboard();
+            let cleared = unsafe {
+                use windows::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard};
+                match OpenClipboard(None) {
+                    Err(e) => Err(format!("OpenClipboard {:?}", e)),
+                    Ok(()) => {
+                        let emptied = EmptyClipboard().map_err(|e| format!("EmptyClipboard {:?}", e));
+                        if let Err(e) = CloseClipboard() {
+                            eprintln!("WARN clipboard: auto-clear, CloseClipboard failed err={:?}", e);
+                        }
+                        emptied
+                    }
                 }
+            };
+            if let Err(e) = cleared {
+                // The secret is still there: keep the guard armed, the next
+                // tick tries again (another app may hold the clipboard).
+                eprintln!("WARN clipboard: auto-clear failed, retried next tick err={}", e);
+                return;
             }
+            eprintln!("INFO clipboard: auto-cleared");
         }
-        // Always reset guard state so we don't re-fire on the next tick,
-        // even if the user had clobbered the clipboard in the meantime.
+        // Reset the guard so it does not fire again, also when the user
+        // had replaced the clipboard content in the meantime.
         self.clipboard_guard.borrow_mut().mark_cleared();
     }
 

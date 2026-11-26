@@ -121,18 +121,30 @@ pub fn exclude_current_clipboard_entry_from_history() {
         let fmt = windows::Win32::System::DataExchange::RegisterClipboardFormatW(
             windows::core::PCWSTR(fmt_name.as_ptr()),
         );
+        // Each failure is logged: the copy itself succeeded, but the secret
+        // may then reach the clipboard history (issue #31: no silent result).
         if fmt == 0 {
+            eprintln!("WARN clipboard: history exclusion format not registered");
             return;
         }
-        if windows::Win32::System::DataExchange::OpenClipboard(None).is_err() {
+        if let Err(e) = windows::Win32::System::DataExchange::OpenClipboard(None) {
+            eprintln!("WARN clipboard: history exclusion, OpenClipboard failed err={:?}", e);
             return;
         }
-        // Writing a NULL handle under this format is the documented pattern.
-        let _ = windows::Win32::System::DataExchange::SetClipboardData(
+        // Writing a NULL handle under this format is the documented pattern;
+        // the call then returns NULL, which is only a failure with an error
+        // code set.
+        if let Err(e) = windows::Win32::System::DataExchange::SetClipboardData(
             fmt,
             Some(windows::Win32::Foundation::HANDLE(ptr::null_mut())),
-        );
-        let _ = windows::Win32::System::DataExchange::CloseClipboard();
+        ) {
+            if e.code().is_err() {
+                eprintln!("WARN clipboard: history exclusion, SetClipboardData failed err={:?}", e);
+            }
+        }
+        if let Err(e) = windows::Win32::System::DataExchange::CloseClipboard() {
+            eprintln!("WARN clipboard: history exclusion, CloseClipboard failed err={:?}", e);
+        }
     }
 }
 

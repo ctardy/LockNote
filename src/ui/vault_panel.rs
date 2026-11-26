@@ -136,23 +136,22 @@ impl VaultPanel {
         self.secrets.borrow().get(global_idx).cloned()
     }
 
-    /// Copy a secret's value to the clipboard.
-    /// Returns the copied text (for clipboard guard tracking).
-    pub fn copy_secret_value(&self, global_idx: usize) -> Option<String> {
+    /// Copy a secret's value to the clipboard. `None` when there is no such
+    /// secret; otherwise the copied text (for clipboard guard tracking) or
+    /// why the write failed (issue #31).
+    pub fn copy_secret_value(&self, global_idx: usize) -> Option<Result<String, String>> {
         let secrets = self.secrets.borrow();
-        if let Some(entry) = secrets.get(global_idx) {
-            let value = entry.value.clone();
-            // Copy to clipboard using clipboard_win
-            use clipboard_win::{formats, set_clipboard};
-            let _ = set_clipboard(formats::Unicode, &value);
-            // Tell Windows to keep this entry out of Clipboard History
-            // (Win+V) and Cloud Clipboard — they'd otherwise persist the
-            // secret across reboots and sync it to other devices.
-            crate::features::clipboard_guard::exclude_current_clipboard_entry_from_history();
-            Some(value)
-        } else {
-            None
+        let entry = secrets.get(global_idx)?;
+        let value = entry.value.clone();
+        use clipboard_win::{formats, set_clipboard};
+        if let Err(e) = set_clipboard(formats::Unicode, &value) {
+            return Some(Err(e.to_string()));
         }
+        // Tell Windows to keep this entry out of Clipboard History
+        // (Win+V) and Cloud Clipboard — they'd otherwise persist the
+        // secret across reboots and sync it to other devices.
+        crate::features::clipboard_guard::exclude_current_clipboard_entry_from_history();
+        Some(Ok(value))
     }
 }
 

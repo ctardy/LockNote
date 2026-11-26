@@ -19,6 +19,10 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   setting, saved with the note and restored at the next start (#26).
 
 ### Fixed
+- **"Copied" shown after a failed copy**: the TOTP panel and dialogs and
+  the vault said "Copied" even when Windows refused the clipboard write.
+  Now a failed copy says "Copy failed: ..." and "Copied" appears only after
+  a successful copy. A clipboard auto-clear that fails is retried (#31).
 - **Texts left in English**: the password confirmation (print, export), the
   vault delete confirmation, the update messages, the save and export
   errors, the status bar counts, the file dialog filters, the attachment

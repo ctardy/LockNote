@@ -240,8 +240,8 @@ impl TotpManagerDialog {
                             let entries = entries_for_handler.borrow();
                             if let Some(entry) = entries.get(idx) {
                                 if let Some(code) = totp::generate_code_now(&entry.secret) {
-                                    let _ = set_clipboard_text(&code);
-                                    lbl_status.set_text(&t("totp.manager.copied").replace("{name}", &entry.name));
+                                    let copied = t("totp.manager.copied").replace("{name}", &entry.name);
+                                    lbl_status.set_text(&crate::ui::copy_feedback(&set_clipboard_text(&code), &copied));
                                 }
                             }
                         } else {
@@ -313,7 +313,7 @@ impl TotpManagerDialog {
 /// Set text to the Windows clipboard.
 fn set_clipboard_text(text: &str) -> Result<(), String> {
     use clipboard_win::{formats, set_clipboard};
-    set_clipboard(formats::Unicode, text).map_err(|e| format!("Clipboard error: {}", e))
+    set_clipboard(formats::Unicode, text).map_err(|e| e.to_string())
 }
 
 /// Simple single-line input dialog. Returns None if cancelled.

@@ -94,18 +94,16 @@ impl TotpPanel {
         crate::features::i18n::get("totp.nextcode").replace("{n}", &remaining.to_string())
     }
 
-    /// Copy a TOTP code to the clipboard.
-    /// Returns the entry name if successful.
-    pub fn copy_code(&self, index: usize) -> Option<String> {
+    /// Copy a TOTP code to the clipboard. `None` when there is no code to
+    /// copy; otherwise the entry name and the result of the clipboard write
+    /// (issue #31: "Copied" was shown even when the write failed).
+    pub fn copy_code(&self, index: usize) -> Option<(String, Result<(), String>)> {
         let entries = self.entries.borrow();
-        if let Some(entry) = entries.get(index) {
-            if let Some(code) = totp::generate_code_now(&entry.secret) {
-                use clipboard_win::{formats, set_clipboard};
-                let _ = set_clipboard(formats::Unicode, &code);
-                return Some(entry.name.clone());
-            }
-        }
-        None
+        let entry = entries.get(index)?;
+        let code = totp::generate_code_now(&entry.secret)?;
+        use clipboard_win::{formats, set_clipboard};
+        let result = set_clipboard(formats::Unicode, &code).map_err(|e| e.to_string());
+        Some((entry.name.clone(), result))
     }
 }
 

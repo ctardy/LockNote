@@ -289,7 +289,8 @@ impl TotpSetupDialog {
                     } else if handle == btn_copy.handle {
                         // Copy secret to clipboard
                         let secret_text = txt_secret.text();
-                        let _ = set_clipboard_text(&secret_text);
+                        let result = set_clipboard_text(&secret_text);
+                        lbl_status.set_text(&crate::ui::copy_feedback(&result, &t("totp.secret.copied")));
                     } else if handle == btn_verify.handle {
                         let code = txt_code.text();
                         let code_trimmed = code.trim();
@@ -369,7 +370,7 @@ impl TotpSetupDialog {
 /// Set text to the Windows clipboard using clipboard-win crate.
 fn set_clipboard_text(text: &str) -> Result<(), String> {
     use clipboard_win::{formats, set_clipboard};
-    set_clipboard(formats::Unicode, text).map_err(|e| format!("Clipboard error: {}", e))
+    set_clipboard(formats::Unicode, text).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

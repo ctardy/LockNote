@@ -1500,6 +1500,7 @@ Lang.Get("menu.file.save")  // → "Enregistrer"
 - **Action**: snapshot clipboard content → start timer → on tick: if clipboard still matches snapshot, clear it
 - **UI values**: Disabled, 10, 30, 60 seconds
 - **Vault integration**: copy from vault card also triggers the guard
+- **Write results** (issue #31): no clipboard write discards its result (`ui::tests::no_clipboard_write_discards_its_result` scans `src`). The status text comes from `ui::copy_feedback`: the "Copied" text only after a successful write, `clipboard.failed` ("Copy failed: {err}") otherwise; `TotpPanel::copy_code` and `VaultPanel::copy_secret_value` return the write result, and the guard is armed only after a successful vault copy. The history exclusion logs each failed step (`WARN clipboard: history exclusion ...`). An auto-clear that cannot open or empty the clipboard logs `WARN clipboard: auto-clear failed` and stays armed, so the next tick tries again
 
 ### Auto-Save
 

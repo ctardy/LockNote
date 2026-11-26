@@ -60,6 +60,18 @@ pub fn run(exe_path: PathBuf) {
 /// Shown before the notes are decrypted, so before the language of the
 /// encrypted settings is known: like the unlock window, it is in the
 /// language in force at startup (English).
+/// The status text after a clipboard write (issue #31): `copied` only when
+/// the write succeeded, the translated failure with its reason otherwise.
+pub(crate) fn copy_feedback(result: &Result<(), String>, copied: &str) -> String {
+    match result {
+        Ok(()) => copied.to_string(),
+        Err(e) => {
+            eprintln!("WARN clipboard: copy failed err={}", e);
+            t("clipboard.failed").replace("{err}", e)
+        }
+    }
+}
+
 fn conflict_message(
     tmp_unix: u64,
     exe_unix: u64,
@@ -268,6 +280,48 @@ use native_windows_gui as nwg;
 mod tests {
     use super::*;
     use std::path::Path;
+
+    /// Issue #31: "Copied" only after a successful copy.
+    #[test]
+    fn copy_feedback_says_copied_only_after_success() {
+        let _g = crate::features::i18n::test_support::lang_guard();
+        crate::features::i18n::set_language(crate::features::i18n::Language::English);
+        assert_eq!(copy_feedback(&Ok(()), "Copied: Gmail"), "Copied: Gmail");
+        let failed = copy_feedback(&Err("OpenClipboard failed".into()), "Copied: Gmail");
+        assert!(!failed.contains("Copied"), "{}", failed);
+        assert!(failed.contains("OpenClipboard failed"), "{}", failed);
+    }
+
+    /// Issue #31: no clipboard write may discard its result.
+    #[test]
+    fn no_clipboard_write_discards_its_result() {
+        fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(dir).unwrap() {
+                let p = e.unwrap().path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().map_or(false, |x| x == "rs") {
+                    out.push(p);
+                }
+            }
+        }
+        let mut files = Vec::new();
+        walk(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
+        let mut found = Vec::new();
+        for f in files {
+            let text = std::fs::read_to_string(&f).unwrap();
+            for (i, line) in text.lines().enumerate() {
+                let l = line.trim_start();
+                let writes = ["set_clipboard", "SetClipboardData", "CloseClipboard", "EmptyClipboard"]
+                    .iter()
+                    .any(|w| l.contains(w));
+                if l.starts_with("let _ =") && writes {
+                    found.push(format!("{}:{}: {}", f.display(), i + 1, l));
+                }
+            }
+        }
+        assert!(found.is_empty(), "clipboard results discarded:\n{}", found.join("\n"));
+    }
 
     // The wording depends on the current language, which other tests switch:
     // only what every language must show is checked.

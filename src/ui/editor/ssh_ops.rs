@@ -340,12 +340,18 @@ impl EditorForm {
     /// Handle vault Copy button (the only way to copy a secret).
     pub(super) fn on_vault_copy(&self) {
         let Some(global_idx) = self.selected_vault_secret() else { return };
-        if let Some(copied_text) = self.vault_panel.copy_secret_value(global_idx) {
-            self.clipboard_guard.borrow_mut().on_copy(&copied_text);
-            let name = self.vault_panel.get_secret(global_idx).map(|e| e.name.clone()).unwrap_or_default();
-            self.vault_copied.set_text(&crate::ui::vault_panel::copied_message(&t("vault.copied.named"), &name));
-            self.copy_feedback_time.set(Some(std::time::Instant::now()));
-        }
+        let Some(result) = self.vault_panel.copy_secret_value(global_idx) else { return };
+        let name = self.vault_panel.get_secret(global_idx).map(|e| e.name.clone()).unwrap_or_default();
+        let copied = crate::ui::vault_panel::copied_message(&t("vault.copied.named"), &name);
+        let shown = match result {
+            Ok(copied_text) => {
+                self.clipboard_guard.borrow_mut().on_copy(&copied_text);
+                Ok(())
+            }
+            Err(e) => Err(e),
+        };
+        self.vault_copied.set_text(&crate::ui::copy_feedback(&shown, &copied));
+        self.copy_feedback_time.set(Some(std::time::Instant::now()));
     }
 
     /// Handle vault Reveal button: the value goes to the dedicated read-only

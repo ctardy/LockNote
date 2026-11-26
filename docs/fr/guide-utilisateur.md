@@ -524,7 +524,10 @@ restant avant le code suivant (« Prochain code dans N s »). Boutons : **Copier
 code**, **Ajouter une clé**, **Supprimer**.
 
 **Copier un code.** Sélectionnez une entrée, puis **Copier le code** (« Code
-copié dans le presse-papiers. »).
+copié dans le presse-papiers. »). Si Windows refuse la copie (une autre
+application tient le presse-papiers), le panneau affiche « Échec de la
+copie : … » à la place : rien n'a été copié. La même règle vaut pour tous les
+boutons Copier de LockNote.
 
 **Ajouter une clé.**
 

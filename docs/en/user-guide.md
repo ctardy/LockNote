@@ -479,7 +479,9 @@ period) of the TOTP keys stored in the note.
 left before the next code. Buttons: **Copy Code**, **Add Key**, **Remove**.
 
 **Copy a code.** Select an entry, then **Copy Code** ("Code copied to
-clipboard.").
+clipboard."). If Windows refuses the copy (another application holds the
+clipboard), the panel says "Copy failed: ..." instead: nothing was copied.
+The same rule applies to every Copy button of LockNote.
 
 **Add a key.**
 

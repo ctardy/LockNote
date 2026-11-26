@@ -424,8 +424,9 @@ impl EditorForm {
     /// Copy the selected TOTP code to the clipboard.
     pub(super) fn on_totp_copy(&self) {
         if let Some(idx) = self.totp_list.selection() {
-            if let Some(name) = self.totp_panel.copy_code(idx) {
-                self.totp_lbl_status.set_text(&t("totp.copied").replace("{name}", &name));
+            if let Some((name, result)) = self.totp_panel.copy_code(idx) {
+                let copied = t("totp.copied").replace("{name}", &name);
+                self.totp_lbl_status.set_text(&crate::ui::copy_feedback(&result, &copied));
             }
         } else {
             self.totp_lbl_status.set_text(&t("totp.select_first"));
