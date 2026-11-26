@@ -825,6 +825,8 @@ impl EditorForm {
         static BULLET_SUPPRESS_ENTER_CHAR: AtomicBool = AtomicBool::new(false);
         // Same for the WM_CHAR(0x09) after a VK_TAB consumed by indent.rs.
         static TAB_SUPPRESS_CHAR: AtomicBool = AtomicBool::new(false);
+        // Same for the WM_CHAR(0x0A) after a Ctrl+Enter (checkbox toggle).
+        static CTRL_ENTER_SUPPRESS_CHAR: AtomicBool = AtomicBool::new(false);
         let editor_key_handler = nwg::bind_raw_event_handler(
             &form.editor.handle,
             0x10001,
@@ -861,6 +863,9 @@ impl EditorForm {
                             return Some(0);
                         }
                         if f_ed.handle_shortcut(vk) {
+                            if vk == 0x0D && ctrl {
+                                CTRL_ENTER_SUPPRESS_CHAR.store(true, SuppressOrd::SeqCst);
+                            }
                             return Some(0);
                         }
                     }
@@ -877,6 +882,11 @@ impl EditorForm {
                         }
                         if w_param == 0x09
                             && TAB_SUPPRESS_CHAR.swap(false, SuppressOrd::SeqCst)
+                        {
+                            return Some(0);
+                        }
+                        if w_param == 0x0A
+                            && CTRL_ENTER_SUPPRESS_CHAR.swap(false, SuppressOrd::SeqCst)
                         {
                             return Some(0);
                         }

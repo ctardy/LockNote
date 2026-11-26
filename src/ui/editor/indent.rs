@@ -42,12 +42,12 @@ fn is_break(c: char) -> bool {
 }
 
 /// Byte offset of the start of the line holding byte `at`.
-fn line_start_at(text: &str, at: usize) -> usize {
+pub(super) fn line_start_at(text: &str, at: usize) -> usize {
     text[..at].rfind(is_break).map(|p| p + 1).unwrap_or(0)
 }
 
 /// Byte offset of the end of the line holding byte `at` (before its break).
-fn line_end_at(text: &str, at: usize) -> usize {
+pub(super) fn line_end_at(text: &str, at: usize) -> usize {
     text[at..].find(is_break).map(|p| at + p).unwrap_or(text.len())
 }
 
@@ -158,7 +158,7 @@ pub(super) fn block_indent(
     })
 }
 
-/// What `run_indent` needs from the editor.
+/// What `run_indent` (and `lists.rs`) needs from the editor.
 pub(super) trait IndentSteps {
     fn text(&self) -> String;
     /// The selection in RichEdit positions.
@@ -196,8 +196,8 @@ pub(super) fn run_indent(steps: &mut impl IndentSteps, dir: IndentDir) -> bool {
 }
 
 /// The editor behind `IndentSteps`.
-struct FormIndentSteps<'a> {
-    form: &'a EditorForm,
+pub(super) struct FormIndentSteps<'a> {
+    pub(super) form: &'a EditorForm,
 }
 
 impl IndentSteps for FormIndentSteps<'_> {

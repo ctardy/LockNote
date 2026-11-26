@@ -161,6 +161,7 @@ impl EditorForm {
                 0x47 => { self.on_goto_line(); return true; }   // Ctrl+G
                 0x44 => { self.on_duplicate_line(); return true; } // Ctrl+D
                 0xBE => { self.on_toggle_bullet(); return true; } // Ctrl+.
+                0x0D => { self.on_toggle_checkbox(); return true; } // Ctrl+Enter
                 0x41 => { self.on_select_all(); return true; }  // Ctrl+A
                 0x5A => { self.on_undo(); return true; }        // Ctrl+Z
                 0x59 => { self.on_redo(); return true; }        // Ctrl+Y
@@ -319,42 +320,6 @@ impl EditorForm {
             self.editor.set_selection(new_caret..new_caret);
         }
         self.mark_modified();
-    }
-
-    /// On plain Enter inside the editor, continue or exit a bullet list.
-    /// Returns true when the Enter was consumed by bullet logic.
-    pub(super) fn handle_enter_bullet(&self) -> bool {
-        const BULLET: &str = "• ";
-
-        let text = self.get_content();
-        let sel = self.editor.selection();
-        if sel.start != sel.end {
-            return false;
-        }
-
-        let (byte_caret, _) = utf16_range_to_byte_range(&text, sel.start as usize, sel.start as usize);
-        let line_start = text[..byte_caret].rfind('\n').map(|p| p + 1).unwrap_or(0);
-        let line_end_byte = text[byte_caret..].find('\n').map(|p| byte_caret + p).unwrap_or(text.len());
-        let line = &text[line_start..line_end_byte];
-
-        if !line.starts_with(BULLET) {
-            return false;
-        }
-
-        // Empty bullet line → exit the list (clear the "• " prefix, no newline).
-        if line[BULLET.len()..].trim().is_empty() {
-            let u16_map = build_utf16_offset_map(&text);
-            let line_start_u16 = u16_map[line_start] as u32;
-            let line_end_u16 = u16_map[line_end_byte] as u32;
-            self.editor.set_selection(line_start_u16..line_end_u16);
-            self.replace_selection_utf16("");
-            self.mark_modified();
-            return true;
-        }
-
-        self.replace_selection_utf16("\n• ");
-        self.mark_modified();
-        true
     }
 
     /// Insert a timestamp at the cursor position.
