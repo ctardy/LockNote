@@ -309,6 +309,10 @@ fn build_en() -> Dict {
     m.insert("unlock.cryptoerror", "Crypto error: {msg}");
     m.insert("lock.overlay.title", "LockNote is locked");
     m.insert("lock.curtain", "LockNote is locking: it waits for the open windows to close.");
+    m.insert("lock.curtain.title", "Notes hidden");
+    m.insert("lock.curtain.waiting_for", "LockNote locks as soon as \"{window}\" has closed.");
+    m.insert("lock.curtain.save_failed", "The save before the lock failed: nothing was lost, your changes are kept. Enter your password to show them.");
+    m.insert("lock.curtain.show", "Show notes");
     m.insert("lock.save_failed", "LockNote could not save before locking:\n{error}\n\nIt did not lock, so your unsaved changes are kept. They are still not saved: try again (Ctrl+S) or copy your text.");
     m.insert("lock.overlay.click", "Click to unlock");
     m.insert("unlock.show", "Show password");
@@ -974,6 +978,10 @@ fn build_fr() -> Dict {
     m.insert("unlock.cryptoerror", "Erreur de chiffrement : {msg}");
     m.insert("lock.overlay.title", "LockNote est verrouill\u{00e9}");
     m.insert("lock.curtain", "LockNote se verrouille : il attend la fermeture des fen\u{00ea}tres ouvertes.");
+    m.insert("lock.curtain.title", "Notes masqu\u{00e9}es");
+    m.insert("lock.curtain.waiting_for", "LockNote se verrouille d\u{00e8}s que \u{00ab} {window} \u{00bb} est ferm\u{00e9}.");
+    m.insert("lock.curtain.save_failed", "L'enregistrement avant le verrouillage a \u{00e9}chou\u{00e9} : rien n'est perdu, vos modifications sont conserv\u{00e9}es. Saisissez votre mot de passe pour les afficher.");
+    m.insert("lock.curtain.show", "Afficher les notes");
     m.insert("lock.save_failed", "LockNote n'a pas pu enregistrer avant de se verrouiller :\n{error}\n\nIl ne s'est pas verrouill\u{00e9}, vos modifications non enregistr\u{00e9}es sont conserv\u{00e9}es. Elles ne sont toujours pas enregistr\u{00e9}es : r\u{00e9}essayez (Ctrl+S) ou copiez votre texte.");
     m.insert("lock.overlay.click", "Cliquez pour d\u{00e9}verrouiller");
     m.insert("unlock.show", "Afficher le mot de passe");
@@ -1622,6 +1630,10 @@ fn build_es() -> Dict {
     m.insert("unlock.cryptoerror", "Error criptogr\u{00e1}fico: {msg}");
     m.insert("lock.overlay.title", "LockNote est\u{00e1} bloqueado");
     m.insert("lock.curtain", "LockNote se est\u{00e1} bloqueando: espera a que se cierren las ventanas abiertas.");
+    m.insert("lock.curtain.title", "Notas ocultas");
+    m.insert("lock.curtain.waiting_for", "LockNote se bloquea en cuanto se cierre \u{00ab}{window}\u{00bb}.");
+    m.insert("lock.curtain.save_failed", "El guardado antes del bloqueo ha fallado: no se ha perdido nada, sus cambios se conservan. Introduzca su contrase\u{00f1}a para mostrarlos.");
+    m.insert("lock.curtain.show", "Mostrar notas");
     m.insert("lock.save_failed", "LockNote no pudo guardar antes de bloquearse:\n{error}\n\nNo se ha bloqueado, as\u{00ed} que sus cambios sin guardar se conservan. Siguen sin guardarse: vuelva a intentarlo (Ctrl+S) o copie su texto.");
     m.insert("lock.overlay.click", "Haga clic para desbloquear");
     m.insert("unlock.show", "Mostrar contrase\u{00f1}a");
@@ -2271,6 +2283,10 @@ fn build_de() -> Dict {
     m.insert("unlock.cryptoerror", "Verschl\u{00fc}sselungsfehler: {msg}");
     m.insert("lock.overlay.title", "LockNote ist gesperrt");
     m.insert("lock.curtain", "LockNote wird gesperrt: es wartet, bis die offenen Fenster geschlossen sind.");
+    m.insert("lock.curtain.title", "Notizen ausgeblendet");
+    m.insert("lock.curtain.waiting_for", "LockNote wird gesperrt, sobald \u{201e}{window}\u{201c} geschlossen ist.");
+    m.insert("lock.curtain.save_failed", "Das Speichern vor dem Sperren ist fehlgeschlagen: nichts ging verloren, Ihre \u{00c4}nderungen bleiben erhalten. Geben Sie Ihr Passwort ein, um sie anzuzeigen.");
+    m.insert("lock.curtain.show", "Notizen anzeigen");
     m.insert("lock.save_failed", "LockNote konnte vor dem Sperren nicht speichern:\n{error}\n\nEs wurde nicht gesperrt, Ihre ungespeicherten \u{00c4}nderungen bleiben erhalten. Sie sind weiterhin nicht gespeichert: versuchen Sie es erneut (Strg+S) oder kopieren Sie Ihren Text.");
     m.insert("lock.overlay.click", "Klicken zum Entsperren");
     m.insert("unlock.show", "Passwort anzeigen");

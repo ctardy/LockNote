@@ -201,9 +201,7 @@ impl EditorForm {
     }
 
     fn note_is_locked(&self) -> bool {
-        {
-            *self.is_locked.borrow()
-        }
+        self.input_blocked()
     }
 
     /// Left button down on the grip: start a drag of the open panel.

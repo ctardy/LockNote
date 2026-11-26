@@ -127,7 +127,8 @@ impl EditorForm {
         // While locked, no shortcut may act on the (wiped) editor state:
         // Ctrl+S would re-encrypt empty tabs, Ctrl+W/T/Tab would mutate
         // tabs, Ctrl+B would show the vault.
-        if *self.is_locked.borrow() {
+        // The curtain counts as locked (pass 6).
+        if self.input_blocked() {
             return false;
         }
 

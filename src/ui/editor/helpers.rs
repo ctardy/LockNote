@@ -745,6 +745,39 @@ pub(super) fn wipe_or_defer<T: zeroize::Zeroize>(cell: &RefCell<T>, pending: &Ce
     }
 }
 
+/// Whether input and display behave as locked: locked, or a curtain up
+/// (pass 6: one predicate for every input entry point and the layout).
+pub(super) fn input_blocked_by(locked: bool, curtain: super::modal_guard::Curtain) -> bool {
+    locked || curtain != super::modal_guard::Curtain::None
+}
+
+/// The curtain subtitle while a lock waits: which window it waits for
+/// (pass 6), when its title is known.
+pub(super) fn curtain_waiting_text(window: &str) -> String {
+    if window.trim().is_empty() {
+        crate::features::i18n::get("lock.curtain").to_string()
+    } else {
+        crate::features::i18n::get("lock.curtain.waiting_for").replace("{window}", window.trim())
+    }
+}
+
+/// What `layout_controls` lays out.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum LayoutMode {
+    /// Locked or under the curtain: only the lock screen; no panel, editor
+    /// or gutter is shown again behind it.
+    OverlayOnly,
+    Full,
+}
+
+pub(super) fn layout_mode(blocked: bool) -> LayoutMode {
+    if blocked {
+        LayoutMode::OverlayOnly
+    } else {
+        LayoutMode::Full
+    }
+}
+
 /// Wipe the TOTP secrets of a `Settings` (a copy given to a dialog, or the
 /// live one at lock / end of session).
 pub(super) fn zeroize_settings_secrets(s: &mut crate::settings::Settings) {

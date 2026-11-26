@@ -165,6 +165,18 @@ pub(super) fn lock_overdue(waited: std::time::Duration) -> bool {
     waited >= LOCK_DEADLINE
 }
 
+/// The curtain over the note (pass 5/6): the lock screen while the note is
+/// not locked yet.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum Curtain {
+    None,
+    /// A lock waits for dialogs that did not close.
+    Waiting,
+    /// The save before an automatic lock failed: lifted only with the
+    /// password, the unsaved changes kept (owner decision, pass 6).
+    SaveFailed,
+}
+
 /// A lock or a close waiting for the dialogs to return.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Pending {
@@ -248,12 +260,21 @@ impl EditorForm {
     pub(super) fn run_pending_requests(&self) {
         if let Some(mut p) = self.lock_pending.get() {
             match lock_step(self.modal_open(), p.last_cancel.elapsed(), p.since.elapsed(), p.curtain) {
-                LockStep::Wait => {}
+                LockStep::Wait => {
+                    if p.curtain {
+                        // A dialog opened meanwhile must not show over it.
+                        hide_registered_dialogs();
+                    }
+                }
                 LockStep::CancelAgain => {
                     let n = cancel_open_dialogs();
                     p.last_cancel = std::time::Instant::now();
                     eprintln!("INFO lock: dialogs asked to close again count={}", n);
                     self.lock_pending.set(Some(p));
+                    if p.curtain {
+                        hide_registered_dialogs();
+                        self.set_curtain_waiting_for(&first_dialog_title());
+                    }
                 }
                 LockStep::ShowCurtain => {
                     // On time, whatever stays open: the note is hidden now,
@@ -270,7 +291,8 @@ impl EditorForm {
                         );
                     }
                     self.lock_pending.set(Some(p));
-                    self.show_curtain();
+                    self.show_curtain(Curtain::Waiting);
+                    self.set_curtain_waiting_for(&first_dialog_title());
                     hide_registered_dialogs();
                 }
                 LockStep::Run => {
@@ -364,6 +386,20 @@ impl EditorForm {
 /// opened, and the note neither locked nor exiting.
 pub(super) fn result_applies(epoch_before: u64, epoch_now: u64, locked: bool, exiting: bool) -> bool {
     epoch_before == epoch_now && !locked && !exiting
+}
+
+/// The title of the first LockNote dialog still open (the window the
+/// curtain waits for), or of a standard dialog.
+fn first_dialog_title() -> String {
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowTextW;
+    for h in crate::ui::dialogs::style::registered_dialogs() {
+        let mut title = [0u16; 128];
+        let n = unsafe { GetWindowTextW(windows::Win32::Foundation::HWND(h as *mut _), &mut title) } as usize;
+        if n > 0 {
+            return String::from_utf16_lossy(&title[..n]);
+        }
+    }
+    String::new()
 }
 
 /// Hide the LockNote dialogs under the curtain (pass 5). They stay

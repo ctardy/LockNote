@@ -38,7 +38,7 @@ impl EditorForm {
                         // Issue #30: while locked, no menu command may open a
                         // dialog that changes the (wiped) note; quitting,
                         // About and the tray stay available.
-                        if *f.is_locked.borrow()
+                        if f.input_blocked()
                             && handle != f.menu_file_quit.handle
                             && handle != f.menu_help_about.handle
                             && handle != f.tray_menu_restore.handle
@@ -361,7 +361,8 @@ impl EditorForm {
                 // Refuse drops while the editor is locked. Without this, a
                 // programmatic SendMessage(WM_DROPFILES) from a sibling process
                 // would inject text/attachments into the next unlocked session.
-                if *f.is_locked.borrow() {
+                // The curtain counts as locked (pass 6).
+                if f.input_blocked() {
                     return;
                 }
 
@@ -825,8 +826,9 @@ impl EditorForm {
                     0x0087 => return Some(0x8F),
                     // WM_KEYDOWN
                     0x0100 => {
-                        // Locked: the hidden editor must not receive keys.
-                        if *f_ed.is_locked.borrow() {
+                        // Locked or curtain: the hidden editor must not
+                        // receive keys.
+                        if f_ed.input_blocked() {
                             return Some(0);
                         }
                         let vk = w_param as u32;
@@ -848,7 +850,7 @@ impl EditorForm {
                     // WM_CHAR — swallow the 0x0D that TranslateMessage queues
                     // right after a bullet-handled VK_RETURN.
                     0x0102 => {
-                        if *f_ed.is_locked.borrow() {
+                        if f_ed.input_blocked() {
                             return Some(0);
                         }
                         if w_param == 0x0D

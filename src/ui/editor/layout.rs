@@ -11,9 +11,11 @@ impl EditorForm {
 
     /// Reposition controls when the window is resized.
     pub(super) fn layout_controls(&self) {
-        // Reposition lock overlay if locked
-        if *self.is_locked.borrow() {
-            self.layout_lock_overlay();
+        // Locked or under the curtain (pass 6): only the lock screen is laid
+        // out (resize, restore, DPI change); nothing behind it is shown again.
+        if layout_mode(self.input_blocked()) == LayoutMode::OverlayOnly {
+            self.fit_lock_overlay();
+            return;
         }
 
         let (w, h) = self.window.size();

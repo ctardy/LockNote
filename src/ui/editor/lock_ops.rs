@@ -101,7 +101,7 @@ impl EditorForm {
             if let Err(f) = saved {
                 eprintln!("WARN lock: save before the lock failed, the note stays open (hidden while the reason is shown)");
                 self.lock_in_progress.set(true);
-                self.show_curtain();
+                self.show_curtain(super::modal_guard::Curtain::Waiting);
                 self.inform(&t("save.error.title"), &lock_save_failed_text(f.message()));
                 self.hide_curtain();
                 self.lock_in_progress.set(false);
@@ -130,7 +130,7 @@ impl EditorForm {
         *self.is_locked.borrow_mut() = true;
         self.set_menus_for_lock(true);
         // A curtain shown before becomes the real lock screen.
-        self.curtain.set(false);
+        self.curtain.set(super::modal_guard::Curtain::None);
         self.show_lock_overlay();
     }
 
@@ -376,28 +376,77 @@ impl EditorForm {
     /// its unlock field, with a "locking" text. Used while dialogs that do
     /// not close delay the lock, and while the reason of a failed save at
     /// lock is shown.
-    pub(super) fn show_curtain(&self) {
-        if self.curtain.replace(true) {
+    pub(super) fn show_curtain(&self, mode: super::modal_guard::Curtain) {
+        use super::modal_guard::Curtain;
+        let before = self.curtain.replace(mode);
+        if before != Curtain::None {
+            if before != mode {
+                self.set_curtain_texts(mode);
+            }
             return;
         }
-        eprintln!("INFO lock: curtain shown");
+        eprintln!("INFO lock: curtain shown mode={:?}", mode);
+        // A question answered under the curtain must not act (pass 6).
+        self.lock_epoch.set(self.lock_epoch.get() + 1);
         self.show_lock_overlay();
-        // Not locked: nothing to unlock, no field to type into.
-        self.lock_input.set_visible(false);
-        self.lock_eye.set_visible(false);
-        self.lock_btn.set_visible(false);
-        self.lock_input.set_enabled(false);
-        self.lock_btn.set_enabled(false);
-        self.lock_subtitle.set_text(&t("lock.curtain"));
+        self.set_menus_for_lock(true);
+        self.set_curtain_texts(mode);
+    }
+
+    /// The curtain's title and subtitle, and whether it has a password
+    /// field (only to lift a "save failed" curtain).
+    fn set_curtain_texts(&self, mode: super::modal_guard::Curtain) {
+        use super::modal_guard::Curtain;
+        let with_field = mode == Curtain::SaveFailed;
+        self.lock_input.set_visible(with_field);
+        self.lock_eye.set_visible(with_field);
+        self.lock_btn.set_visible(with_field);
+        self.lock_input.set_enabled(with_field);
+        self.lock_btn.set_enabled(with_field);
+        self.lock_label.set_text(&t("lock.curtain.title"));
+        match mode {
+            Curtain::SaveFailed => {
+                self.lock_subtitle.set_text(&t("lock.curtain.save_failed"));
+                self.lock_btn.set_text(&t("lock.curtain.show"));
+                self.focus_lock_input();
+            }
+            _ => self.lock_subtitle.set_text(&curtain_waiting_text("")),
+        }
+    }
+
+    /// Name the window the curtain waits for (pass 6).
+    pub(super) fn set_curtain_waiting_for(&self, window: &str) {
+        if self.curtain.get() == super::modal_guard::Curtain::Waiting {
+            self.lock_subtitle.set_text(&curtain_waiting_text(window));
+        }
     }
 
     /// Lift the curtain (the note was not locked).
     pub(super) fn hide_curtain(&self) {
-        if !self.curtain.replace(false) {
+        if self.curtain.replace(super::modal_guard::Curtain::None) == super::modal_guard::Curtain::None {
             return;
         }
         eprintln!("INFO lock: curtain lifted");
         self.hide_lock_overlay();
+        if !*self.is_locked.borrow() {
+            self.set_menus_for_lock(false);
+            // Back to the full layout (panels, gutter, editor).
+            self.layout_controls();
+        }
+    }
+
+    /// Whether input and display behave as locked (locked or curtain up).
+    pub(super) fn input_blocked(&self) -> bool {
+        input_blocked_by(*self.is_locked.borrow(), self.curtain.get())
+    }
+
+    /// Size the lock screen to the client area and lay its card out (resize,
+    /// maximize, restore, DPI change while locked or under the curtain).
+    pub(super) fn fit_lock_overlay(&self) {
+        let (w, h) = self.window.size();
+        self.lock_frame.set_position(0, 0);
+        self.lock_frame.set_size(w, h);
+        self.layout_lock_overlay();
     }
 
     /// Hide the lock overlay.

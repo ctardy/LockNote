@@ -816,6 +816,41 @@
         assert!(prefs[at..].find("self.arm_clipboard_guard(copied);").map_or(false, |i| i < 400));
     }
 
+    /// Pass 6: under the curtain the window behaves as locked for display
+    /// and input. One predicate, used by every input entry point and by the
+    /// layout.
+    #[test]
+    fn the_curtain_blocks_input_and_layout_like_the_lock() {
+        use super::modal_guard::Curtain;
+        assert!(!input_blocked_by(false, Curtain::None));
+        assert!(input_blocked_by(true, Curtain::None));
+        assert!(input_blocked_by(false, Curtain::Waiting));
+        assert!(input_blocked_by(false, Curtain::SaveFailed));
+        assert_eq!(layout_mode(true), LayoutMode::OverlayOnly);
+        assert_eq!(layout_mode(false), LayoutMode::Full);
+    }
+
+    /// Pass 6: every input entry point and the layout ask `input_blocked()`.
+    /// Fails if one of them goes back to `is_locked` alone.
+    #[test]
+    fn every_input_entry_point_uses_the_blocked_predicate() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
+        let body_of = |file: &str, fun: &str| -> String {
+            let src = std::fs::read_to_string(dir.join(file)).unwrap();
+            let start = src.find(fun).unwrap_or_else(|| panic!("{} in {}", fun, file));
+            let end = src[start..].find("\n    }\n").map_or(src.len(), |e| start + e);
+            src[start..end].to_string()
+        };
+        assert!(body_of("edit_ops.rs", "pub(super) fn handle_shortcut").contains("if self.input_blocked()"));
+        assert!(body_of("layout.rs", "pub(super) fn layout_controls").contains("layout_mode(self.input_blocked())"));
+        assert!(body_of("panel_grip.rs", "fn note_is_locked").contains("self.input_blocked()"));
+        let ev = std::fs::read_to_string(dir.join("events.rs")).unwrap();
+        // Menu handler, drop handler, editor WM_KEYDOWN and WM_CHAR.
+        assert!(ev.matches("f.input_blocked()").count() >= 2, "menu and drop");
+        assert!(ev.matches("f_ed.input_blocked()").count() >= 2, "editor keys and chars");
+        assert!(!ev.contains("if *f_ed.is_locked.borrow()"), "editor key handler on is_locked alone");
+    }
+
     /// Pass 5: a failed save before the lock keeps the note (no wipe of the
     /// unsaved changes); an unmodified note or a saved one locks.
     #[test]
