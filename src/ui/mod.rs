@@ -78,14 +78,6 @@ fn run_once<T>(done: &std::sync::atomic::AtomicBool, f: impl FnOnce() -> T) -> O
     Some(f())
 }
 
-/// Text of the startup question when the .tmp and the exe do not hold the
-/// same notes and the exe was written by something else since the pending
-/// save started. Dates are Unix seconds, shown in UTC like the other dates
-/// of the application.
-///
-/// Shown before the notes are decrypted, so before the language of the
-/// encrypted settings is known: like the unlock window, it is in the
-/// language in force at startup (English).
 /// The status text after a clipboard write (issue #31): `copied` only when
 /// the write succeeded, the translated failure with its reason otherwise.
 pub(crate) fn copy_feedback(result: &Result<(), String>, copied: &str) -> String {
@@ -98,6 +90,14 @@ pub(crate) fn copy_feedback(result: &Result<(), String>, copied: &str) -> String
     }
 }
 
+/// Text of the startup question when the .tmp and the exe do not hold the
+/// same notes and the exe was written by something else since the pending
+/// save started. Dates are Unix seconds, shown in UTC like the other dates
+/// of the application.
+///
+/// Shown before the notes are decrypted, so before the language of the
+/// encrypted settings is known: like the unlock window, it is in the
+/// language in force at startup (English).
 fn conflict_message(
     tmp_unix: u64,
     exe_unix: u64,
@@ -346,17 +346,36 @@ mod tests {
         let mut found = Vec::new();
         for f in files {
             let text = std::fs::read_to_string(&f).unwrap();
-            for (i, line) in text.lines().enumerate() {
-                let l = line.trim_start();
-                let writes = ["set_clipboard", "SetClipboardData", "CloseClipboard", "EmptyClipboard"]
-                    .iter()
-                    .any(|w| l.contains(w));
-                if l.starts_with("let _ =") && writes {
-                    found.push(format!("{}:{}: {}", f.display(), i + 1, l));
-                }
+            for s in discarded_clipboard_writes(&text) {
+                found.push(format!("{}: {}", f.display(), s));
             }
         }
         assert!(found.is_empty(), "clipboard results discarded:\n{}", found.join("\n"));
+    }
+
+    /// The statements of `text` that write to the clipboard and drop the
+    /// result: `let _ = ...;` (also over several lines), `_ = ...;` and
+    /// `....ok();`. Statements are cut at `;`, which is enough for a scan.
+    fn discarded_clipboard_writes(text: &str) -> Vec<String> {
+        let calls = ["set_clipboard", "SetClipboardData", "CloseClipboard", "EmptyClipboard"];
+        text.split(';')
+            .map(|s| s.split("\n").map(str::trim).filter(|l| !l.starts_with("//")).collect::<Vec<_>>().join(" "))
+            .map(|s| s.rsplit(|c| c == '{' || c == '}').next().unwrap_or("").trim().to_string())
+            .filter(|s| calls.iter().any(|c| s.contains(c)))
+            .filter(|s| s.starts_with("let _ =") || s.starts_with("_ =") || s.ends_with(".ok()"))
+            .collect()
+    }
+
+    /// The scan sees the three forms, over several lines too.
+    #[test]
+    fn the_clipboard_scan_sees_every_discarding_form() {
+        // Placeholders, so the scan of this file does not find the sample.
+        let src = "fn a() {\n    let _ =\n        SET(f, x);\n    _ = EMPTY();\n    CLOSE().ok();\n    if let Err(e) = SET(f, y) { log(e); }\n}"
+            .replace("SET", &format!("set_{}", "clipboard"))
+            .replace("EMPTY", &format!("Empty{}", "Clipboard"))
+            .replace("CLOSE", &format!("Close{}", "Clipboard"));
+        let found = super::tests::discarded_clipboard_writes(&src);
+        assert_eq!(found.len(), 3, "{:?}", found);
     }
 
     // The wording depends on the current language, which other tests switch:

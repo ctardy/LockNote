@@ -224,7 +224,7 @@ impl EditorForm {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::CloseAction::{self, *};
+    use crate::settings::CloseAction::*;
 
     struct Fake {
         save: Result<(), String>,
@@ -342,6 +342,5 @@ mod tests {
         crate::features::i18n::set_language(crate::features::i18n::Language::English);
         assert!(r.contains("disque plein") && r.starts_with("LockNote"), "{}", r);
         assert!(!r.contains('{'), "{}", r);
-        let _ = CloseAction::Ask;
     }
 }

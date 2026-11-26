@@ -47,14 +47,6 @@ mod snapshot;
 
 pub use style::{mark_error, set_frame_color};
 
-/// Give a dialog the shared look. Call right after the window is built, before
-/// its controls: the styling pass runs from the first message of the dialog's
-/// loop, when every control exists (see `style.rs`).
-///
-/// Dark title bar and window background, then, per control: palette colors for
-/// labels / edit boxes / lists (`WM_CTLCOLOR*`), DPI scaling, the font
-/// hierarchy, reflow of text that does not fit, uniform footer buttons, dark
-/// native controls (Dark theme), Esc = close, centering on the main window.
 /// Combo items for durations in seconds: 0 is "Off", then "{n} sec" in the
 /// current language (the items were English literals, issue #25 pass 2).
 pub(crate) fn seconds_options(values: &[u32]) -> Vec<String> {
@@ -89,6 +81,14 @@ mod duration_option_tests {
     }
 }
 
+/// Give a dialog the shared look. Call right after the window is built, before
+/// its controls: the styling pass runs from the first message of the dialog's
+/// loop, when every control exists (see `style.rs`).
+///
+/// Dark title bar and window background, then, per control: palette colors for
+/// labels / edit boxes / lists (`WM_CTLCOLOR*`), DPI scaling, the font
+/// hierarchy, reflow of text that does not fit, uniform footer buttons, dark
+/// native controls (Dark theme), Esc = close, centering on the main window.
 pub fn apply_dialog_theme(window: &nwg::Window) {
     apply_window_chrome(window);
     style::register(window);
