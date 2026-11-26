@@ -472,6 +472,8 @@ mod compare_flow;
 use self::helpers::*;
 // The startup conflict dialog (ui/mod.rs) shows dates in the same format.
 pub(in crate::ui) use self::helpers::format_timestamp;
+// Regex Find / Replace (ui/dialogs/regex_search.rs) maps its matches with it.
+pub(in crate::ui) use self::helpers::build_utf16_offset_map;
 #[allow(unused_imports)]
 use self::content::*;
 #[allow(unused_imports)]

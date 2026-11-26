@@ -275,7 +275,7 @@ pub(super) fn utf16_to_byte_exact(text: &str, pos: usize) -> Result<usize, Utf16
 
 /// Build a lookup table mapping each UTF-8 byte offset to a UTF-16 code-unit offset.
 /// The returned Vec has length `text.len() + 1` so the end-of-string position is mapped.
-pub(super) fn build_utf16_offset_map(text: &str) -> Vec<usize> {
+pub(in crate::ui) fn build_utf16_offset_map(text: &str) -> Vec<usize> {
     let mut map = vec![0usize; text.len() + 1];
     let mut u16_pos: usize = 0;
     let bytes = text.as_bytes();

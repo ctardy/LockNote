@@ -3,19 +3,23 @@
 // Layout (replace mode):
 //   [Find:    ] [input       ] [◀ Prev] [Next ▶]
 //   [Replace: ] [input       ] [Replace] [Replace All]
-//   [☐ Match case] [☐ Whole word]
+//   [☐ Match case] [☐ Whole word] [☐ Regular expression]
 //   [status label: "3 / 12" or "Not found"]     [Close]
 //
 // Uses RichEdit messages (EM_FINDTEXTEXW, EM_EXSETSEL, EM_REPLACESEL) to
 // operate directly on the editor HWND. Relies on the editor having the
 // ES_NOHIDESEL style so selections stay visible while this dialog holds focus.
+// RichEdit has no regex search: with "Regular expression" checked, the text
+// is searched by `regex_search` and the match selected by position.
 
 use native_windows_gui as nwg;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::SendMessageW;
+use windows::Win32::UI::WindowsAndMessaging::{GetWindowTextLengthW, GetWindowTextW, SendMessageW};
+
+use super::regex_search::{self, Found, RegexOptions, RegexTarget};
 
 fn t(key: &str) -> String {
     crate::features::i18n::get(key).to_string()
@@ -155,6 +159,34 @@ fn count_matches(hwnd: HWND, term: &str, base_flags: u32) -> usize {
         }
     }
     count
+}
+
+/// The editor control seen by the regex flows (`regex_search`).
+struct RichEditTarget(HWND);
+
+impl RegexTarget for RichEditTarget {
+    /// The whole text, as `nwg::RichTextBox::text` reads it (WM_GETTEXT).
+    fn text(&self) -> String {
+        let len = unsafe { GetWindowTextLengthW(self.0) }.max(0) as usize;
+        let mut buf = vec![0u16; len + 1];
+        let copied = unsafe { GetWindowTextW(self.0, &mut buf) }.max(0) as usize;
+        String::from_utf16_lossy(&buf[..copied.min(len)])
+    }
+    fn selection(&self) -> regex_search::Span {
+        let (a, b) = get_selection(self.0);
+        (a.max(0) as usize, b.max(0) as usize)
+    }
+    fn set_selection(&mut self, start: usize, end: usize) {
+        set_selection(self.0, to_cp(start), to_cp(end));
+    }
+    fn replace_selection(&mut self, text: &str) {
+        replace_selection(self.0, text);
+    }
+}
+
+/// RichEdit positions are `i32`; a note never comes near the limit.
+fn to_cp(pos: usize) -> i32 {
+    i32::try_from(pos).unwrap_or(i32::MAX)
 }
 
 pub struct FindReplaceDialog;
@@ -299,6 +331,17 @@ impl FindReplaceDialog {
             .expect("chk_word");
         super::disable_control_theme(chk_word.handle);
 
+        let mut chk_regex = Default::default();
+        nwg::CheckBox::builder()
+            .text(&t("search.regex"))
+            .parent(&window)
+            .position((355, checkbox_y))
+            .size((165, 22))
+            .font(Some(&font))
+            .build(&mut chk_regex)
+            .expect("chk_regex");
+        super::disable_control_theme(chk_regex.handle);
+
         // ── Row 4: Status + Close ──
         let status_y = checkbox_y + 34;
         let mut lbl_status = Default::default();
@@ -340,6 +383,7 @@ impl FindReplaceDialog {
         let find_input_h = txt_find.handle;
         let chk_case_h = chk_case.handle;
         let chk_word_h = chk_word.handle;
+        let chk_regex_h = chk_regex.handle;
 
         // Wrap widgets we need to read from multiple closures.
         let txt_find = Rc::new(txt_find);
@@ -357,6 +401,30 @@ impl FindReplaceDialog {
             f
         };
         let read_flags = Rc::new(read_flags);
+
+        // Regex mode: `None` when the box is unchecked, else the compiled
+        // pattern (or why it does not compile) for the current term.
+        let chk_case_for_re = chk_case_rc.clone();
+        let chk_word_for_re = chk_word_rc.clone();
+        let chk_regex_rc = Rc::new(chk_regex);
+        let txt_find_for_re = txt_find.clone();
+        let read_regex = move || -> Option<Result<regex::Regex, regex::Error>> {
+            if chk_regex_rc.check_state() != nwg::CheckBoxState::Checked {
+                return None;
+            }
+            let opts = RegexOptions {
+                match_case: chk_case_for_re.check_state() == nwg::CheckBoxState::Checked,
+                whole_word: chk_word_for_re.check_state() == nwg::CheckBoxState::Checked,
+            };
+            let compiled = regex_search::compile(&txt_find_for_re.text(), opts);
+            if let Err(e) = &compiled {
+                // The pattern is note content: only the kind of error is logged.
+                let kind = if matches!(e, regex::Error::CompiledTooBig(_)) { "too big" } else { "syntax" };
+                eprintln!("WARN find_replace: invalid regex ({kind})");
+            }
+            Some(compiled)
+        };
+        let read_regex = Rc::new(read_regex);
 
         // Helper to refresh the status label from current total/current.
         let lbl_status_upd = lbl_status.clone();
@@ -387,6 +455,7 @@ impl FindReplaceDialog {
         let update_status_rc = update_status.clone();
         let lbl_status_rc = lbl_status.clone();
         let txt_find_recount = txt_find.clone();
+        let read_regex_rc = read_regex.clone();
         let recount = move || {
             let term = txt_find_recount.text();
             if term.is_empty() {
@@ -395,8 +464,16 @@ impl FindReplaceDialog {
                 lbl_status_rc.set_text("");
                 return;
             }
-            let flags = read_flags_rc();
-            let tot = count_matches(hwnd, &term, flags);
+            let tot = match read_regex_rc() {
+                None => count_matches(hwnd, &term, read_flags_rc()),
+                Some(Ok(re)) => regex_search::Haystack::new(&RichEditTarget(hwnd).text()).matches(&re).len(),
+                Some(Err(_)) => {
+                    total_rc.set(0);
+                    current_rc.set(0);
+                    lbl_status_rc.set_text(&t("search.regex.invalid"));
+                    return;
+                }
+            };
             total_rc.set(tot);
             current_rc.set(0);
             if tot == 0 {
@@ -419,6 +496,27 @@ impl FindReplaceDialog {
         let lbl_status_cb = lbl_status.clone();
         let txt_find_cb = txt_find.clone();
         let txt_replace_cb = txt_replace_opt.clone();
+        let read_regex_cb = read_regex.clone();
+
+        // Regex mode: show where a step left the counter.
+        let total_re = total.clone();
+        let current_re = current.clone();
+        let update_status_re = update_status.clone();
+        let lbl_status_re = lbl_status.clone();
+        let show_found = move |found: Option<Found>| match found {
+            Some(f) => {
+                total_re.set(f.total);
+                current_re.set(f.current);
+                update_status_re();
+            }
+            None => {
+                total_re.set(0);
+                current_re.set(0);
+                lbl_status_re.set_text(&t("search.count.none"));
+            }
+        };
+        let lbl_status_invalid = lbl_status.clone();
+        let show_invalid = move || lbl_status_invalid.set_text(&t("search.regex.invalid"));
 
         let handler = nwg::full_bind_event_handler(&window_handle, move |evt, _data, handle| {
             match evt {
@@ -431,7 +529,7 @@ impl FindReplaceDialog {
                 }
                 nwg::Event::OnButtonClick => {
                     // Checkbox clicks fire OnButtonClick too.
-                    if handle == chk_case_h || handle == chk_word_h {
+                    if handle == chk_case_h || handle == chk_word_h || handle == chk_regex_h {
                         recount_cb();
                         return;
                     }
@@ -439,6 +537,11 @@ impl FindReplaceDialog {
                     if handle == next_h {
                         let term = txt_find_cb.text();
                         if term.is_empty() { return; }
+                        match read_regex_cb() {
+                            Some(Ok(re)) => return show_found(regex_search::find_next(&mut RichEditTarget(hwnd), &re)),
+                            Some(Err(_)) => return show_invalid(),
+                            None => {}
+                        }
                         let flags = read_flags_cb();
                         let (_, caret) = get_selection(hwnd);
                         match find_next_forward(hwnd, &term, flags, caret) {
@@ -460,6 +563,11 @@ impl FindReplaceDialog {
                     } else if handle == prev_h {
                         let term = txt_find_cb.text();
                         if term.is_empty() { return; }
+                        match read_regex_cb() {
+                            Some(Ok(re)) => return show_found(regex_search::find_prev(&mut RichEditTarget(hwnd), &re)),
+                            Some(Err(_)) => return show_invalid(),
+                            None => {}
+                        }
                         let flags = read_flags_cb();
                         let (caret, _) = get_selection(hwnd);
                         match find_next_backward(hwnd, &term, flags, caret) {
@@ -482,6 +590,13 @@ impl FindReplaceDialog {
                             let term = txt_find_cb.text();
                             let replacement = txt_replace.text();
                             if term.is_empty() { return; }
+                            match read_regex_cb() {
+                                Some(Ok(re)) => {
+                                    return show_found(regex_search::replace_one(&mut RichEditTarget(hwnd), &re, &replacement));
+                                }
+                                Some(Err(_)) => return show_invalid(),
+                                None => {}
+                            }
                             let flags = read_flags_cb();
                             let (sel_a, sel_b) = get_selection(hwnd);
                             if sel_b > sel_a {
@@ -501,6 +616,27 @@ impl FindReplaceDialog {
                             let term = txt_find_cb.text();
                             let replacement = txt_replace.text();
                             if term.is_empty() { return; }
+                            match read_regex_cb() {
+                                Some(Ok(re)) => {
+                                    total_cb.set(0);
+                                    current_cb.set(0);
+                                    match regex_search::replace_all(&mut RichEditTarget(hwnd), &re, &replacement) {
+                                        Ok(count) => {
+                                            eprintln!("INFO find_replace: regex replace all count={count}");
+                                            let msg = t("search.replaceall.msg")
+                                                .replace("{count}", &count.to_string());
+                                            lbl_status_cb.set_text(&msg);
+                                        }
+                                        Err(e) => {
+                                            eprintln!("ERROR find_replace: {e}");
+                                            lbl_status_cb.set_text("");
+                                        }
+                                    }
+                                    return;
+                                }
+                                Some(Err(_)) => return show_invalid(),
+                                None => {}
+                            }
                             let flags = read_flags_cb();
                             let mut count = 0usize;
                             let mut from: i32 = 0;
@@ -546,5 +682,21 @@ mod tests {
     #[test]
     fn module_compiles() {
         let _ = std::mem::size_of::<super::FindReplaceDialog>();
+    }
+
+    /// With "Regular expression" checked, every action goes through
+    /// `regex_search` (Next, Previous, Replace, Replace All, and the count),
+    /// never through EM_FINDTEXTEXW with the pattern as plain text.
+    #[test]
+    fn every_action_checks_the_regex_mode_first() {
+        let src = crate::read_source("src/ui/dialogs/find_replace.rs");
+        let code = &src[..src.find("#[cfg(test)]").expect("test module")];
+        assert_eq!(code.matches("match read_regex_cb() {").count(), 4);
+        for flow in ["find_next(", "find_prev(", "replace_one(", "replace_all("] {
+            assert!(code.contains(&format!("regex_search::{flow}")), "{flow} not wired");
+        }
+        let recount = &code[code.find("let recount = move ||").expect("recount")..];
+        assert!(recount.contains("match read_regex_rc() {"));
+        assert!(code.contains("handle == chk_regex_h"), "toggling the box must recount");
     }
 }

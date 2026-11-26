@@ -43,6 +43,10 @@ native-windows-derive = "1.0"
 # Encoding
 encoding_rs = "0.8"
 
+# Find / Replace with regular expressions (B3). No "perf" (aho-corasick,
+# lazy DFA): notes are small; Unicode limited to case folding and \w \b \d.
+regex = { version = "1", default-features = false, features = ["std", "unicode-case", "unicode-perl"] }
+
 # System
 clipboard-win = "5"
 ureq = { version = "3", features = ["platform-verifier"] }

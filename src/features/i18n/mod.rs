@@ -251,6 +251,8 @@ fn build_en() -> Dict {
     m.insert("menu.edit.pasteplain", "Paste as &Plain Text\tCtrl+Shift+V");
     m.insert("menu.edit.find", "&Find...\tCtrl+F");
     m.insert("menu.edit.replace", "&Replace...\tCtrl+H");
+    m.insert("search.regex", "Regular expression");
+    m.insert("search.regex.invalid", "Invalid regular expression");
     m.insert("menu.edit.goto", "&Go to Line...\tCtrl+G");
     m.insert("menu.edit.dupline", "&Duplicate Line\tCtrl+D");
     m.insert("menu.edit.delline", "De&lete Line\tCtrl+Shift+K");
@@ -950,6 +952,8 @@ fn build_fr() -> Dict {
     m.insert("menu.edit.pasteplain", "Coller en texte &brut\tCtrl+Shift+V");
     m.insert("menu.edit.find", "&Rechercher...\tCtrl+F");
     m.insert("menu.edit.replace", "Re&mplacer...\tCtrl+H");
+    m.insert("search.regex", "Expression r\u{00e9}guli\u{00e8}re");
+    m.insert("search.regex.invalid", "Expression r\u{00e9}guli\u{00e8}re invalide");
     m.insert("menu.edit.goto", "&Aller \u{00e0} la ligne...\tCtrl+G");
     m.insert("menu.edit.dupline", "&Dupliquer la ligne\tCtrl+D");
     m.insert("menu.edit.delline", "Supprimer la &ligne\tCtrl+Shift+K");
@@ -1626,6 +1630,8 @@ fn build_es() -> Dict {
     m.insert("menu.edit.pasteplain", "Pegar como texto &plano\tCtrl+Shift+V");
     m.insert("menu.edit.find", "&Buscar...\tCtrl+F");
     m.insert("menu.edit.replace", "&Reemplazar...\tCtrl+H");
+    m.insert("search.regex", "Expresi\u{00f3}n regular");
+    m.insert("search.regex.invalid", "Expresi\u{00f3}n regular no v\u{00e1}lida");
     m.insert("menu.edit.goto", "&Ir a la l\u{00ed}nea...\tCtrl+G");
     m.insert("menu.edit.dupline", "&Duplicar l\u{00ed}nea\tCtrl+D");
     m.insert("menu.edit.delline", "E&liminar l\u{00ed}nea\tCtrl+Shift+K");
@@ -2303,6 +2309,8 @@ fn build_de() -> Dict {
     m.insert("menu.edit.pasteplain", "Als &reinen Text einf\u{00fc}gen\tStrg+Umschalt+V");
     m.insert("menu.edit.find", "&Suchen...\tStrg+F");
     m.insert("menu.edit.replace", "&Ersetzen...\tStrg+H");
+    m.insert("search.regex", "Regul\u{00e4}rer Ausdruck");
+    m.insert("search.regex.invalid", "Ung\u{00fc}ltiger regul\u{00e4}rer Ausdruck");
     m.insert("menu.edit.goto", "&Gehe zu Zeile...\tStrg+G");
     m.insert("menu.edit.dupline", "Zeile &duplizieren\tStrg+D");
     m.insert("menu.edit.delline", "Zeile &l\u{00f6}schen\tStrg+Umschalt+K");
