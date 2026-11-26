@@ -30,6 +30,46 @@ pub struct CloseConfirmResult {
 }
 
 // ---------------------------------------------------------------------------
+// Owner disabled while a close dialog is shown (pass 4: Ctrl+S, Ctrl+Q and
+// typing reached the main window under the prompt)
+// ---------------------------------------------------------------------------
+
+/// Calls `set_enabled(false)` now and `set_enabled(true)` when dropped (also
+/// on an early return or a panic).
+pub struct DisabledWhile<F: FnMut(bool)> {
+    set_enabled: F,
+}
+
+impl<F: FnMut(bool)> DisabledWhile<F> {
+    pub fn new(mut set_enabled: F) -> Self {
+        set_enabled(false);
+        DisabledWhile { set_enabled }
+    }
+}
+
+impl<F: FnMut(bool)> Drop for DisabledWhile<F> {
+    fn drop(&mut self) {
+        (self.set_enabled)(true);
+    }
+}
+
+/// Disable `owner` until the guard is dropped.
+fn disable_owner(owner: Option<nwg::ControlHandle>) -> DisabledWhile<impl FnMut(bool)> {
+    let hwnd = owner.and_then(|o| o.hwnd());
+    DisabledWhile::new(move |enabled| {
+        if let Some(h) = hwnd {
+            // The return value is the previous state, not an error.
+            let _previous_state = unsafe {
+                windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow(
+                    windows::Win32::Foundation::HWND(h as *mut _),
+                    enabled,
+                )
+            };
+        }
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Dialog
 // ---------------------------------------------------------------------------
 
@@ -49,6 +89,9 @@ impl CloseConfirmDialog {
             .parent(owner)
             .build(&mut window)
             .expect("Failed to build CloseConfirmDialog window");
+        // Declared after the window: dropped first, so the owner is enabled
+        // again before the dialog goes and gets the focus back.
+        let _owner_disabled = disable_owner(owner);
 
         super::apply_dialog_theme(&window);
 
@@ -195,6 +238,7 @@ impl SaveFailedDialog {
             .parent(owner)
             .build(&mut window)
             .expect("Failed to build SaveFailedDialog window");
+        let _owner_disabled = disable_owner(owner);
 
         super::apply_dialog_theme(&window);
 
@@ -265,6 +309,20 @@ impl SaveFailedDialog {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_owner_is_enabled_again_on_every_path() {
+        let calls = std::cell::RefCell::new(Vec::new());
+        {
+            let _g = DisabledWhile::new(|e| calls.borrow_mut().push(e));
+        }
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _g = DisabledWhile::new(|e| calls.borrow_mut().push(e));
+            panic!("dialog failed");
+        }));
+        assert!(r.is_err());
+        assert_eq!(*calls.borrow(), [false, true, false, true]);
+    }
 
     #[test]
     fn only_the_explicit_button_closes_without_saving() {
