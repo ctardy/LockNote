@@ -47,17 +47,8 @@ impl EditorForm {
             .build(&mut menu_file)
             .expect("Failed to build File menu");
 
-        let save_shortcut_text = {
-            let mut parts = Vec::new();
-            if settings.save_modifiers & 0x02 != 0 { parts.push("Ctrl"); }
-            if settings.save_modifiers & 0x04 != 0 { parts.push("Shift"); }
-            if settings.save_modifiers & 0x01 != 0 { parts.push("Alt"); }
-            let key_char = char::from(settings.save_key as u8);
-            parts.push(match key_char { 'A'..='Z' => "", _ => "" });
-            // Remove empty last element and add the key
-            parts.retain(|s| !s.is_empty());
-            format!("{}+{}", parts.join("+"), key_char)
-        };
+        // Shared with the command palette, which shows the same text.
+        let save_shortcut_text = crate::ui::command_palette::save_shortcut_text(settings.save_modifiers, settings.save_key);
         let save_label = t("menu.file.save");
         let save_menu_text = if let Some(tab_pos) = save_label.find('\t') {
             format!("{}\t{}", &save_label[..tab_pos], save_shortcut_text)

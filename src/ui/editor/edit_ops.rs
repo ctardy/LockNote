@@ -179,6 +179,7 @@ impl EditorForm {
                 0x56 => { self.on_paste_plain(); return true; } // Ctrl+Shift+V
                 0x4B => { self.on_delete_line(); return true; } // Ctrl+Shift+K
                 0x09 => { self.on_prev_tab(); return true; }    // Ctrl+Shift+Tab
+                0x50 => { self.on_command_palette(); return true; } // Ctrl+Shift+P
                 _ => {}
             }
         } else if !ctrl && !shift {

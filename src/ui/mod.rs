@@ -14,6 +14,7 @@ pub mod tab_bar;
 pub mod tab_layout;
 pub mod vault_panel;
 pub mod prompts_panel;
+pub mod command_palette;
 pub mod attachments_panel;
 pub mod totp_panel;
 pub mod side_panel;

@@ -460,6 +460,7 @@ mod end_session;
 mod lock_flow;
 mod indent;
 mod lists;
+mod palette_ops;
 
 #[allow(unused_imports)]
 use self::helpers::*;

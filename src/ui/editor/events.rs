@@ -47,54 +47,10 @@ impl EditorForm {
                             eprintln!("INFO menu: command ignored while locked");
                             return;
                         }
-                        // File menu
-                        if handle == f.menu_file_save.handle {
-                            let _ = f.on_save();
-                        }
-                        if handle == f.menu_file_settings_preferences.handle {
-                            f.on_preferences();
-                        } else if handle == f.menu_file_settings_security.handle {
-                            f.on_security();
-                        } else if handle == f.menu_file_settings_tempfiles.handle {
-                            if f.on_temp_files() {
-                                nwg::stop_thread_dispatch();
-                            }
-                        } else if handle == f.menu_file_quit.handle {
-                            if f.on_close() {
-                                nwg::stop_thread_dispatch();
-                            }
-                        }
-                        // View menu
-                        else if handle == f.menu_view_always_on_top.handle {
-                            f.on_toggle_always_on_top();
-                        } else if handle == f.menu_view_word_wrap.handle {
-                            f.on_toggle_word_wrap();
-                        } else if handle == f.menu_view_line_numbers.handle {
-                            f.on_toggle_line_numbers();
-                        }
-                        // Edit menu
-                        else if handle == f.menu_edit_cut.handle {
-                            f.on_cut();
-                        } else if handle == f.menu_edit_copy.handle {
-                            f.on_copy();
-                        } else if handle == f.menu_edit_paste.handle {
-                            f.on_paste();
-                        } else if handle == f.menu_edit_paste_plain.handle {
-                            f.on_paste_plain();
-                        } else if handle == f.menu_edit_find.handle {
-                            f.on_show_find();
-                        } else if handle == f.menu_edit_replace.handle {
-                            f.on_show_replace();
-                        } else if handle == f.menu_edit_goto_line.handle {
-                            f.on_goto_line();
-                        } else if handle == f.menu_edit_duplicate_line.handle {
-                            f.on_duplicate_line();
-                        } else if handle == f.menu_edit_delete_line.handle {
-                            f.on_delete_line();
-                        } else if handle == f.menu_edit_select_all.handle {
-                            f.on_select_all();
-                        } else if handle == f.menu_edit_insert_timestamp.handle {
-                            f.on_insert_timestamp();
+                        // Menu bar: one command table for the menus and the
+                        // command palette (ui::command_palette).
+                        if let Some(id) = f.command_for_menu(handle) {
+                            f.run_command(id);
                         }
                         // Context menu
                         else if handle == f.ctx_cut.handle {
@@ -108,84 +64,12 @@ impl EditorForm {
                         } else if handle == f.ctx_select_all.handle {
                             f.on_select_all();
                         }
-                        // Help menu
-                        else if handle == f.menu_help_updates.handle {
-                            f.on_check_updates();
-                        } else if handle == f.menu_help_about.handle {
-                            f.on_about();
-                        }
                         // Tray menu
                         else if handle == f.tray_menu_restore.handle {
                             f.on_tray_restore();
                         } else if handle == f.tray_menu_quit.handle {
                             if f.on_close() {
                                 nwg::stop_thread_dispatch();
-                            }
-                        }
-                        // Tools menu
-                        if handle == f.menu_tools_vault.handle {
-                            f.on_toggle_vault();
-                        }
-                        if handle == f.menu_tools_prompts.handle {
-                            f.on_toggle_prompts();
-                        }
-                        if handle == f.menu_tools_totp.handle {
-                            f.on_toggle_totp();
-                        }
-                        if handle == f.menu_tools_attachments.handle {
-                            f.on_toggle_attachments();
-                        }
-                        if handle == f.menu_tools_passgen.handle {
-                            f.on_password_generator();
-                        }
-                        // Steganography
-                        if handle == f.menu_tools_stego_hide.handle {
-                            f.on_stego_hide();
-                        }
-                        if handle == f.menu_tools_stego_extract.handle {
-                            f.on_stego_extract();
-                        }
-                        // SSH keys (issue 054)
-                        if handle == f.menu_tools_ssh_generate.handle {
-                            f.on_ssh_generate();
-                        }
-                        if handle == f.menu_tools_ssh_agent.handle {
-                            f.on_ssh_agent_load();
-                        }
-                        // Safety backups: history, restore, force one
-                        if handle == f.menu_file_backups.handle {
-                            f.on_backups();
-                        }
-                        // Print
-                        if handle == f.menu_file_print.handle {
-                            f.on_print();
-                        }
-                        // Export
-                        if handle == f.menu_file_export.handle {
-                            f.on_export();
-                        }
-                        // Full backup export / import
-                        if handle == f.menu_file_backup_export.handle {
-                            f.on_export_backup();
-                        }
-                        if handle == f.menu_file_backup_import.handle {
-                            f.on_import_backup();
-                        }
-                        if handle == f.menu_file_import_exe.handle {
-                            f.on_import_from_exe();
-                        }
-                        // Tab menu
-                        {
-                            if handle == f.menu_tab_new.handle {
-                                f.on_new_tab();
-                            } else if handle == f.menu_tab_close.handle {
-                                f.on_close_tab();
-                            } else if handle == f.menu_tab_rename.handle {
-                                f.on_rename_tab();
-                            } else if handle == f.menu_tab_next.handle {
-                                f.on_next_tab();
-                            } else if handle == f.menu_tab_prev.handle {
-                                f.on_prev_tab();
                             }
                         }
                     }

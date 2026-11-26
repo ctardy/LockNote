@@ -110,22 +110,37 @@ impl EditorForm {
 
             if cmd.0 > 0 {
                 let idx = (cmd.0 as usize) - 1;
-                if idx != active_idx && idx < tabs.len() {
-                    let content = self.get_content();
-                    let mut tb = self.tab_bar.borrow_mut();
-                    tb.set_tab_content(active_idx, &content);
-                    tb.set_active(idx);
-                    let new_content = tb.get_tab_content(idx);
-                    drop(tb);
-                    self.editor.set_text(&new_content);
-                    *self.detected_encoding.borrow_mut() = "UTF-8".to_string();
-                    self.update_title();
-                    self.update_status_bar();
-                    self.paint_tab_bar();
-                    self.layout_controls();
+                if idx < tabs.len() {
+                    self.switch_to_tab(idx);
                 }
             }
         }
+    }
+
+    /// Make the tab at `index` active: the editor's text is kept in the
+    /// tab it leaves, the editor shows the new one. Nothing happens for the
+    /// active tab or an index past the last tab. Used by the "…" drop-down
+    /// and the command palette.
+    pub(super) fn switch_to_tab(&self, index: usize) {
+        let (active, count) = {
+            let tb = self.tab_bar.borrow();
+            (tb.active_index(), tb.count())
+        };
+        if index == active || index >= count {
+            return;
+        }
+        let content = self.get_content();
+        let tb = self.tab_bar.borrow_mut();
+        tb.set_tab_content(active, &content);
+        tb.set_active(index);
+        let new_content = tb.get_tab_content(index);
+        drop(tb);
+        self.editor.set_text(&new_content);
+        *self.detected_encoding.borrow_mut() = "UTF-8".to_string();
+        self.update_title();
+        self.update_status_bar();
+        self.paint_tab_bar();
+        self.layout_controls();
     }
 
     /// Drop of a dragged tab: reorder, keep the same tab active, mark the

@@ -37,6 +37,8 @@ pub mod backup_password;
 
 pub mod password_generator;
 
+pub mod command_palette;
+
 use native_windows_gui as nwg;
 
 pub mod metrics;

@@ -580,6 +580,9 @@ fn build_en() -> Dict {
     // Prompts panel (issue 058)
     m.insert("menu.toggle.prompts", "Prompts");
     m.insert("menu.tools.prompts", "P&rompts");
+    m.insert("palette.title", "Command Palette");
+    m.insert("palette.tab", "Tab: {name}");
+    m.insert("palette.vault", "Vault: {name}");
     m.insert("prompts.search", "Search name or text");
     m.insert("prompts.btn.add", "Add");
     m.insert("prompts.btn.edit", "Edit");
@@ -1246,6 +1249,9 @@ fn build_fr() -> Dict {
     // Prompts panel (issue 058)
     m.insert("menu.toggle.prompts", "Prompts");
     m.insert("menu.tools.prompts", "P&rompts");
+    m.insert("palette.title", "Palette de commandes");
+    m.insert("palette.tab", "Onglet : {name}");
+    m.insert("palette.vault", "Coffre : {name}");
     m.insert("prompts.search", "Rechercher (nom ou texte)");
     m.insert("prompts.btn.add", "Ajout.");
     m.insert("prompts.btn.edit", "Modif.");
@@ -1905,6 +1911,9 @@ fn build_es() -> Dict {
     // Prompts panel (issue 058)
     m.insert("menu.toggle.prompts", "Prompts");
     m.insert("menu.tools.prompts", "&Prompts");
+    m.insert("palette.title", "Paleta de comandos");
+    m.insert("palette.tab", "Pesta\u{00f1}a: {name}");
+    m.insert("palette.vault", "B\u{00f3}veda: {name}");
     m.insert("prompts.search", "Buscar (nombre o texto)");
     m.insert("prompts.btn.add", "A\u{00f1}adir");
     m.insert("prompts.btn.edit", "Editar");
@@ -2565,6 +2574,9 @@ fn build_de() -> Dict {
     // Prompts panel (issue 058)
     m.insert("menu.toggle.prompts", "Prompts");
     m.insert("menu.tools.prompts", "P&rompts");
+    m.insert("palette.title", "Befehlspalette");
+    m.insert("palette.tab", "Tab: {name}");
+    m.insert("palette.vault", "Tresor: {name}");
     m.insert("prompts.search", "Suchen (Name oder Text)");
     m.insert("prompts.btn.add", "Neu");
     m.insert("prompts.btn.edit", "Bearb.");
