@@ -30,19 +30,36 @@ pub(super) enum ZoomStep {
     Reset,
 }
 
-/// The zoom step of a key press, `None` for any other key. Ctrl alone: with
-/// Alt too it is AltGr, which types characters (`@` is AltGr+0 on a French
-/// keyboard, `}` is AltGr+=).
-pub(super) fn zoom_key(vk: u32, ctrl: bool, shift: bool, alt: bool) -> Option<ZoomStep> {
+/// The zoom step of a key press, `None` for any other key. `ch` is the
+/// character the key types without Shift in the active layout
+/// (`key_char`): the main-row `=` / `+` and `-` are found by character,
+/// since their key moves with the layout (`-` is the 6 key on a French
+/// AZERTY keyboard, which has no VK_OEM_MINUS). The numpad keys and the 0
+/// of the main row are found by key. Ctrl alone: with Alt too it is AltGr,
+/// which types characters (`@` is AltGr+0 on a French keyboard, `}` is
+/// AltGr+=).
+pub(super) fn zoom_key(vk: u32, ch: Option<char>, ctrl: bool, shift: bool, alt: bool) -> Option<ZoomStep> {
     if !ctrl || shift || alt {
         return None;
     }
-    match vk {
-        0xBB | 0x6B => Some(ZoomStep::In),  // VK_OEM_PLUS (the = key), VK_ADD
-        0xBD | 0x6D => Some(ZoomStep::Out), // VK_OEM_MINUS, VK_SUBTRACT
-        0x30 => Some(ZoomStep::Reset),      // 0 of the main row
+    match (vk, ch) {
+        (0x6B, _) => Some(ZoomStep::In),         // VK_ADD
+        (0x6D, _) => Some(ZoomStep::Out),        // VK_SUBTRACT
+        (0x30, _) => Some(ZoomStep::Reset),      // 0 of the main row
+        (_, Some('=' | '+')) => Some(ZoomStep::In),
+        (_, Some('-')) => Some(ZoomStep::Out),
         _ => None,
     }
+}
+
+/// The character of a key from `MapVirtualKeyW(vk, MAPVK_VK_TO_CHAR)`:
+/// `None` for 0 (no character) and for a dead key (top bit set), which
+/// only prepares an accent.
+pub(super) fn key_char(mapped: u32) -> Option<char> {
+    if mapped == 0 || mapped & 0x8000_0000 != 0 {
+        return None;
+    }
+    char::from_u32(mapped)
 }
 
 /// Size after `step`, from `current` (the size shown) and `base` (the size
@@ -137,26 +154,47 @@ mod tests {
 
     #[test]
     fn keys_map_to_steps_with_ctrl_only() {
-        for (vk, step) in [
-            (0xBB, ZoomStep::In),
-            (0x6B, ZoomStep::In),
-            (0xBD, ZoomStep::Out),
-            (0x6D, ZoomStep::Out),
-            (0x30, ZoomStep::Reset),
+        for (vk, ch, step) in [
+            (0xBB, Some('='), ZoomStep::In),  // US, French: the = key
+            (0xBB, Some('+'), ZoomStep::In),  // German: the + key
+            (0x6B, Some('+'), ZoomStep::In),  // numpad +
+            (0xBD, Some('-'), ZoomStep::Out), // US: VK_OEM_MINUS
+            (0x36, Some('-'), ZoomStep::Out), // French AZERTY: - is on the 6 key
+            (0x6D, Some('-'), ZoomStep::Out), // numpad -
+            (0x30, Some('0'), ZoomStep::Reset),
+            (0x30, Some('à'), ZoomStep::Reset), // AZERTY: the 0 key types à
         ] {
-            assert_eq!(zoom_key(vk, true, false, false), Some(step), "vk {vk:#x}");
-            assert_eq!(zoom_key(vk, false, false, false), None, "vk {vk:#x} without Ctrl");
-            assert_eq!(zoom_key(vk, true, true, false), None, "vk {vk:#x} with Shift");
+            assert_eq!(zoom_key(vk, ch, true, false, false), Some(step), "vk {vk:#x} {ch:?}");
+            assert_eq!(zoom_key(vk, ch, false, false, false), None, "vk {vk:#x} without Ctrl");
+            assert_eq!(zoom_key(vk, ch, true, true, false), None, "vk {vk:#x} with Shift");
             // AltGr = Ctrl+Alt: AltGr+0 types @ on a French keyboard.
-            assert_eq!(zoom_key(vk, true, false, true), None, "vk {vk:#x} with AltGr");
+            assert_eq!(zoom_key(vk, ch, true, false, true), None, "vk {vk:#x} with AltGr");
         }
     }
 
     #[test]
     fn other_keys_are_not_zoom() {
-        for vk in [0x31, 0x60, 0x46, 0x5A, 0xBE, 0xBC] {
-            assert_eq!(zoom_key(vk, true, false, false), None, "vk {vk:#x}");
+        for (vk, ch) in [
+            (0x31, Some('1')),
+            (0x36, Some('6')), // US Ctrl+6
+            (0x60, Some('0')), // numpad 0: not the reset key
+            (0x46, Some('F')),
+            (0x5A, Some('Z')),
+            (0xBE, Some('.')),
+            (0xBC, Some(',')),
+            (0xBD, None),      // a key whose character is unknown
+            (0xBB, Some(')')), // French: the ) key next to =
+        ] {
+            assert_eq!(zoom_key(vk, ch, true, false, false), None, "vk {vk:#x} {ch:?}");
         }
+    }
+
+    #[test]
+    fn key_char_skips_dead_keys_and_keys_without_a_character() {
+        assert_eq!(key_char(0x2D), Some('-'));
+        assert_eq!(key_char(0x3D), Some('='));
+        assert_eq!(key_char(0), None);
+        assert_eq!(key_char(0x8000_005E), None, "dead ^ of a French keyboard");
     }
 
     #[test]
@@ -351,10 +389,39 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_wheel_over_the_gutter_zooms_too() {
+        // The gutter passes its wheel to the main window (DefWindowProc).
+        let ev = source("events.rs");
+        let start = ev.find("if msg == 0x020A && w_param & 0x0008 != 0 {").expect("Ctrl+wheel in the main-window handler");
+        let arm = &ev[start..start + ev[start..].find("return Some(0);").expect("the arm consumes the message")];
+        assert!(arm.contains("f2.on_wheel_zoom(delta)"));
+        assert!(arm.contains("if !f2.input_blocked()"), "no zoom while locked");
+        let plain = ev.find("if msg == 0x020A {").expect("plain wheel repaint");
+        assert!(start < plain, "Ctrl+wheel is handled before the plain wheel repaint");
+    }
+
+    #[test]
+    fn preferences_report_a_font_failure_once_everything_is_applied() {
+        let body = body_of("prefs_ops.rs", "pub(super) fn on_preferences");
+        let theme = body.find("self.apply_theme_live(").expect("theme applied");
+        let lang = body.find("t(\"settings.restart\")").expect("language message");
+        let font = body.find("t(\"settings.font.failed\")").expect("font message");
+        assert!(theme < font && lang < font, "no state change follows the font message");
+    }
+
+    #[test]
+    fn an_imported_font_that_fails_is_reported() {
+        // The import keeps the result of sync_view_menu (body_of panics otherwise).
+        let body = body_of("backup_ops.rs", "let font = self.sync_view_menu();");
+        assert!(body.contains("if let Err(e) = font"), "and reads it");
+        assert!(body.contains("t(\"settings.font.failed\")"), "and tells the user");
+    }
+
+    #[test]
     fn zoom_keys_are_dispatched_after_the_lock_check() {
         let body = body_of("edit_ops.rs", "pub(super) fn handle_shortcut");
         let blocked = body.find("if self.input_blocked()").expect("lock check");
-        let zoom = body.find("zoom::zoom_key(vk, ctrl, shift, alt)").expect("zoom keys");
+        let zoom = body.find("zoom::zoom_key(vk, zoom::key_char(").expect("zoom keys, by layout character");
         assert!(blocked < zoom);
     }
 

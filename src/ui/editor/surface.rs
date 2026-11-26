@@ -177,6 +177,8 @@ const EM_GETEVENTMASK: u32 = 0x043B;
 const EM_SETEVENTMASK: u32 = 0x0445;
 const EM_SETPARAFORMAT: u32 = 0x0447;
 const EM_REDO: u32 = 0x0454;
+const EM_GETFIRSTVISIBLELINE: u32 = 0x00CE;
+const EM_LINESCROLL: u32 = 0x00B6;
 const ENM_CHANGE: isize = 0x0000_0001;
 /// WM_APP+3 on the main window: deferred gutter repaint (see events.rs).
 const WM_APP_GUTTER_REPAINT: u32 = 0x8003;
@@ -210,6 +212,23 @@ fn send(hwnd: HWND, msg: u32, wparam: usize, lparam: isize) -> isize {
 /// the undo state, the modified flag and the EN_CHANGE notification are left
 /// as they were: this is presentation, not an edit.
 pub(super) fn apply_line_spacing(hwnd: HWND) -> Result<(), String> {
+    spread_line_spacing(hwnd, Spacing::NewText)
+}
+
+/// Why the spacing is re-applied.
+#[derive(Clone, Copy)]
+enum Spacing {
+    /// After the text was replaced: an undo history the replacement did not
+    /// leave is emptied (the spacing must not be undoable).
+    NewText,
+    /// After a font change (`set_font`): the caller suspended the undo
+    /// history, so nothing is emptied (that would drop the redo steps), and
+    /// the view goes back to the text that was at its top
+    /// (`first_visible_char`), which selecting the whole text scrolled away.
+    FontChange { first_visible_char: usize },
+}
+
+fn spread_line_spacing(hwnd: HWND, why: Spacing) -> Result<(), String> {
     let could_undo = send(hwnd, EM_CANUNDO, 0, 0) != 0;
     let was_modified = send(hwnd, EM_GETMODIFY, 0, 0) != 0;
     let event_mask = send(hwnd, EM_GETEVENTMASK, 0, 0);
@@ -222,6 +241,14 @@ pub(super) fn apply_line_spacing(hwnd: HWND) -> Result<(), String> {
     let mut pf = line_spacing_paraformat();
     let applied = send(hwnd, EM_SETPARAFORMAT, 0, pf.as_mut_ptr() as isize);
     send(hwnd, EM_EXSETSEL, 0, &selection as *const _ as isize);
+    if let Spacing::FontChange { first_visible_char } = why {
+        // Same text on top as before; the line index moves with the wrap.
+        let target = send(hwnd, EM_LINEFROMCHAR, first_visible_char, 0);
+        let delta = target - send(hwnd, EM_GETFIRSTVISIBLELINE, 0, 0);
+        if delta != 0 {
+            send(hwnd, EM_LINESCROLL, 0, delta);
+        }
+    }
     send(hwnd, WM_SETREDRAW, 1, 0);
     // Turning the redraw back on repaints nothing, and whatever was invalid
     // before it was turned off (the text WM_SETTEXT just replaced) is no
@@ -231,7 +258,7 @@ pub(super) fn apply_line_spacing(hwnd: HWND) -> Result<(), String> {
         eprintln!("ERROR editor_surface: RedrawWindow failed after the line spacing; the editor may show stale text");
     }
 
-    if !could_undo {
+    if !could_undo && matches!(why, Spacing::NewText) {
         send(hwnd, EM_EMPTYUNDOBUFFER, 0, 0);
     }
     send(hwnd, EM_SETMODIFY, usize::from(was_modified), 0);
@@ -262,18 +289,31 @@ pub(super) fn set_font(hwnd: HWND, hfont: isize) -> Result<(), String> {
     unsafe { doc.Undo(tomSuspend.0) }.map_err(|e| format!("the undo history could not be suspended ({e})"))?;
     let was_modified = send(hwnd, EM_GETMODIFY, 0, 0) != 0;
     let event_mask = send(hwnd, EM_GETEVENTMASK, 0, 0);
+    let first_line = send(hwnd, EM_GETFIRSTVISIBLELINE, 0, 0);
+    let first_visible_char = send(hwnd, EM_LINEINDEX, first_line as usize, 0).max(0) as usize;
     send(hwnd, EM_SETEVENTMASK, 0, event_mask & !ENM_CHANGE);
-    // No redraw here: apply_line_spacing repaints the whole control.
+    // No redraw here: the spacing pass repaints the whole control.
     send(hwnd, WM_SETFONT, hfont as usize, 0);
     apply_editor_colors(hwnd);
-    if let Err(e) = apply_line_spacing(hwnd) {
+    // WM_SETFONT made the colour of every character automatic, not only the
+    // default one: the existing text gets the theme colour back.
+    let mut cf = text_color_charformat(theme::current().editor_text);
+    if send(hwnd, EM_SETCHARFORMAT, SCF_ALL, cf.as_mut_ptr() as isize) == 0 {
+        eprintln!("WARN editor_surface: EM_SETCHARFORMAT refused the text colour after a font change");
+    }
+    if let Err(e) = spread_line_spacing(hwnd, Spacing::FontChange { first_visible_char }) {
         warn_once(&WARNED_SPACING, &format!("{e}; the text keeps single spacing"));
     }
     // EM_SETCHARFORMAT raises the modified flag: a font is not an edit.
     send(hwnd, EM_SETMODIFY, usize::from(was_modified), 0);
     send(hwnd, EM_SETEVENTMASK, 0, event_mask);
-    if let Err(e) = unsafe { doc.Undo(tomResume.0) } {
-        eprintln!("ERROR editor_surface: the undo history could not be resumed after a font change ({e}); edits may not be undoable");
+    // A history left suspended would make every later edit impossible to
+    // undo: one retry, then the failure is reported.
+    if let Err(first) = unsafe { doc.Undo(tomResume.0) } {
+        eprintln!("WARN editor_surface: tomResume failed after a font change ({first}), retrying");
+        if let Err(e) = unsafe { doc.Undo(tomResume.0) } {
+            eprintln!("ERROR editor_surface: the undo history could not be resumed after a font change ({e}); edits may not be undoable");
+        }
     }
     Ok(())
 }
@@ -304,6 +344,7 @@ const CFM_CHARSET: u32 = 0x0800_0000;
 const CFM_WEIGHT: u32 = 0x0040_0000;
 const EM_GETCHARFORMAT: u32 = 0x043A;
 const SCF_DEFAULT: usize = 0;
+const SCF_ALL: usize = 4;
 
 /// Pixel height of the control's default font from its CHARFORMAT2 height in
 /// twips (1/1440 inch) at `dpi`, rounded to the nearest pixel.
@@ -1026,6 +1067,100 @@ mod tests {
             let natural = natural_line_height(r.ed).expect("text metrics");
             let t = tops(r.ed);
             assert_eq!(t[1] - t[0], line_pitch(natural), "smaller again, still spaced");
+        }
+
+        const EM_CANREDO: u32 = 0x0455;
+
+        fn selection_of(ed: HWND) -> (i32, i32) {
+            let mut sel = CharRange::default();
+            send(ed, EM_EXGETSEL, 0, &mut sel as *mut _ as isize);
+            (sel.min, sel.max)
+        }
+
+        /// A zoom keeps the view on the line being read, wherever the caret
+        /// is: the spacing re-applied after the font selects the whole text,
+        /// which scrolls to the caret unless the view is put back.
+        #[test]
+        fn live_set_font_keeps_the_first_visible_line() {
+            let r = make(-15);
+            let text: String = (0..300).map(|i| format!("line {i}\r\n")).collect();
+            set_text(r.ed, &text);
+            apply_line_spacing(r.ed).expect("spacing");
+            send(r.ed, EM_SETSEL, 0, 0);
+            send(r.ed, EM_LINESCROLL, 0, 150);
+            assert_eq!(send(r.ed, EM_GETFIRSTVISIBLELINE, 0, 0), 150);
+
+            set_font(r.ed, consolas(-35)).expect("font");
+            assert_eq!(send(r.ed, EM_GETFIRSTVISIBLELINE, 0, 0), 150, "zoom in: same first line");
+            assert_eq!(selection_of(r.ed), (0, 0), "the caret did not move");
+
+            set_font(r.ed, consolas(-21)).expect("font");
+            assert_eq!(send(r.ed, EM_GETFIRSTVISIBLELINE, 0, 0), 150, "zoom out: same first line");
+            assert_eq!(selection_of(r.ed), (0, 0));
+        }
+
+        /// After a font change the text keeps the theme colour (WM_SETFONT
+        /// turns it back to automatic) and every run, the occurrence
+        /// highlight's included, takes the new size.
+        #[test]
+        fn live_set_font_keeps_the_colour_and_resizes_highlighted_runs() {
+            const SCF_SELECTION: usize = 1;
+            const CFM_BACKCOLOR: u32 = 0x0400_0000;
+            const CFE_AUTOCOLOR: u32 = 0x4000_0000;
+            const CF_OFFSET_EFFECTS: usize = 8;
+            const CF_OFFSET_BACK_COLOR: usize = 96;
+            let r = make(-15);
+            apply_editor_colors(r.ed);
+            send(r.ed, EM_SETSEL, 2, 5);
+            let mut hl = [0u8; CF_SIZE];
+            hl[0..4].copy_from_slice(&(CF_SIZE as u32).to_le_bytes());
+            hl[4..8].copy_from_slice(&CFM_BACKCOLOR.to_le_bytes());
+            hl[CF_OFFSET_BACK_COLOR..CF_OFFSET_BACK_COLOR + 4].copy_from_slice(&0x0000_FFFFu32.to_le_bytes());
+            assert_ne!(send(r.ed, EM_SETCHARFORMAT, SCF_SELECTION, hl.as_mut_ptr() as isize), 0);
+            send(r.ed, EM_SETSEL, 0, 0);
+
+            set_font(r.ed, consolas(-35)).expect("font");
+
+            send(r.ed, EM_SETSEL, 0, -1);
+            let mut cf = [0u8; CF_SIZE];
+            cf[0..4].copy_from_slice(&(CF_SIZE as u32).to_le_bytes());
+            send(r.ed, EM_GETCHARFORMAT, SCF_SELECTION, cf.as_mut_ptr() as isize);
+            let u32_at = |o: usize| u32::from_le_bytes(cf[o..o + 4].try_into().expect("4 bytes"));
+            let mask = u32_at(4);
+            assert_ne!(mask & CFM_SIZE, 0, "one size across the text, highlighted run included");
+            assert_ne!(mask & CFM_COLOR, 0, "one colour across the text");
+            assert_eq!(u32_at(CF_OFFSET_EFFECTS) & CFE_AUTOCOLOR, 0, "the text colour is not automatic");
+            assert_eq!(u32_at(CF_OFFSET_TEXT_COLOR), theme::current().editor_text.to_colorref());
+            let natural = natural_line_height(r.ed).expect("text metrics");
+            let t = tops(r.ed);
+            assert_eq!(t[1] - t[0], line_pitch(natural), "the highlighted line took the new size");
+        }
+
+        /// The redo history survives a font change, and so does undo for
+        /// what is typed after it (the history was resumed).
+        #[test]
+        fn live_set_font_keeps_redo_and_later_undo() {
+            let r = make(-15);
+            send(r.ed, EM_SETSEL, 0, 0);
+            let x: Vec<u16> = "X".encode_utf16().chain(std::iter::once(0)).collect();
+            send(r.ed, EM_REPLACESEL, 1, x.as_ptr() as isize);
+            send(r.ed, EM_UNDO, 0, 0);
+            assert_eq!(text_of(r.ed), TEXT);
+
+            set_font(r.ed, consolas(-35)).expect("font");
+
+            assert_ne!(send(r.ed, EM_CANREDO, 0, 0), 0, "the redo history survived");
+            send(r.ed, EM_REDO, 0, 0);
+            assert_eq!(text_of(r.ed), format!("X{TEXT}"));
+
+            send(r.ed, EM_EMPTYUNDOBUFFER, 0, 0);
+            set_font(r.ed, consolas(-21)).expect("font");
+            send(r.ed, EM_SETSEL, 0, 0);
+            let y: Vec<u16> = "Y".encode_utf16().chain(std::iter::once(0)).collect();
+            send(r.ed, EM_REPLACESEL, 1, y.as_ptr() as isize);
+            assert_ne!(send(r.ed, EM_CANUNDO, 0, 0), 0, "typing after the font change is undoable");
+            send(r.ed, EM_UNDO, 0, 0);
+            assert_eq!(text_of(r.ed), format!("X{TEXT}"));
         }
 
         #[test]

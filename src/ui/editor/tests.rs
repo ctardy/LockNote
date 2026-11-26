@@ -632,35 +632,78 @@
 
     #[test]
     fn gutter_width_grows_with_digits_and_has_a_floor() {
-        assert_eq!(gutter_width(0, 11.0), 40);
-        assert_eq!(gutter_width(9, 11.0), 40);
-        assert_eq!(gutter_width(99, 11.0), 40);
-        assert_eq!(gutter_width(999, 11.0), 10 * 3 + 14 + 4);
-        assert_eq!(gutter_width(10_000, 11.0), 10 * 5 + 14 + 4);
+        assert_eq!(gutter_width(0, 10), 40);
+        assert_eq!(gutter_width(9, 10), 40);
+        assert_eq!(gutter_width(99, 10), 40);
+        assert_eq!(gutter_width(999, 10), 10 * 3 + 14 + 4);
+        assert_eq!(gutter_width(10_000, 10), 10 * 5 + 14 + 4);
     }
 
-    /// The zoom (A2): up to the default 11 pt a digit takes 10 px as
-    /// before; a larger font widens the digits with it, so the numbers of
-    /// a zoomed editor are not cut on the left.
+    /// The zoom (A2): wider digits widen the gutter, the floor still holds.
     #[test]
-    fn gutter_digits_widen_with_the_font() {
-        assert_eq!(gutter_digit_px(6.0), 10);
-        assert_eq!(gutter_digit_px(11.0), 10);
-        assert_eq!(gutter_digit_px(12.0), 11);
-        assert_eq!(gutter_digit_px(22.0), 20);
-        assert_eq!(gutter_digit_px(48.0), 44);
-        assert_eq!(gutter_width(999, 48.0), 44 * 3 + 14 + 4);
-        assert_eq!(gutter_width(9, 22.0), 40, "the floor still holds");
-        assert!(gutter_width(9, 48.0) > 40);
-        for pt in [6.0, 9.5, 11.0, 14.0, 30.0, 48.0, 72.0] {
-            assert!(gutter_width(100, pt + 1.0) >= gutter_width(100, pt), "{pt} pt: never narrower for a larger font");
+    fn gutter_width_follows_the_digit_width() {
+        assert_eq!(gutter_width(999, 50), 50 * 3 + 14 + 4);
+        assert_eq!(gutter_width(9, 20), 40, "the floor still holds");
+        assert!(gutter_width(9, 50) > 40);
+        for px in [1, 6, 10, 12, 30, 50] {
+            assert!(gutter_width(100, px + 1) >= gutter_width(100, px), "{px} px: never narrower for wider digits");
+        }
+    }
+
+    /// The fallback when a font cannot be measured: 0.6 em, never zero.
+    #[test]
+    fn estimated_digit_width_is_six_tenths_of_an_em() {
+        // 11 pt -> 21 px em -> 12.6 -> 13.
+        assert_eq!(estimated_gutter_digit_px(11.0), 13);
+        // 48 pt -> 91 px em -> 54.6 -> 55.
+        assert_eq!(estimated_gutter_digit_px(48.0), 55);
+        assert!(estimated_gutter_digit_px(6.0) > 0);
+    }
+
+    /// Width in px of `text` in the gutter font (the parameters of
+    /// paint_gutter), measured independently of the code under test.
+    fn gutter_text_px(family: &str, pt: f64, text: &str) -> i32 {
+        use windows::Win32::Graphics::Gdi::*;
+        let face: Vec<u16> = family.encode_utf16().chain(std::iter::once(0)).collect();
+        let wide: Vec<u16> = text.encode_utf16().collect();
+        unsafe {
+            let font = CreateFontW(
+                -(font_size_to_nwg(pt) as i32), 0, 0, 0, FW_NORMAL.0 as i32, 0, 0, 0, DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                (FF_DONTCARE.0 | FIXED_PITCH.0) as u32, windows::core::PCWSTR(face.as_ptr()),
+            );
+            assert!(!font.is_invalid(), "CreateFontW {family}");
+            let dc = GetDC(None);
+            let old = SelectObject(dc, font.into());
+            let mut size = windows::Win32::Foundation::SIZE::default();
+            let ok = GetTextExtentPoint32W(dc, &wide, &mut size);
+            SelectObject(dc, old);
+            ReleaseDC(None, dc);
+            let _ = DeleteObject(font.into());
+            assert!(ok.as_bool(), "GetTextExtentPoint32W");
+            size.cx
+        }
+    }
+
+    /// The zoom (A2): the numbers fit in the gutter at every size, for the
+    /// monospaced families the preferences offer, so none is cut on the left.
+    #[test]
+    fn live_gutter_numbers_fit_at_every_zoom() {
+        for family in ["Consolas", "Courier New", "Lucida Console"] {
+            for pt in [6.0, 11.0, 24.0, 30.0, 48.0] {
+                for (lines, digits) in [(999usize, "999"), (99, "99"), (12345, "12345")] {
+                    let need = gutter_text_px(family, pt, digits);
+                    let room = gutter_number_right(gutter_width(lines, gutter_digit_px(family, pt)));
+                    assert!(room >= need, "{family} {pt} pt, {lines} lines: {room} px for {need} px");
+                }
+            }
         }
     }
 
     #[test]
     fn gutter_numbers_end_14px_before_the_gutter_edge() {
         assert_eq!(gutter_number_right(40), 26);
-        assert_eq!(gutter_number_right(gutter_width(12345, 11.0)), gutter_width(12345, 11.0) - 14);
+        assert_eq!(gutter_number_right(gutter_width(12345, 10)), gutter_width(12345, 10) - 14);
     }
 
     #[test]
@@ -1609,17 +1652,17 @@
 
     #[test]
     fn hidden_line_numbers_take_no_width() {
-        assert_eq!(shown_gutter_width(false, 1, 11.0), 0);
-        assert_eq!(shown_gutter_width(false, 12345, 48.0), 0);
-        assert_eq!(shown_gutter_width(true, 12345, 11.0), gutter_width(12345, 11.0));
-        assert_eq!(shown_gutter_width(true, 12345, 30.0), gutter_width(12345, 30.0));
+        assert_eq!(shown_gutter_width(false, 1, 10), 0);
+        assert_eq!(shown_gutter_width(false, 12345, 50), 0);
+        assert_eq!(shown_gutter_width(true, 12345, 10), gutter_width(12345, 10));
+        assert_eq!(shown_gutter_width(true, 12345, 30), gutter_width(12345, 30));
     }
 
     #[test]
     fn the_editor_takes_the_width_of_a_hidden_gutter() {
-        let shown = editor_columns(1000, 300, shown_gutter_width(true, 10, 11.0) as u32);
+        let shown = editor_columns(1000, 300, shown_gutter_width(true, 10, 10) as u32);
         assert_eq!(shown, (40, 660));
-        let hidden = editor_columns(1000, 300, shown_gutter_width(false, 10, 11.0) as u32);
+        let hidden = editor_columns(1000, 300, shown_gutter_width(false, 10, 10) as u32);
         assert_eq!(hidden, (0, 700));
         // Without a side panel the editor spans the whole client width.
         assert_eq!(editor_columns(800, 0, 0), (0, 800));

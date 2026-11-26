@@ -491,6 +491,18 @@ impl EditorForm {
                     }
                 }
 
+                // WM_MOUSEWHEEL with Ctrl (MK_CONTROL = 0x0008) that reaches
+                // the main window: over the line-number gutter, which passes
+                // its wheel up. The same zoom as over the editor (A2).
+                if msg == 0x020A && w_param & 0x0008 != 0 {
+                    if !f2.input_blocked() {
+                        f2.autolock.borrow_mut().reset();
+                        let delta = ((w_param >> 16) & 0xFFFF) as u16 as i16 as i32;
+                        f2.on_wheel_zoom(delta);
+                    }
+                    return Some(0);
+                }
+
                 // WM_MOUSEWHEEL = 0x020A — repaint gutter after scroll
                 if msg == 0x020A {
                     // Post a repaint; the scroll will happen after this returns

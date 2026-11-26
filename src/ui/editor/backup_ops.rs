@@ -690,8 +690,13 @@ impl EditorForm {
         self.update_title();
         self.update_status_bar();
         self.paint_tab_bar();
-        // The imported settings may change word wrap and line numbers.
-        self.sync_view_menu();
+        // The imported settings may change word wrap, line numbers and the
+        // font; a font that cannot be built is reported, as in the
+        // preferences, once the import is fully applied.
+        let font = self.sync_view_menu();
         self.layout_controls();
+        if let Err(e) = font {
+            self.inform("LockNote", &t("settings.font.failed").replace("{detail}", &e));
+        }
     }
 }

@@ -25,27 +25,103 @@ pub(super) const STATUS_DOT_SIZE: i32 = 7;
 /// Width of the padlock icon.
 pub(super) const STATUS_LOCK_WIDTH: i32 = 10;
 
-/// Width given to one digit of the gutter for an editor font of `font_pt`:
-/// 10 px up to the default 11 pt, then in proportion (the zoom, A2).
-pub(super) fn gutter_digit_px(font_pt: f64) -> i32 {
-    (10.0 * font_pt.max(11.0) / 11.0).ceil() as i32
+/// Digit width assumed for a gutter font of `font_pt` when it cannot be
+/// measured (`gutter_digit_px`): 0.6 em, the widest of the usual
+/// monospaced families (Courier New, Lucida Console).
+pub(super) fn estimated_gutter_digit_px(font_pt: f64) -> i32 {
+    (f64::from(font_size_to_nwg(font_pt)) * 0.6).ceil() as i32
 }
 
-/// Gutter width for a document of `total_paragraphs` lines in an editor
-/// font of `font_pt`: the digits plus the right padding, never narrower
-/// than 40 px.
-pub(super) fn gutter_width(total_paragraphs: usize, font_pt: f64) -> i32 {
+/// Gutter width for a document of `total_paragraphs` lines whose digits
+/// are `digit_px` wide (`gutter_digit_px`): the digits plus the right
+/// padding, never narrower than 40 px.
+pub(super) fn gutter_width(total_paragraphs: usize, digit_px: i32) -> i32 {
     let digit_count = total_paragraphs.max(1).to_string().len() as i32;
-    (digit_count * gutter_digit_px(font_pt) + GUTTER_RIGHT_PADDING + 4).max(40)
+    (digit_count * digit_px + GUTTER_RIGHT_PADDING + 4).max(40)
 }
 
 /// Width of the line-number gutter as laid out: none when the user hid the
 /// line numbers (View > Line Numbers, setting `show_line_numbers`, issue #26).
-pub(super) fn shown_gutter_width(show_line_numbers: bool, total_paragraphs: usize, font_pt: f64) -> i32 {
+pub(super) fn shown_gutter_width(show_line_numbers: bool, total_paragraphs: usize, digit_px: i32) -> i32 {
     if show_line_numbers {
-        gutter_width(total_paragraphs, font_pt)
+        gutter_width(total_paragraphs, digit_px)
     } else {
         0
+    }
+}
+
+/// The font the gutter draws its numbers with: the editor's family and
+/// size (the zoom included, A2). The caller deletes it.
+pub(super) fn gutter_font(family: &str, font_pt: f64) -> windows::Win32::Graphics::Gdi::HFONT {
+    use windows::Win32::Graphics::Gdi::*;
+    let face: Vec<u16> = family.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        CreateFontW(
+            -(font_size_to_nwg(font_pt) as i32),
+            0, 0, 0,
+            FW_NORMAL.0 as i32,
+            0, 0, 0,
+            DEFAULT_CHARSET,
+            OUT_DEFAULT_PRECIS,
+            CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY,
+            (FF_DONTCARE.0 | FIXED_PITCH.0) as u32,
+            windows::core::PCWSTR(face.as_ptr()),
+        )
+    }
+}
+
+static WARNED_GUTTER_DIGIT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Width in px of the widest digit of the gutter font, measured so the
+/// numbers are never cut on the left whatever the family and the zoom. If
+/// the font cannot be measured, the estimate is used and reported once.
+pub(super) fn gutter_digit_px(family: &str, font_pt: f64) -> i32 {
+    match measure_gutter_digit(family, font_pt) {
+        Ok(px) => px,
+        Err(e) => {
+            let estimate = estimated_gutter_digit_px(font_pt);
+            if !WARNED_GUTTER_DIGIT.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                eprintln!("WARN gutter: digit width of {family} {font_pt} pt not measured ({e}); {estimate} px assumed");
+            }
+            estimate
+        }
+    }
+}
+
+fn measure_gutter_digit(family: &str, font_pt: f64) -> Result<i32, String> {
+    use windows::Win32::Graphics::Gdi::*;
+    let font = gutter_font(family, font_pt);
+    if font.is_invalid() {
+        return Err("CreateFontW failed".to_string());
+    }
+    let result = unsafe {
+        let dc = GetDC(None);
+        if dc.is_invalid() {
+            let _ = DeleteObject(font.into());
+            return Err("GetDC failed".to_string());
+        }
+        let old = SelectObject(dc, font.into());
+        let mut widest = Ok(0);
+        for digit in "0123456789".encode_utf16() {
+            let mut size = windows::Win32::Foundation::SIZE::default();
+            if !GetTextExtentPoint32W(dc, &[digit], &mut size).as_bool() {
+                widest = Err("GetTextExtentPoint32W failed".to_string());
+                break;
+            }
+            widest = widest.map(|w: i32| w.max(size.cx));
+        }
+        SelectObject(dc, old);
+        ReleaseDC(None, dc);
+        widest
+    };
+    unsafe {
+        let _ = DeleteObject(font.into());
+    }
+    match result {
+        Ok(px) if px > 0 => Ok(px),
+        Ok(_) => Err("zero-width digits".to_string()),
+        Err(e) => Err(e),
     }
 }
 
@@ -705,7 +781,7 @@ impl EditorForm {
             let font = self.editor_font_state.borrow();
             (font.family.clone(), font.size_pt)
         };
-        let gutter_width = gutter_width(total_paragraphs, font_size);
+        let gutter_width = gutter_width(total_paragraphs, gutter_digit_px(&font_family, font_size));
 
         // Caret line (same line domain as EM_LINEINDEX below) and whether a
         // selection exists; the band follows the editor's current-line band
@@ -758,20 +834,7 @@ impl EditorForm {
             }
 
             // Create and select a font matching the editor font
-            let font_family: Vec<u16> = font_family.encode_utf16().chain(std::iter::once(0)).collect();
-            let nwg_size = font_size_to_nwg(font_size) as i32;
-            let hfont = CreateFontW(
-                -nwg_size,
-                0, 0, 0,
-                FW_NORMAL.0 as i32,
-                0, 0, 0,
-                DEFAULT_CHARSET,
-                OUT_DEFAULT_PRECIS,
-                CLIP_DEFAULT_PRECIS,
-                CLEARTYPE_QUALITY,
-                (FF_DONTCARE.0 | FIXED_PITCH.0) as u32,
-                windows::core::PCWSTR(font_family.as_ptr()),
-            );
+            let hfont = gutter_font(&font_family, font_size);
             let old_font = SelectObject(hdc, hfont.into());
 
             // Set text properties

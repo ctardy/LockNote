@@ -57,17 +57,19 @@ impl EditorForm {
 
     /// Put the View check marks, the word wrap and the editor font back in
     /// line with the settings, after they were replaced (unlock, backup
-    /// import); the gutter follows at the next `layout_controls`.
-    pub(super) fn sync_view_menu(&self) {
+    /// import); the gutter follows at the next `layout_controls`. `Err`:
+    /// the font of the settings was refused and the editor keeps its own
+    /// (the caller decides whether to tell the user).
+    pub(super) fn sync_view_menu(&self) -> Result<(), String> {
         let (wrap, numbers) = view_menu_checks(&self.settings.borrow());
         self.menu_view_word_wrap.set_checked(wrap);
         self.menu_view_line_numbers.set_checked(numbers);
         self.apply_word_wrap(wrap);
         // An imported font applies at once, like one from the preferences;
         // the same settings (unlock) keep the zoom.
-        if let Err(e) = self.apply_settings_font() {
+        self.apply_settings_font().inspect_err(|e| {
             eprintln!("ERROR font: the font of the replaced settings was not applied: {e}");
-        }
+        })
     }
 
     /// Zoom the editor font by one step (Ctrl+= / Ctrl+- / Ctrl+0 and their
@@ -198,7 +200,15 @@ impl EditorForm {
             }
         }
 
-        if let Some(step) = zoom::zoom_key(vk, ctrl, shift, alt) {
+        // The main-row zoom keys are found by the character they type in
+        // the active layout (`-` is the 6 key on a French keyboard).
+        let mapped = unsafe {
+            windows::Win32::UI::Input::KeyboardAndMouse::MapVirtualKeyW(
+                vk,
+                windows::Win32::UI::Input::KeyboardAndMouse::MAPVK_VK_TO_CHAR,
+            )
+        };
+        if let Some(step) = zoom::zoom_key(vk, zoom::key_char(mapped), ctrl, shift, alt) {
             self.on_zoom(step);
             return true;
         }

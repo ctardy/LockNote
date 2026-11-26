@@ -55,8 +55,18 @@ impl EditorForm {
         let text = self.editor.text();
         let total_paragraphs = if text.is_empty() { 1 } else { text.matches('\n').count() + 1 };
         let show_line_numbers = self.settings.borrow().show_line_numbers;
-        let font_pt = self.editor_font_state.borrow().size_pt;
-        let gutter_w = shown_gutter_width(show_line_numbers, total_paragraphs, font_pt) as u32;
+        // Digits as wide as the gutter draws them (the zoom included, A2);
+        // measured only when the gutter is shown.
+        let digit_px = if show_line_numbers {
+            let (family, size) = {
+                let font = self.editor_font_state.borrow();
+                (font.family.clone(), font.size_pt)
+            };
+            gutter_digit_px(&family, size)
+        } else {
+            0
+        };
+        let gutter_w = shown_gutter_width(show_line_numbers, total_paragraphs, digit_px) as u32;
 
         // Side panel widths: the user's width (or the one being dragged),
         // bounded so the editor keeps its minimum (ui/side_panel.rs).

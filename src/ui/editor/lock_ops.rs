@@ -735,8 +735,10 @@ impl EditorForm {
         self.update_title();
         self.update_status_bar();
         // The settings were read back from the file: the menu follows them,
-        // and the TOTP panel (wiped at lock) shows their entries again.
-        self.sync_view_menu();
+        // and the TOTP panel (wiped at lock) shows their entries again. The
+        // same settings as before the lock: a font refusal is only logged
+        // (sync_view_menu), the editor keeps the font it showed.
+        let _ = self.sync_view_menu();
         // Always (pass 5): the panel's entries were wiped at lock, and a
         // panel opened later reads them anyway.
         self.refresh_totp_list();
