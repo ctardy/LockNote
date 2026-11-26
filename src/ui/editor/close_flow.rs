@@ -52,17 +52,27 @@ impl EditorForm {
         // Under the curtain only the password gives the note back; quitting
         // could lose unsaved changes behind it (owner decision, pass 8).
         // Logoff / shutdown goes through WM_QUERYENDSESSION (#29).
-        if self.curtain.get() != super::modal_guard::Curtain::None {
-            eprintln!("INFO close: refused under the curtain (password needed)");
-            self.tell_quit_refused_under_curtain();
-            return false;
-        }
         // Closing now would stop that dialog's loop, not the application's:
         // the dialogs are cancelled and the close runs once they are gone
-        // (run_pending_requests).
-        if self.modal_open() {
-            self.request_close_after_dialogs();
-            return false;
+        // (run_pending_requests). A box of the close flow itself already
+        // asks: a second close (title bar, tray Quit) leaves it open instead
+        // of cancelling and reopening it (pass 9).
+        let curtain = self.curtain.get() != super::modal_guard::Curtain::None;
+        match close_request(curtain, self.close_box_open.get(), self.modal_open()) {
+            CloseRequest::RefusedUnderCurtain => {
+                eprintln!("INFO close: refused under the curtain (password needed)");
+                self.tell_quit_refused_under_curtain();
+                return false;
+            }
+            CloseRequest::AlreadyAsking => {
+                eprintln!("INFO close: requested again while the close flow asks, its box stays open");
+                return false;
+            }
+            CloseRequest::AfterDialogs => {
+                self.request_close_after_dialogs();
+                return false;
+            }
+            CloseRequest::Now => {}
         }
 
         // If locked, the lock saved the note before wiping it — just exit.
@@ -87,6 +97,31 @@ impl EditorForm {
         // way out of the application (storage::promote_pending_on_exit).
 
         outcome == CloseOutcome::Close
+    }
+}
+
+/// What a close request does (pass 9).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum CloseRequest {
+    /// Under the curtain only the password gives the note back.
+    RefusedUnderCurtain,
+    /// The close flow's own box (prompt, save-failed question, stuck-close
+    /// offer) is open: it already asks, it is neither cancelled nor reopened.
+    AlreadyAsking,
+    /// Other dialogs are open: cancel them, close once they are gone.
+    AfterDialogs,
+    Now,
+}
+
+pub(super) fn close_request(curtain: bool, own_box_open: bool, modal_open: bool) -> CloseRequest {
+    if curtain {
+        CloseRequest::RefusedUnderCurtain
+    } else if own_box_open {
+        CloseRequest::AlreadyAsking
+    } else if modal_open {
+        CloseRequest::AfterDialogs
+    } else {
+        CloseRequest::Now
     }
 }
 
@@ -241,13 +276,13 @@ impl CloseSteps for FormCloseSteps<'_> {
     fn ask(&mut self) -> crate::ui::dialogs::close_confirm::CloseConfirmResult {
         // The translated dialog with "Remember my choice" (issue #27). It runs
         // its own message loop: a second close request meanwhile (tray menu,
-        // title bar) is refused by the modal check of on_close; auto-save and
-        // auto-lock wait (issue #30).
+        // title bar) leaves it open (`close_box`, pass 9); auto-save waits, a
+        // due lock answers it Cancel (issue #30).
         let epoch = self.form.lock_epoch();
-        let mut answer = {
+        let mut answer = self.form.close_box(|| {
             let _modal = self.form.modal();
             crate::ui::dialogs::close_confirm::CloseConfirmDialog::show(Some(self.form.window.handle))
-        };
+        });
         // An answer returning after a curtain went up is Cancel (pass 8).
         if !self.form.still_valid(epoch) {
             eprintln!("INFO close: prompt answer dropped, a lock came meanwhile");
@@ -286,10 +321,10 @@ impl CloseSteps for FormCloseSteps<'_> {
         use crate::ui::dialogs::close_confirm::{closes_without_saving, SaveFailedDialog};
         let content = t("close.save_failed").replace("{error}", reason);
         let epoch = self.form.lock_epoch();
-        let answer = {
+        let answer = self.form.close_box(|| {
             let _modal = self.form.modal();
             SaveFailedDialog::show(Some(self.form.window.handle), &content)
-        };
+        });
         // An answer returning after a curtain went up is "Keep open".
         let close = closes_without_saving(answer) && self.form.still_valid(epoch);
         eprintln!("INFO close: save failed, close_without_saving={}", close);
@@ -373,6 +408,16 @@ mod tests {
 
     fn disk_full() -> Result<(), String> {
         Err("Failed to save: disk full".into())
+    }
+
+    /// Pass 9: a second close while the close flow's own box is open leaves
+    /// it open (it was cancelled, then reopened by the pending close).
+    #[test]
+    fn a_second_close_leaves_the_close_box_open() {
+        assert_eq!(close_request(false, true, true), CloseRequest::AlreadyAsking);
+        assert_eq!(close_request(false, false, true), CloseRequest::AfterDialogs);
+        assert_eq!(close_request(false, false, false), CloseRequest::Now);
+        assert_eq!(close_request(true, true, true), CloseRequest::RefusedUnderCurtain);
     }
 
     /// Pass 2, M1: a save that keeps failing (unreachable share, disk full)

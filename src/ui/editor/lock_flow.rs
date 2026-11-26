@@ -163,11 +163,15 @@ mod tests {
         reason: Option<String>,
         pending: bool,
         log: Vec<String>,
+        /// The close flow's own box (close prompt, save-failed question,
+        /// stuck-close offer), when shown.
+        close_box: Option<&'static str>,
+        close_asked: bool,
     }
 
     impl Fake {
         fn new() -> Fake {
-            Fake { dialogs: Vec::new(), locked: false, curtain: false, epoch: 0, modified: true, save_ok: true, reason: None, pending: false, log: Vec::new() }
+            Fake { dialogs: Vec::new(), locked: false, curtain: false, epoch: 0, modified: true, save_ok: true, reason: None, pending: false, log: Vec::new(), close_box: None, close_asked: false }
         }
         fn has(&self, e: &str) -> bool {
             self.log.iter().any(|l| l == e)
@@ -185,12 +189,13 @@ mod tests {
 
     impl LockSteps for Fake {
         fn modal_open(&self) -> bool {
-            !self.dialogs.is_empty()
+            !self.dialogs.is_empty() || self.close_box.is_some()
         }
         fn cancel_dialogs(&mut self) {
             self.log.push("cancel".into());
             // Harmless answers: the ones that can close, close.
             self.dialogs.retain(|(_, busy)| *busy);
+            self.close_box = None;
         }
         fn locked(&self) -> bool {
             self.locked
@@ -249,7 +254,54 @@ mod tests {
         fn reset_autolock(&mut self) {}
     }
 
+    impl super::super::modal_guard::CloseWaitSteps for Fake {
+        fn dialogs_open(&self) -> bool {
+            !self.dialogs.is_empty() || self.close_box.is_some()
+        }
+        fn own_close_box_open(&self) -> bool {
+            self.close_box.is_some()
+        }
+        fn curtain_is_up(&self) -> bool {
+            self.curtain
+        }
+        fn cancel_for_close(&mut self) {
+            self.log.push("close-cancel".into());
+            self.dialogs.retain(|(_, busy)| *busy);
+            // A close box asked to close answers Cancel / Keep waiting.
+            self.close_box = None;
+        }
+        fn mark_offered(&mut self) {
+            self.close_asked = true;
+        }
+        fn offer_close_without_saving(&mut self) {
+            // Its own loop starts; the ticks below run inside it.
+            self.close_box = Some("stuck-close offer");
+        }
+        fn close(&mut self) {
+            self.log.push("close".into());
+        }
+    }
+
     const S2: Duration = Duration::from_secs(2);
+
+    /// Pass 9: the stuck-close offer is not cancelled by the close path's
+    /// own ticks (they run inside its loop), but a due lock cancels it.
+    #[test]
+    fn the_stuck_close_offer_survives_the_close_ticks_but_not_a_due_lock() {
+        use super::super::modal_guard::{close_tick, CloseStep, CLOSE_WAIT};
+        let mut f = Fake::new();
+        f.dialogs.push(("temporary files (busy)", true));
+        assert_eq!(close_tick(&mut f, RECANCEL_EVERY, CLOSE_WAIT, false), CloseStep::Offer);
+        assert!(f.close_asked && f.close_box.is_some());
+        for _ in 0..3 {
+            let asked = f.close_asked;
+            close_tick(&mut f, RECANCEL_EVERY, CLOSE_WAIT, asked);
+        }
+        assert!(f.close_box.is_some(), "the close path cancelled its own offer: {:?}", f.log);
+        request(&mut f);
+        assert!(f.close_box.is_none(), "a due lock cancels the offer too");
+        assert!(f.curtain && !f.locked, "the busy dialog keeps the curtain");
+    }
 
     #[test]
     fn a_due_lock_with_nothing_open_saves_then_locks() {

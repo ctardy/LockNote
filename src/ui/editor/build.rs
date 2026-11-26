@@ -1418,6 +1418,7 @@ impl EditorForm {
             modal_depth: Default::default(),
             autosave_gate: Default::default(),
             lock_pending: Cell::new(None),
+            close_box_open: Cell::new(false),
             close_pending: Cell::new(None),
             lock_epoch: Cell::new(0),
             curtain: Cell::new(self::modal_guard::Curtain::None),

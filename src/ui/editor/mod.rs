@@ -146,6 +146,10 @@ pub struct EditorForm {
     lock_pending: Cell<Option<self::modal_guard::LockPending>>,
     /// A close requested while dialogs were open.
     close_pending: Cell<Option<self::modal_guard::Pending>>,
+    /// One of the close flow's own boxes is shown (close prompt, its
+    /// save-failed question, stuck-close offer): the close path does not
+    /// cancel it, the lock does (pass 9).
+    close_box_open: Cell<bool>,
     /// +1 at every lock (pass 4): a dialog result is applied only if it did
     /// not change while the dialog was open.
     lock_epoch: Cell<u64>,

@@ -100,9 +100,13 @@ pub(super) enum CloseStep {
     Run,
 }
 
-pub(super) fn close_step(modal_open: bool, since_cancel: std::time::Duration, waited: std::time::Duration, asked: bool, curtain: bool) -> CloseStep {
+/// `own_box_open`: one of the close flow's own boxes is shown (pass 9):
+/// the close waits for its answer and never cancels it (the lock does).
+pub(super) fn close_step(modal_open: bool, own_box_open: bool, since_cancel: std::time::Duration, waited: std::time::Duration, asked: bool, curtain: bool) -> CloseStep {
     if !modal_open {
         CloseStep::Run
+    } else if own_box_open {
+        CloseStep::Wait
     } else if waited >= CLOSE_WAIT && !asked && !curtain {
         CloseStep::Offer
     } else if since_cancel >= RECANCEL_EVERY {
@@ -110,6 +114,41 @@ pub(super) fn close_step(modal_open: bool, since_cancel: std::time::Duration, wa
     } else {
         CloseStep::Wait
     }
+}
+
+/// What a pending close needs from the window (pass 9: the fake of
+/// lock_flow drives it with the lock).
+pub(super) trait CloseWaitSteps {
+    /// A dialog or message box is open (the close flow's own included).
+    fn dialogs_open(&self) -> bool;
+    /// One of the close flow's own boxes is open: the close prompt, its
+    /// save-failed question or the stuck-close offer.
+    fn own_close_box_open(&self) -> bool;
+    fn curtain_is_up(&self) -> bool;
+    /// Ask the open dialogs to close (No / Cancel).
+    fn cancel_for_close(&mut self);
+    /// Remember the offer was made, before it is shown (its own loop ticks).
+    fn mark_offered(&mut self);
+    fn offer_close_without_saving(&mut self);
+    /// No dialog left: run the close flow.
+    fn close(&mut self);
+}
+
+/// A tick of a pending close: `since_cancel` since the dialogs were last
+/// asked, `waited` since the close was requested, `asked` once the offer
+/// was made.
+pub(super) fn close_tick<S: CloseWaitSteps>(s: &mut S, since_cancel: std::time::Duration, waited: std::time::Duration, asked: bool) -> CloseStep {
+    let step = close_step(s.dialogs_open(), s.own_close_box_open(), since_cancel, waited, asked, s.curtain_is_up());
+    match step {
+        CloseStep::Wait => {}
+        CloseStep::CancelAgain => s.cancel_for_close(),
+        CloseStep::Offer => {
+            s.mark_offered();
+            s.offer_close_without_saving();
+        }
+        CloseStep::Run => s.close(),
+    }
+    step
 }
 
 /// The curtain over the note: the lock screen while the note is not locked
@@ -153,9 +192,6 @@ impl EditorForm {
         })
     }
 
-    /// Lock now, or cancel the open dialogs and lock once they are gone.
-    /// `manual`: the Lock button / Ctrl+L (always locks); otherwise the
-    /// auto-lock, whose decision (save first or not) is taken when it runs.
     /// A lock is due (auto-lock delay, Lock button, Ctrl+L): the single
     /// rule of lock_flow (tested there with a fake).
     pub(super) fn request_lock(&self) {
@@ -173,9 +209,11 @@ impl EditorForm {
         eprintln!("INFO close: requested with dialogs open, cancelled={}", n);
     }
 
-    /// Run the pending lock or close once every dialog has returned
-    /// (highlight tick, every 200 ms, from the application's own loop: the
-    /// tick of a nested loop finds `modal_open()` true and only waits).
+    /// Run the pending lock or close (highlight tick, every 200 ms). The
+    /// tick also fires inside a dialog's own loop: it then sees
+    /// `modal_open()` and asks that dialog again (lock: always; close: not
+    /// the close flow's own boxes, `close_box_open`), and the real lock or
+    /// the close only runs once no dialog is left.
     pub(super) fn run_pending_requests(&self) {
         if let Some(mut p) = self.lock_pending.get() {
             let done = super::lock_flow::tick(&mut FormLockSteps { form: self }, p.last_cancel.elapsed(), p.last_try.map(|t| t.elapsed()));
@@ -192,27 +230,8 @@ impl EditorForm {
             }
             self.update_curtain_subtitle();
         }
-        if let Some(mut p) = self.close_pending.get() {
-            let curtain = self.curtain.get() != Curtain::None;
-            match close_step(self.modal_open(), p.last_cancel.elapsed(), p.since.elapsed(), p.error_logged, curtain) {
-                CloseStep::Wait => {}
-                CloseStep::CancelAgain => {
-                    cancel_open_dialogs();
-                    p.last_cancel = std::time::Instant::now();
-                    self.close_pending.set(Some(p));
-                }
-                CloseStep::Offer => {
-                    p.error_logged = true;
-                    self.close_pending.set(Some(p));
-                    self.offer_close_without_saving();
-                }
-                CloseStep::Run => {
-                    self.close_pending.set(None);
-                    if self.on_close() {
-                        nwg::stop_thread_dispatch();
-                    }
-                }
-            }
+        if let Some(p) = self.close_pending.get() {
+            close_tick(&mut FormCloseWaitSteps { form: self }, p.last_cancel.elapsed(), p.since.elapsed(), p.error_logged);
         }
     }
 
@@ -226,12 +245,12 @@ impl EditorForm {
         eprintln!("WARN close: still waiting for \"{}\" after {} s", window, CLOSE_WAIT.as_secs());
         let msg = t("close.stuck").replace("{window}", if window.is_empty() { "?" } else { &window });
         let epoch = self.lock_epoch();
-        let answer = {
+        let answer = self.close_box(|| {
             let _modal = self.modal();
             crate::ui::dialogs::close_confirm::SaveFailedDialog::show_with(
                 Some(self.window.handle), &msg, &t("close.keep_waiting"), &t("close.close_unsaved"),
             )
-        };
+        });
         // An answer returning after a curtain went up is "Keep waiting".
         if !crate::ui::dialogs::close_confirm::closes_without_saving(answer) || !self.still_valid(epoch) {
             eprintln!("INFO close: the user keeps waiting");
@@ -245,6 +264,21 @@ impl EditorForm {
         steps.wipe();
         steps.finish_exit();
         std::process::exit(0);
+    }
+
+    /// Show one of the close flow's own boxes (close prompt, its
+    /// save-failed question, stuck-close offer): while it is open the close
+    /// path waits for its answer instead of cancelling it (pass 9). Reset
+    /// on every way out, a panic included.
+    pub(super) fn close_box<R>(&self, show: impl FnOnce() -> R) -> R {
+        struct Reset<'a>(&'a Cell<bool>, bool);
+        impl Drop for Reset<'_> {
+            fn drop(&mut self) {
+                self.0.set(self.1);
+            }
+        }
+        let _reset = Reset(&self.close_box_open, self.close_box_open.replace(true));
+        show()
     }
 
     /// A message of the main window (pass 5: counted as a modal, owned by
@@ -363,6 +397,45 @@ impl super::lock_flow::LockSteps for FormLockSteps<'_> {
     }
     fn reset_autolock(&mut self) {
         self.form.autolock.borrow_mut().reset();
+    }
+}
+
+/// `CloseWaitSteps` on the real window (pass 9).
+struct FormCloseWaitSteps<'a> {
+    form: &'a EditorForm,
+}
+
+impl CloseWaitSteps for FormCloseWaitSteps<'_> {
+    fn dialogs_open(&self) -> bool {
+        self.form.modal_open()
+    }
+    fn own_close_box_open(&self) -> bool {
+        self.form.close_box_open.get()
+    }
+    fn curtain_is_up(&self) -> bool {
+        self.form.curtain.get() != Curtain::None
+    }
+    fn cancel_for_close(&mut self) {
+        cancel_open_dialogs();
+        if let Some(mut p) = self.form.close_pending.get() {
+            p.last_cancel = std::time::Instant::now();
+            self.form.close_pending.set(Some(p));
+        }
+    }
+    fn mark_offered(&mut self) {
+        if let Some(mut p) = self.form.close_pending.get() {
+            p.error_logged = true;
+            self.form.close_pending.set(Some(p));
+        }
+    }
+    fn offer_close_without_saving(&mut self) {
+        self.form.offer_close_without_saving();
+    }
+    fn close(&mut self) {
+        self.form.close_pending.set(None);
+        if self.form.on_close() {
+            nwg::stop_thread_dispatch();
+        }
     }
 }
 
@@ -543,12 +616,18 @@ mod tests {
     fn a_close_stuck_behind_a_dialog_offers_to_close_without_saving() {
         use std::time::Duration;
         let s = Duration::from_millis;
-        assert_eq!(close_step(false, s(0), s(0), false, false), CloseStep::Run);
-        assert_eq!(close_step(true, s(100), s(500), false, false), CloseStep::Wait);
-        assert_eq!(close_step(true, RECANCEL_EVERY, s(2000), false, false), CloseStep::CancelAgain);
-        assert_eq!(close_step(true, s(100), CLOSE_WAIT, false, false), CloseStep::Offer);
-        assert_eq!(close_step(true, RECANCEL_EVERY, CLOSE_WAIT, true, false), CloseStep::CancelAgain, "asked once");
-        assert_eq!(close_step(true, s(100), CLOSE_WAIT, false, true), CloseStep::Wait, "not under the curtain");
+        assert_eq!(close_step(false, false, s(0), s(0), false, false), CloseStep::Run);
+        assert_eq!(close_step(true, false, s(100), s(500), false, false), CloseStep::Wait);
+        assert_eq!(close_step(true, false, RECANCEL_EVERY, s(2000), false, false), CloseStep::CancelAgain);
+        assert_eq!(close_step(true, false, s(100), CLOSE_WAIT, false, false), CloseStep::Offer);
+        assert_eq!(close_step(true, false, s(100), CLOSE_WAIT, false, true), CloseStep::Wait, "not under the curtain");
+        // Pass 9: the offer shown, its own loop ticks: it is not cancelled
+        // (it was, by CancelAgain, and answered Keep waiting at once).
+        assert_eq!(close_step(true, true, RECANCEL_EVERY, CLOSE_WAIT, true, false), CloseStep::Wait, "offer shown");
+        // Asked once, offer answered Keep waiting: the busy dialog is asked again.
+        assert_eq!(close_step(true, false, RECANCEL_EVERY, CLOSE_WAIT, true, false), CloseStep::CancelAgain, "asked once");
+        // The close prompt or its save-failed question shown: waited for.
+        assert_eq!(close_step(true, true, RECANCEL_EVERY, s(100), false, false), CloseStep::Wait, "close prompt shown");
     }
 
     /// Auto-save stays suspended under a dialog.

@@ -975,10 +975,18 @@
         assert!(lift.find("lock_backoff_remaining.get() > 0").unwrap() < lift.find("curtain_password_ok(").unwrap(), "backoff checked in the lift itself");
         assert!(lift.contains("lock_flow::lift("));
         let close = read("close_flow.rs");
-        assert!(close.contains("if self.curtain.get() != super::modal_guard::Curtain::None {"), "quit refused under the curtain");
+        let on_close = body(&close, "pub(super) fn on_close(");
+        assert!(on_close.contains("close_request(curtain, self.close_box_open.get(), self.modal_open())"), "quit refused under the curtain, close box kept");
+        // Pass 9: the close flow's own boxes are shown through close_box, so
+        // the close path waits for them instead of cancelling them.
+        assert!(body(&close, "    fn ask(&mut self) -> crate::ui::dialogs::close_confirm::CloseConfirmResult {").contains("self.form.close_box(||"), "close prompt");
+        assert!(body(&close, "    fn close_without_saving(&mut self, reason: &str) -> bool {").contains("self.form.close_box(||"), "save-failed question");
+        assert!(body(&guard, "    fn offer_close_without_saving(&self) {").contains("self.close_box(||"), "stuck-close offer");
+        assert!(guard.contains("fn own_close_box_open(&self) -> bool {
+        self.form.close_box_open.get()"));
         // Answers returning after a curtain are harmless (one shared check).
         assert!(close.matches("self.form.still_valid(epoch)").count() >= 2, "close prompt and save-failed question");
-        assert!(body(&guard, "fn offer_close_without_saving(").contains("self.still_valid(epoch)"));
+        assert!(body(&guard, "    fn offer_close_without_saving(&self) {").contains("self.still_valid(epoch)"));
         assert!(body(&guard, "pub(super) fn still_valid(").contains("Curtain::None"));
     }
 
