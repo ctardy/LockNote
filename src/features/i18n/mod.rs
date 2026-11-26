@@ -2767,8 +2767,25 @@ pub(crate) mod test_support {
 
     static LANG_LOCK: Mutex<()> = Mutex::new(());
 
-    pub(crate) fn lang_guard() -> MutexGuard<'static, ()> {
-        LANG_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    /// Held by every test that sets or reads a translated text. Dropping it
+    /// (also when an assert fails) puts English back, so a test can never
+    /// leak French into the next one (pass 3: flaky live dialog test).
+    pub(crate) struct LangGuard {
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl Drop for LangGuard {
+        fn drop(&mut self) {
+            super::set_language(super::Language::English);
+        }
+    }
+
+    pub(crate) fn lang_guard() -> LangGuard {
+        let lock = LANG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // Start from English too: a test that took no guard may have
+        // changed the language.
+        super::set_language(super::Language::English);
+        LangGuard { _lock: lock }
     }
 }
 
@@ -3475,6 +3492,19 @@ mod tests {
         assert_eq!(get("createpwd.fair"), "Moyen");
         assert_eq!(get("createpwd.strong"), "Fort");
         assert_eq!(get("createpwd.verystrong"), "Tr\u{00e8}s fort");
+    }
+
+    /// The guard puts English back when dropped, even after a failure.
+    #[test]
+    fn lang_guard_resets_english_on_drop() {
+        let r = std::panic::catch_unwind(|| {
+            let _g = lang_guard();
+            set_language(Language::French);
+            panic!("assert failed");
+        });
+        assert!(r.is_err());
+        let _g = lang_guard();
+        assert_eq!(current_language(), Language::English);
     }
 
     // The vault tree error node (issue 048) must be translated.

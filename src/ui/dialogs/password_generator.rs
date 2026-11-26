@@ -549,6 +549,9 @@ mod tests {
 
     #[test]
     fn live_dialog_generates_follows_the_options_and_hands_the_password_back() {
+        // The dialog's texts and the expected ones must be in one language
+        // for the whole test (pass 3: another test switched it midway).
+        let _g = crate::features::i18n::test_support::lang_guard();
         let _ = nwg::init();
         let tid = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
         let driver = std::thread::spawn(move || {
