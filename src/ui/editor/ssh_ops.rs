@@ -327,7 +327,7 @@ impl EditorForm {
             buttons: nwg::MessageButtons::YesNo,
             icons: nwg::MessageIcons::Warning,
         };
-        if nwg::message(&params) == nwg::MessageChoice::Yes {
+        if self.confirm(&params) {
             if *self.is_locked.borrow() {
                 return; // locked while the dialog was open (issue 049)
             }

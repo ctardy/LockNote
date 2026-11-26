@@ -86,30 +86,57 @@ impl TimerGate {
     }
 }
 
-/// What to do with a lock or a close requested while dialogs were open.
+/// What a tick does with a lock or a close requested while dialogs were
+/// open. Pass 4: there is no "run it under the dialog" any more: a lock
+/// inside a dialog's nested loop wiped stores its caller still used.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum PendingStep {
     /// The dialogs are closing: check again at the next tick.
     Wait,
-    /// No dialog left: run it now, from the application's own loop.
+    /// Still open after `RECANCEL_EVERY`: ask them to close again.
+    CancelAgain,
+    /// No dialog left: run it now, from the application's own loop, once
+    /// every dialog has returned.
     Run,
-    /// A dialog did not close (a Yes/No message box has no Cancel): run it
-    /// anyway, inside that dialog's loop (lock only).
-    Force,
 }
 
-/// Time a lock waits for the cancelled dialogs before it runs anyway.
-pub(super) const LOCK_FORCE_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
+/// A lock still waiting after this is reported as an ERROR (once), with
+/// what is still open.
+pub(super) const LOCK_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
+/// How often the dialogs that did not close are asked again.
+pub(super) const RECANCEL_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
 
-/// The step of a pending request: `force_after` is `None` for a close (it
-/// waits for the user), `Some(LOCK_FORCE_AFTER)` for a lock.
-pub(super) fn pending_step(modal_open: bool, waited: std::time::Duration, force_after: Option<std::time::Duration>) -> PendingStep {
+/// The step of a pending request; `since_cancel` is the time since the
+/// dialogs were last asked to close.
+pub(super) fn pending_step(modal_open: bool, since_cancel: std::time::Duration) -> PendingStep {
     if !modal_open {
-        return PendingStep::Run;
+        PendingStep::Run
+    } else if since_cancel >= RECANCEL_EVERY {
+        PendingStep::CancelAgain
+    } else {
+        PendingStep::Wait
     }
-    match force_after {
-        Some(limit) if waited >= limit => PendingStep::Force,
-        _ => PendingStep::Wait,
+}
+
+/// Whether a lock waiting for `waited` is overdue (ERROR, once).
+pub(super) fn lock_overdue(waited: std::time::Duration) -> bool {
+    waited >= LOCK_DEADLINE
+}
+
+/// A lock or a close waiting for the dialogs to return.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Pending {
+    pub(super) since: std::time::Instant,
+    pub(super) last_cancel: std::time::Instant,
+    /// Lock only: the Lock button / Ctrl+L.
+    pub(super) manual: bool,
+    pub(super) error_logged: bool,
+}
+
+impl Pending {
+    pub(super) fn new(manual: bool) -> Pending {
+        let now = std::time::Instant::now();
+        Pending { since: now, last_cancel: now, manual, error_logged: false }
     }
 }
 
@@ -146,7 +173,7 @@ impl EditorForm {
             LockRequest::LockNow => self.execute_lock(manual),
             LockRequest::CancelDialogsThenLock => {
                 if self.lock_pending.get().is_none() {
-                    self.lock_pending.set(Some((std::time::Instant::now(), manual)));
+                    self.lock_pending.set(Some(Pending::new(manual)));
                 }
                 let n = cancel_open_dialogs();
                 eprintln!("INFO lock: due with dialogs open, cancelled={} manual={}", n, manual);
@@ -158,34 +185,53 @@ impl EditorForm {
     /// dialogs, then run the close flow from the application's own loop.
     pub(super) fn request_close_after_dialogs(&self) {
         if self.close_pending.get().is_none() {
-            self.close_pending.set(Some(std::time::Instant::now()));
+            self.close_pending.set(Some(Pending::new(false)));
         }
         let n = cancel_open_dialogs();
         eprintln!("INFO close: requested with dialogs open, cancelled={}", n);
     }
 
-    /// Run the pending lock or close once the dialogs are gone (highlight
-    /// tick, every 200 ms).
+    /// Run the pending lock or close once every dialog has returned
+    /// (highlight tick, every 200 ms, from the application's own loop: the
+    /// tick of a nested loop finds `modal_open()` true and only waits).
     pub(super) fn run_pending_requests(&self) {
-        if let Some((since, manual)) = self.lock_pending.get() {
-            match pending_step(self.modal_open(), since.elapsed(), Some(LOCK_FORCE_AFTER)) {
+        if let Some(mut p) = self.lock_pending.get() {
+            match pending_step(self.modal_open(), p.last_cancel.elapsed()) {
                 PendingStep::Wait => {}
+                PendingStep::CancelAgain => {
+                    let n = cancel_open_dialogs();
+                    p.last_cancel = std::time::Instant::now();
+                    if lock_overdue(p.since.elapsed()) && !p.error_logged {
+                        p.error_logged = true;
+                        eprintln!(
+                            "ERROR lock: waiting {} ms, dialogs still open: {}",
+                            p.since.elapsed().as_millis(),
+                            describe_open_dialogs()
+                        );
+                    }
+                    eprintln!("INFO lock: dialogs asked to close again count={}", n);
+                    self.lock_pending.set(Some(p));
+                }
                 PendingStep::Run => {
                     self.lock_pending.set(None);
-                    self.execute_lock(manual);
-                }
-                PendingStep::Force => {
-                    self.lock_pending.set(None);
-                    eprintln!("WARN lock: a dialog did not close, locking under it");
-                    self.execute_lock(manual);
+                    eprintln!("INFO lock: running after the dialogs closed delay_ms={}", p.since.elapsed().as_millis());
+                    self.execute_lock(p.manual);
                 }
             }
         }
-        if let Some(since) = self.close_pending.get() {
-            if pending_step(self.modal_open(), since.elapsed(), None) == PendingStep::Run {
-                self.close_pending.set(None);
-                if self.on_close() {
-                    nwg::stop_thread_dispatch();
+        if let Some(mut p) = self.close_pending.get() {
+            match pending_step(self.modal_open(), p.last_cancel.elapsed()) {
+                PendingStep::Wait => {}
+                PendingStep::CancelAgain => {
+                    cancel_open_dialogs();
+                    p.last_cancel = std::time::Instant::now();
+                    self.close_pending.set(Some(p));
+                }
+                PendingStep::Run => {
+                    self.close_pending.set(None);
+                    if self.on_close() {
+                        nwg::stop_thread_dispatch();
+                    }
                 }
             }
         }
@@ -212,7 +258,7 @@ impl EditorForm {
                     Ok(()) => self.on_autolock(),
                     Err(msg) => {
                         self.autolock.borrow_mut().reset();
-                        eprintln!("autolock: skip due to save failure: {}", msg);
+                        eprintln!("WARN autolock: skip due to save failure: {}", msg);
                     }
                 }
             }
@@ -227,11 +273,72 @@ impl EditorForm {
             || crate::ui::dialogs::style::open_dialog_count() > 0
             || thread_message_box_visible()
     }
+
+    /// The lock epoch: +1 at every lock (pass 4). A dialog's result is
+    /// applied only if the epoch did not change while it was open.
+    pub(super) fn lock_epoch(&self) -> u64 {
+        self.lock_epoch.get()
+    }
+
+    /// Whether what a dialog opened at `epoch` returned may still change the
+    /// note.
+    pub(super) fn still_valid(&self, epoch: u64) -> bool {
+        result_applies(epoch, self.lock_epoch.get(), *self.is_locked.borrow(), self.exiting.get())
+    }
+
+    /// Every Yes/No question of the main window (pass 4): true only for Yes,
+    /// asked and answered with no lock in between, on an unlocked window.
+    /// The box is owned by the main window and counted as a modal.
+    pub(super) fn confirm(&self, params: &nwg::MessageParams) -> bool {
+        let epoch = self.lock_epoch();
+        let choice = {
+            let _modal = self.modal();
+            nwg::modal_message(&self.window, params)
+        };
+        let yes = choice == nwg::MessageChoice::Yes;
+        let applies = yes && self.still_valid(epoch);
+        if yes && !applies {
+            eprintln!("INFO confirm: Yes dropped, the note locked meanwhile");
+        }
+        applies
+    }
 }
 
-/// Ask every open LockNote dialog and standard dialog of this thread to
-/// close as Cancel (WM_CLOSE; IDCANCEL for message boxes, which a Yes/No box
-/// ignores: `LOCK_FORCE_AFTER` covers it). Returns how many were asked.
+/// Whether a dialog result may be applied: same lock epoch as when it was
+/// opened, and the note neither locked nor exiting.
+pub(super) fn result_applies(epoch_before: u64, epoch_now: u64, locked: bool, exiting: bool) -> bool {
+    epoch_before == epoch_now && !locked && !exiting
+}
+
+/// Class and title of the windows of this thread still open, for the
+/// ERROR of an overdue lock.
+fn describe_open_dialogs() -> String {
+    use windows::Win32::Foundation::{HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{EnumThreadWindows, GetClassNameW, GetWindowTextW, IsWindowVisible};
+    unsafe extern "system" fn cb(h: HWND, lp: LPARAM) -> windows::core::BOOL {
+        let out = &mut *(lp.0 as *mut Vec<String>);
+        if IsWindowVisible(h).as_bool() {
+            let mut class = [0u16; 64];
+            let n = GetClassNameW(h, &mut class) as usize;
+            let mut title = [0u16; 128];
+            let m = GetWindowTextW(h, &mut title) as usize;
+            out.push(format!("{} \"{}\"", String::from_utf16_lossy(&class[..n]), String::from_utf16_lossy(&title[..m])));
+        }
+        true.into()
+    }
+    let mut out: Vec<String> = Vec::new();
+    unsafe {
+        let tid = windows::Win32::System::Threading::GetCurrentThreadId();
+        let _all_enumerated = EnumThreadWindows(tid, Some(cb), LPARAM(&mut out as *mut _ as isize));
+    }
+    out.join(", ")
+}
+
+/// Ask every open LockNote dialog, standard dialog and popup menu of this
+/// thread to close as No / Cancel: WM_CLOSE to LockNote's dialogs; IDCANCEL,
+/// IDNO and WM_CLOSE to standard dialogs (a Yes/No box only accepts IDNO, an
+/// overwrite prompt of a file dialog too); EndMenu for a popup menu. Returns
+/// how many windows were asked.
 fn cancel_open_dialogs() -> usize {
     use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -258,13 +365,22 @@ fn cancel_open_dialogs() -> usize {
         for &(h, standard) in &targets {
             let hwnd = HWND(h as *mut _);
             if standard {
-                if let Err(e) = PostMessageW(Some(hwnd), WM_COMMAND, WPARAM(2), LPARAM(0)) {
-                    eprintln!("WARN modal: IDCANCEL not posted err={:?}", e);
+                // IDCANCEL = 2, IDNO = 7: whichever the box has answers.
+                for id in [2usize, 7] {
+                    if let Err(e) = PostMessageW(Some(hwnd), WM_COMMAND, WPARAM(id), LPARAM(0)) {
+                        eprintln!("WARN modal: command {} not posted err={:?}", id, e);
+                    }
                 }
             }
             if let Err(e) = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)) {
                 eprintln!("WARN modal: WM_CLOSE not posted err={:?}", e);
             }
+        }
+    }
+    // A popup menu (tab context menu) runs its own loop too.
+    unsafe {
+        if let Err(e) = windows::Win32::UI::WindowsAndMessaging::EndMenu() {
+            eprintln!("INFO modal: EndMenu err={:?}", e);
         }
     }
     targets.len()
@@ -280,7 +396,9 @@ fn thread_message_box_visible() -> bool {
         if IsWindowVisible(h).as_bool() {
             let mut buf = [0u16; 16];
             let n = GetClassNameW(h, &mut buf) as usize;
-            if String::from_utf16_lossy(&buf[..n]) == "#32770" {
+            // #32770: standard dialog; #32768: a popup menu in its loop.
+            let class = String::from_utf16_lossy(&buf[..n]);
+            if class == "#32770" || class == "#32768" {
                 *found = true;
                 return false.into();
             }
@@ -340,21 +458,30 @@ mod tests {
         assert!(!d.is_open());
     }
 
+    /// Pass 4: a question answered Yes does nothing if a lock came in between.
+    #[test]
+    fn a_result_applies_only_without_a_lock_in_between() {
+        assert!(result_applies(3, 3, false, false));
+        assert!(!result_applies(3, 4, false, false), "epoch changed");
+        assert!(!result_applies(3, 3, true, false), "locked");
+        assert!(!result_applies(3, 3, false, true), "exiting");
+    }
+
     /// Owner decision on #30: the lock is not postponed by a dialog.
     #[test]
     fn a_due_lock_cancels_the_dialogs_then_locks() {
         use std::time::Duration;
         assert_eq!(lock_request(false), LockRequest::LockNow);
         assert_eq!(lock_request(true), LockRequest::CancelDialogsThenLock);
-        // The dialogs close within a tick or two: then the lock runs.
-        let lock = Some(LOCK_FORCE_AFTER);
-        assert_eq!(pending_step(true, Duration::from_millis(200), lock), PendingStep::Wait);
-        assert_eq!(pending_step(false, Duration::from_millis(400), lock), PendingStep::Run);
-        // A box that cannot be cancelled does not stop it.
-        assert_eq!(pending_step(true, LOCK_FORCE_AFTER, lock), PendingStep::Force);
-        // A close waits for the user, never forced.
-        assert_eq!(pending_step(true, Duration::from_secs(60), None), PendingStep::Wait);
-        assert_eq!(pending_step(false, Duration::from_secs(60), None), PendingStep::Run);
+        // The dialogs close within a tick or two: then the lock runs, only
+        // once no modal is left (the stack has unwound).
+        assert_eq!(pending_step(true, Duration::from_millis(200)), PendingStep::Wait);
+        assert_eq!(pending_step(false, Duration::from_millis(400)), PendingStep::Run);
+        // Pass 4: never run under a dialog that stays open; ask it again.
+        assert_eq!(pending_step(true, RECANCEL_EVERY), PendingStep::CancelAgain);
+        assert_eq!(pending_step(true, Duration::from_secs(60)), PendingStep::CancelAgain);
+        assert!(!lock_overdue(Duration::from_millis(1999)));
+        assert!(lock_overdue(LOCK_DEADLINE));
     }
 
     /// Auto-save stays suspended under a dialog.

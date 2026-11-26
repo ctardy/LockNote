@@ -256,7 +256,7 @@ impl EditorForm {
                 buttons: nwg::MessageButtons::YesNo,
                 icons: nwg::MessageIcons::Warning,
             };
-            if nwg::message(&params) != nwg::MessageChoice::Yes {
+            if !self.confirm(&params) {
                 return;
             }
         }
@@ -318,14 +318,14 @@ impl EditorForm {
 
         let msg = t("attach.confirm.delete").replace("{}", &name);
         let title = t("attach.confirm.title");
-        let result = nwg::message(&nwg::MessageParams {
+        let confirmed = self.confirm(&nwg::MessageParams {
             title: &title,
             content: &msg,
             buttons: nwg::MessageButtons::YesNo,
             icons: nwg::MessageIcons::Question,
         });
 
-        if result == nwg::MessageChoice::Yes {
+        if confirmed {
             self.attachments.borrow_mut().remove(idx);
             self.refresh_attach_list();
             self.mark_modified();
@@ -468,16 +468,13 @@ impl EditorForm {
                 entries.get(idx).map(|e| e.name.clone())
             };
             if let Some(name) = name {
-                let confirm = nwg::modal_message(
-                    &self.window.handle,
-                    &nwg::MessageParams {
-                        title: &t("totp.remove.title"),
-                        content: &t("totp.remove.msg").replace("{name}", &name),
-                        buttons: nwg::MessageButtons::YesNo,
-                        icons: nwg::MessageIcons::Warning,
-                    },
-                );
-                if confirm == nwg::MessageChoice::Yes {
+                let confirmed = self.confirm(&nwg::MessageParams {
+                    title: &t("totp.remove.title"),
+                    content: &t("totp.remove.msg").replace("{name}", &name),
+                    buttons: nwg::MessageButtons::YesNo,
+                    icons: nwg::MessageIcons::Warning,
+                });
+                if confirmed {
                     self.settings.borrow_mut().totp_entries.remove(idx);
                     self.mark_modified();
                     self.refresh_totp_list();

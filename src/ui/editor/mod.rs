@@ -143,9 +143,12 @@ pub struct EditorForm {
     autosave_gate: self::modal_guard::TimerGate,
     /// A lock due while dialogs were open: (since, manual), run once they
     /// are cancelled (owner decision on #30).
-    lock_pending: Cell<Option<(std::time::Instant, bool)>>,
+    lock_pending: Cell<Option<self::modal_guard::Pending>>,
     /// A close requested while dialogs were open.
-    close_pending: Cell<Option<std::time::Instant>>,
+    close_pending: Cell<Option<self::modal_guard::Pending>>,
+    /// +1 at every lock (pass 4): a dialog result is applied only if it did
+    /// not change while the dialog was open.
+    lock_epoch: Cell<u64>,
     /// A failed save blocked the shutdown (issue #29): the reason is removed
     /// at WM_ENDSESSION.
     shutdown_blocked: Cell<bool>,

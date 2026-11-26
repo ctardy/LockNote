@@ -20,7 +20,7 @@ impl EditorForm {
                     buttons: nwg::MessageButtons::YesNo,
                     icons: nwg::MessageIcons::Question,
                 };
-                if nwg::message(&params) == nwg::MessageChoice::Yes {
+                if self.confirm(&params) {
                     // The swap replaces the exe that holds the notes: back them
                     // up first, and do not update without that backup.
                     {
@@ -51,7 +51,7 @@ impl EditorForm {
                                 buttons: nwg::MessageButtons::YesNo,
                                 icons: nwg::MessageIcons::Question,
                             };
-                            if nwg::message(&restart_params) == nwg::MessageChoice::Yes {
+                            if self.confirm(&restart_params) {
                                 // Close the window — on_close runs the final save and
                                 // zeroizes secrets; ui::run then launches the swap
                                 // helper, which replaces the .exe after this process

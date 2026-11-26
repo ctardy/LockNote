@@ -83,6 +83,8 @@ impl EditorForm {
         // Take the global persistence lock for the whole lock sequence:
         // save-if-dirty + clear editor + zeroize password.
         let _persistence_guard = crate::features::persistence_lock::acquire();
+        // Every dialog result from before this lock is now stale (pass 4).
+        self.lock_epoch.set(self.lock_epoch.get() + 1);
 
         // Take this file's SSH keys out of ssh-agent before anything else.
         // No modal (the lock must not block, issue 049): failures are logged

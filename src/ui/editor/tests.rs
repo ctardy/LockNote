@@ -830,6 +830,30 @@
         assert!(missing.is_empty(), "not greyed while locked: {:?}", missing);
     }
 
+    /// Pass 4: every Yes/No question of the main window goes through
+    /// `confirm` (lock epoch, locked and exiting re-checked after the box).
+    #[test]
+    fn every_main_window_question_goes_through_confirm() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
+        let mut found = Vec::new();
+        for e in std::fs::read_dir(&dir).unwrap() {
+            let p = e.unwrap().path();
+            let name = p.file_name().unwrap().to_string_lossy().to_string();
+            if !name.ends_with(".rs") || name == "tests.rs" {
+                continue;
+            }
+            let text = std::fs::read_to_string(&p).unwrap();
+            for (i, line) in text.lines().enumerate() {
+                let direct = line.contains(&format!("nwg::{}(", "message")) || line.contains(&format!("{}_message(", "modal"));
+                let in_confirm = name == "modal_guard.rs" && line.trim() == "nwg::modal_message(&self.window, params)";
+                if direct && !in_confirm {
+                    found.push(format!("{}:{}: {}", name, i + 1, line.trim()));
+                }
+            }
+        }
+        assert!(found.is_empty(), "questions outside confirm():\n{}", found.join("\n"));
+    }
+
     /// Pass 3, B1: no dialog may be shown while a borrow of the password is
     /// held: its nested loop can run WM_ENDSESSION or the lock, which wipe
     /// the password.

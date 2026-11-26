@@ -199,16 +199,13 @@ impl EditorForm {
         if !tab_content.trim().is_empty() {
             let msg = t("tab.close.msg")
                 .replace("{name}", &tab_name);
-            let confirm = nwg::modal_message(
-                &self.window.handle,
-                &nwg::MessageParams {
-                    title: &t("tab.close.title"),
-                    content: &msg,
-                    buttons: nwg::MessageButtons::YesNo,
-                    icons: nwg::MessageIcons::Warning,
-                },
-            );
-            if confirm != nwg::MessageChoice::Yes {
+            let confirmed = self.confirm(&nwg::MessageParams {
+                title: &t("tab.close.title"),
+                content: &msg,
+                buttons: nwg::MessageButtons::YesNo,
+                icons: nwg::MessageIcons::Warning,
+            });
+            if !confirmed {
                 return;
             }
         }

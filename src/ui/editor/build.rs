@@ -1419,6 +1419,7 @@ impl EditorForm {
             autosave_gate: Default::default(),
             lock_pending: Cell::new(None),
             close_pending: Cell::new(None),
+            lock_epoch: Cell::new(0),
             shutdown_blocked: Cell::new(false),
             wipe_pending: Cell::new(false),
             exiting: Cell::new(false),

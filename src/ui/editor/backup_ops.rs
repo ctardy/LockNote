@@ -46,7 +46,7 @@ impl EditorForm {
                     buttons: nwg::MessageButtons::YesNo,
                     icons: nwg::MessageIcons::Warning,
                 };
-                if nwg::message(&params) != nwg::MessageChoice::Yes {
+                if !self.confirm(&params) {
                     return;
                 }
             }
@@ -238,7 +238,7 @@ impl EditorForm {
             buttons: nwg::MessageButtons::YesNo,
             icons: nwg::MessageIcons::Warning,
         };
-        if nwg::message(&params) != nwg::MessageChoice::Yes {
+        if !self.confirm(&params) {
             import_log::note(&format!("auto_backup: kept {} after password change reason=user", n));
             return;
         }
@@ -472,7 +472,7 @@ impl EditorForm {
             buttons: nwg::MessageButtons::YesNo,
             icons: nwg::MessageIcons::Warning,
         };
-        if nwg::message(&params) != nwg::MessageChoice::Yes {
+        if !self.confirm(&params) {
             crate::features::import_log::note(&format!("{}: import cancelled reason=user", tag));
             imported.wipe();
             return;
