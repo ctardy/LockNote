@@ -119,9 +119,10 @@ impl EditorForm {
         // Show lock overlay — unlock popup will appear on focus (WM_ACTIVATE) or click
         *self.is_locked.borrow_mut() = true;
         self.set_menus_for_lock(true);
-        // A curtain shown before becomes the real lock screen.
-        self.curtain.set(super::modal_guard::Curtain::None);
-        self.show_lock_overlay();
+        // A curtain shown before becomes the real lock screen, keeping what
+        // was typed in it, its attempt counter and its backoff (pass 9).
+        let curtain_was_up = self.curtain.replace(super::modal_guard::Curtain::None) != super::modal_guard::Curtain::None;
+        self.show_lock_overlay(curtain_was_up);
     }
 
     /// A store could not be wiped now: retried on the next highlight tick
@@ -235,23 +236,33 @@ impl EditorForm {
     /// Show the lock overlay, covering the entire window with a themed curtain.
     /// The overlay contains an inline password field; entering the correct
     /// password unlocks the editor in place — no modal popup.
-    pub(super) fn show_lock_overlay(&self) {
-        // Reset inline unlock state: clear any stale text, cancel backoff,
-        // re-enable input. Attempts counter is persisted across a cancel
-        // sequence but we only start fresh when the overlay is (re)shown.
-        self.lock_input.set_text("");
-        self.lock_input.set_enabled(true);
-        self.lock_btn.set_enabled(true);
-        self.lock_backoff_timer.stop();
-        self.lock_backoff_remaining.set(0);
-        *self.lock_attempts.borrow_mut() = 0;
+    /// `curtain_was_up`: the curtain becomes the real lock screen.
+    pub(super) fn show_lock_overlay(&self, curtain_was_up: bool) {
+        // A new lock starts fresh (empty field, no backoff, counter reset);
+        // the curtain turning into the lock screen keeps them
+        // (`lock_screen_field`, pass 9).
+        let field = lock_screen_field(curtain_was_up, *self.lock_attempts.borrow(), self.lock_backoff_remaining.get());
+        if field.clear_text {
+            self.lock_input.set_text("");
+        }
+        *self.lock_attempts.borrow_mut() = field.attempts;
+        self.lock_backoff_remaining.set(field.backoff_remaining);
+        let in_backoff = field.backoff_remaining > 0;
+        self.lock_input.set_enabled(!in_backoff);
+        self.lock_btn.set_enabled(!in_backoff);
+        if !in_backoff {
+            self.lock_backoff_timer.stop();
+        }
 
         // Show the interactive controls
         self.lock_input.set_visible(true);
         self.lock_eye.set_visible(true);
         self.lock_btn.set_visible(true);
         self.lock_status.set_visible(true);
-        self.lock_status_msg.clear();
+        if field.clear_text {
+            // The wrong-password / retry message stays with its field.
+            self.lock_status_msg.clear();
+        }
         // The typed text is never left visible from a previous session.
         crate::ui::lock_card::set_eye_names(
             &t("unlock.show"),
@@ -371,7 +382,7 @@ impl EditorForm {
             return;
         }
         eprintln!("INFO lock: curtain shown");
-        self.show_lock_overlay();
+        self.show_lock_overlay(false);
         self.set_menus_for_lock(true);
         self.lock_label.set_text(&t("lock.curtain.title"));
         self.lock_btn.set_text(&t("lock.curtain.show"));

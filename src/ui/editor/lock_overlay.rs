@@ -22,6 +22,43 @@ pub(super) fn unlock_backoff_seconds(att: u32) -> u32 {
     }
 }
 
+/// The unlock field when the lock screen is shown.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct LockScreenField {
+    /// The typed text is cleared.
+    pub(super) clear_text: bool,
+    pub(super) attempts: u32,
+    /// Seconds of a running backoff (0: none, field enabled).
+    pub(super) backoff_remaining: u32,
+}
+
+/// What the lock screen keeps of the unlock field (`attempts`,
+/// `backoff_remaining`: the current ones) when it is shown;
+/// `curtain_was_up`: the curtain becomes the real lock screen.
+pub(super) fn lock_screen_field(curtain_was_up: bool, attempts: u32, backoff_remaining: u32) -> LockScreenField {
+    if curtain_was_up {
+        // Pass 9: the same screen goes on, only the note behind it is gone.
+        LockScreenField { clear_text: false, attempts, backoff_remaining }
+    } else {
+        LockScreenField { clear_text: true, attempts: 0, backoff_remaining: 0 }
+    }
+}
+
+#[cfg(test)]
+mod lock_screen_field_tests {
+    use super::*;
+
+    /// Pass 9: a retry that succeeds under the curtain turns it into the
+    /// lock screen without clearing a half-typed password or resetting the
+    /// attempt counter and the backoff; a lock from the open note starts
+    /// fresh.
+    #[test]
+    fn the_curtain_becoming_the_lock_screen_keeps_the_typed_password_and_the_backoff() {
+        assert_eq!(lock_screen_field(true, 3, 2), LockScreenField { clear_text: false, attempts: 3, backoff_remaining: 2 });
+        assert_eq!(lock_screen_field(false, 3, 2), LockScreenField { clear_text: true, attempts: 0, backoff_remaining: 0 });
+    }
+}
+
 use crate::ui::lock_card::{self, CardHwnds, CardMode};
 
 thread_local! {

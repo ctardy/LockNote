@@ -943,6 +943,9 @@
         let do_lock = body(&lock, "pub(super) fn do_lock(");
         assert!(do_lock.contains("self.wipe_plaintext_stores()"));
         assert!(do_lock.contains("WARN lock: the shortened ssh-agent list was not saved"));
+        // Pass 9: the curtain becoming the lock screen keeps its field.
+        assert!(do_lock.contains("self.show_lock_overlay(curtain_was_up)"));
+        assert!(body(&lock, "pub(super) fn show_lock_overlay(").contains("lock_screen_field(curtain_was_up,"));
         let guard = read("modal_guard.rs");
         assert!(body(&guard, "pub(super) fn run_pending_requests(").contains("lock_flow::tick("));
         assert!(body(&guard, "pub(super) fn request_lock(").contains("lock_flow::request("));
