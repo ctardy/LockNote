@@ -187,7 +187,7 @@ come back to the same tab and line.
 |---|---|
 | File | Save, Print..., Export..., Export full backup..., Import full backup..., Import from another LockNote..., Safety backups..., Settings... (Preferences..., Security..., Temporary files...), Quit |
 | Edit | Cut, Copy, Paste, Paste as Plain Text, Find..., Replace..., Go to Line..., Duplicate Line, Delete Line, Select All, Insert Timestamp |
-| View | Always on Top, Word Wrap |
+| View | Always on Top, Word Wrap, Line Numbers |
 | Tab | New Tab, Close Tab, Rename Tab..., Next Tab, Previous Tab |
 | Tools | Vault Manager..., Prompts, TOTP Manager, Attachments, Password Generator..., Steganography (Hide in Image..., Extract from Image...), SSH Keys (Generate SSH Key..., Load into ssh-agent...) |
 | Help | Check for Updates..., About LockNote... |
@@ -328,6 +328,13 @@ Otherwise: "Invalid line number."
 ### Word wrap
 
 View > Word Wrap. On by default. The choice is saved with the note.
+
+### Line numbers
+
+View > Line Numbers shows or hides the line numbers on the left of the text.
+On by default. When hidden, the text takes their width. The choice is saved
+with the note (at the next save, the save at close included) and restored at
+the next start.
 
 ### Always on top
 

@@ -1097,6 +1097,7 @@ Tests: `cargo test features::auto_backup`: exact name matching (foreign names, s
 
 **Gutter**:
 - Width: `gutter_width` = `max(40, digit_count * 10 + padding + 4)` pixels (`content.rs`, shared by `layout_controls` and `paint_gutter`)
+- Shown or hidden (issue #26): View > Line Numbers (checkable, `menu.view.linenumbers`) toggles `show_line_numbers`; `shown_gutter_width` is 0 when hidden, `layout_controls` hides the gutter window (`SWP_HIDEWINDOW`) and `editor_columns` gives its width to the editor; `paint_gutter` draws nothing. Like word wrap, the toggle does not mark the note modified: the next save writes it (the final save at close included). The menu check follows a backup import
 - Padding: 14px right; numbers right-aligned in `gutter_text`, the caret line's number in `text_primary`; no separator line
 - The caret line is refreshed on the 200 ms highlight timer tick (no selection-change hook), plus every normal repaint
 - Redraws on scroll, resize, text change

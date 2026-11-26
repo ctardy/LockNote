@@ -40,6 +40,20 @@ impl EditorForm {
         self.apply_word_wrap(settings.word_wrap);
     }
 
+    /// Show or hide the line-number gutter (issue #26). Saved with the note
+    /// like word wrap: by the next save, the final save at close included.
+    pub(super) fn on_toggle_line_numbers(&self) {
+        let show = {
+            let mut settings = self.settings.borrow_mut();
+            settings.show_line_numbers = !settings.show_line_numbers;
+            settings.show_line_numbers
+        };
+        eprintln!("INFO view: show_line_numbers={}", show);
+        self.menu_view_line_numbers.set_checked(show);
+        // The editor takes the gutter's width, or gives it back.
+        self.layout_controls();
+    }
+
     /// Apply word wrap setting to the editor control.
     pub(super) fn apply_word_wrap(&self, wrap: bool) {
         // EM_SETTARGETDEVICE: wParam=0 (HDC), lParam=0 wraps to window, lParam=1 disables wrap

@@ -6,6 +6,11 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
 
 ## [Unreleased]
 
+### Added
+- **View > Line Numbers**: shows or hides the line-number gutter; the text
+  takes the freed width. The choice is the existing `show_line_numbers`
+  setting, saved with the note and restored at the next start (#26).
+
 ### Fixed
 - **Texts left in English**: the password confirmation (print, export), the
   vault delete confirmation, the update messages, the save and export

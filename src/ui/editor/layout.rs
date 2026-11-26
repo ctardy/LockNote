@@ -52,7 +52,8 @@ impl EditorForm {
         // Calculate gutter width based on paragraph count (real lines, not visual)
         let text = self.editor.text();
         let total_paragraphs = if text.is_empty() { 1 } else { text.matches('\n').count() + 1 };
-        let gutter_w = gutter_width(total_paragraphs) as u32;
+        let show_line_numbers = self.settings.borrow().show_line_numbers;
+        let gutter_w = shown_gutter_width(show_line_numbers, total_paragraphs) as u32;
 
         // Side panel widths: the user's width (or the one being dragged),
         // bounded so the editor keeps its minimum (ui/side_panel.rs).
@@ -244,25 +245,29 @@ impl EditorForm {
             }
         }
 
-        let editor_w = w.saturating_sub(right_panel_w).saturating_sub(gutter_w);
+        let (editor_x, editor_w) = editor_columns(w, right_panel_w, gutter_w);
         let editor_y = (search_h + tab_bar_h) as i32;
         let editor_h = (h as i32) - (status_h as i32) - (search_h as i32) - (tab_bar_h as i32);
         let editor_h = if editor_h < 0 { 0 } else { editor_h as u32 };
 
-        // Position gutter panel
+        // Position gutter panel (hidden with the line numbers, issue #26)
         let gutter = *self.gutter_hwnd.borrow();
         if gutter != 0 {
+            use windows::Win32::UI::WindowsAndMessaging::{SWP_HIDEWINDOW, SWP_NOZORDER, SWP_SHOWWINDOW};
+            let visibility = if show_line_numbers { SWP_SHOWWINDOW } else { SWP_HIDEWINDOW };
             unsafe {
-                let _ = windows::Win32::UI::WindowsAndMessaging::SetWindowPos(
+                if let Err(e) = windows::Win32::UI::WindowsAndMessaging::SetWindowPos(
                     windows::Win32::Foundation::HWND(gutter as *mut _),
                     None,
                     0, editor_y, gutter_w as i32, editor_h as i32,
-                    windows::Win32::UI::WindowsAndMessaging::SWP_NOZORDER,
-                );
+                    SWP_NOZORDER | visibility,
+                ) {
+                    eprintln!("WARN layout: gutter SetWindowPos failed show={} err={:?}", show_line_numbers, e);
+                }
             }
         }
 
-        self.editor.set_position(gutter_w as i32, editor_y);
+        self.editor.set_position(editor_x, editor_y);
         self.editor.set_size(editor_w, editor_h);
 
         self.paint_gutter();

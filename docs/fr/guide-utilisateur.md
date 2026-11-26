@@ -201,7 +201,7 @@ passe.
 |---|---|
 | Fichier | Enregistrer, Imprimer..., Exporter..., Exporter une sauvegarde complète..., Importer une sauvegarde complète..., Importer depuis un autre LockNote..., Sauvegardes de sécurité..., Paramètres... (Préférences..., Sécurité..., Fichiers temporaires...), Quitter |
 | Édition | Couper, Copier, Coller, Coller en texte brut, Rechercher..., Remplacer..., Aller à la ligne..., Dupliquer la ligne, Supprimer la ligne, Tout sélectionner, Insérer un horodatage |
-| Affichage | Toujours au premier plan, Retour à la ligne |
+| Affichage | Toujours au premier plan, Retour à la ligne, Numéros de ligne |
 | Onglet | Nouvel onglet, Fermer l'onglet, Renommer l'onglet..., Onglet suivant, Onglet précédent |
 | Outils | Gestionnaire de coffre..., Prompts, Gestionnaire TOTP, Pièces jointes, Générateur de mots de passe..., Stéganographie (Cacher dans une image..., Extraire depuis une image...), Clés SSH (Générer une clé SSH..., Charger dans ssh-agent...) |
 | Aide | Vérifier les mises à jour..., À propos de LockNote... |
@@ -356,6 +356,13 @@ tapez un numéro entre 1 et le nombre de lignes indiqué (« Numéro de ligne :
 
 Affichage > Retour à la ligne. Actif par défaut. Le choix est enregistré avec la
 note.
+
+### Numéros de ligne
+
+Affichage > Numéros de ligne affiche ou masque les numéros de ligne à gauche du
+texte. Actif par défaut. Masqués, le texte prend leur largeur. Le choix est
+enregistré avec la note (au prochain enregistrement, y compris celui de la
+fermeture) et retrouvé au démarrage suivant.
 
 ### Toujours au premier plan
 

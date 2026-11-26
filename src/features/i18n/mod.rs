@@ -145,6 +145,7 @@ fn build_en() -> Dict {
     m.insert("menu.view", "&View");
     m.insert("menu.view.ontop", "Always on &Top");
     m.insert("menu.view.wordwrap", "&Word Wrap");
+    m.insert("menu.view.linenumbers", "&Line Numbers");
     m.insert("menu.view.vault", "&Vault Manager...");
 
     // Tab menu
@@ -805,6 +806,7 @@ fn build_fr() -> Dict {
     m.insert("menu.view", "&Affichage");
     m.insert("menu.view.ontop", "Toujours au &premier plan");
     m.insert("menu.view.wordwrap", "Retour \u{00e0} la &ligne");
+    m.insert("menu.view.linenumbers", "&Num\u{00e9}ros de ligne");
     m.insert("menu.view.vault", "Gestionnaire de &coffre...");
 
     m.insert("menu.tab", "&Onglet");
@@ -1438,6 +1440,7 @@ fn build_es() -> Dict {
     m.insert("menu.view", "&Ver");
     m.insert("menu.view.ontop", "Siempre &encima");
     m.insert("menu.view.wordwrap", "Ajuste de &l\u{00ed}nea");
+    m.insert("menu.view.linenumbers", "&N\u{00fa}meros de l\u{00ed}nea");
     m.insert("menu.view.vault", "Gestor de &b\u{00f3}veda...");
 
     m.insert("menu.tab", "&Pesta\u{00f1}a");
@@ -2072,6 +2075,7 @@ fn build_de() -> Dict {
     m.insert("menu.view", "&Ansicht");
     m.insert("menu.view.ontop", "Immer im &Vordergrund");
     m.insert("menu.view.wordwrap", "&Zeilenumbruch");
+    m.insert("menu.view.linenumbers", "Zeilen&nummern");
     m.insert("menu.view.vault", "&Tresor-Manager...");
 
     m.insert("menu.tab", "&Tab");

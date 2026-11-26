@@ -57,6 +57,8 @@ impl EditorForm {
                             f.on_toggle_always_on_top();
                         } else if handle == f.menu_view_word_wrap.handle {
                             f.on_toggle_word_wrap();
+                        } else if handle == f.menu_view_line_numbers.handle {
+                            f.on_toggle_line_numbers();
                         }
                         // Edit menu
                         else if handle == f.menu_edit_cut.handle {

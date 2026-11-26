@@ -705,6 +705,8 @@ impl EditorForm {
         self.update_title();
         self.update_status_bar();
         self.paint_tab_bar();
+        // The imported settings may show or hide the line numbers.
+        self.menu_view_line_numbers.set_checked(self.settings.borrow().show_line_numbers);
         self.layout_controls();
     }
 }

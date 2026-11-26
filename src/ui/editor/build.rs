@@ -287,6 +287,14 @@ impl EditorForm {
             .build(&mut menu_view_word_wrap)
             .expect("Failed to build Word Wrap menu item");
 
+        let mut menu_view_line_numbers = nwg::MenuItem::default();
+        nwg::MenuItem::builder()
+            .text(&t("menu.view.linenumbers"))
+            .parent(&menu_view)
+            .check(settings.show_line_numbers)
+            .build(&mut menu_view_line_numbers)
+            .expect("Failed to build Line Numbers menu item");
+
         // ── Menu: Tab ──
         let mut menu_tab = nwg::Menu::default();
         nwg::Menu::builder()
@@ -1356,6 +1364,7 @@ impl EditorForm {
             menu_view,
             menu_view_always_on_top,
             menu_view_word_wrap,
+            menu_view_line_numbers,
             // Tab menu
             menu_tab,
             menu_tab_new,

@@ -775,3 +775,22 @@
         assert!(m.starts_with("Datei zu gro"), "{}", m);
         assert!(!m.contains('{'), "{}", m);
     }
+
+    // ── line-number gutter shown or hidden (issue #26) ──
+
+    #[test]
+    fn hidden_line_numbers_take_no_width() {
+        assert_eq!(shown_gutter_width(false, 1), 0);
+        assert_eq!(shown_gutter_width(false, 12345), 0);
+        assert_eq!(shown_gutter_width(true, 12345), gutter_width(12345));
+    }
+
+    #[test]
+    fn the_editor_takes_the_width_of_a_hidden_gutter() {
+        let shown = editor_columns(1000, 300, shown_gutter_width(true, 10) as u32);
+        assert_eq!(shown, (40, 660));
+        let hidden = editor_columns(1000, 300, shown_gutter_width(false, 10) as u32);
+        assert_eq!(hidden, (0, 700));
+        // Without a side panel the editor spans the whole client width.
+        assert_eq!(editor_columns(800, 0, 0), (0, 800));
+    }

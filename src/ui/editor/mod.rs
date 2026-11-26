@@ -67,6 +67,7 @@ pub struct EditorForm {
     menu_view: nwg::Menu,
     menu_view_always_on_top: nwg::MenuItem,
     menu_view_word_wrap: nwg::MenuItem,
+    menu_view_line_numbers: nwg::MenuItem,
 
     // ── Menu: Tab ──
     menu_tab: nwg::Menu,

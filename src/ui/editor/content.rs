@@ -32,6 +32,21 @@ pub(super) fn gutter_width(total_paragraphs: usize) -> i32 {
     (digit_count * 10 + GUTTER_RIGHT_PADDING + 4).max(40)
 }
 
+/// Width of the line-number gutter as laid out: none when the user hid the
+/// line numbers (View > Line Numbers, setting `show_line_numbers`, issue #26).
+pub(super) fn shown_gutter_width(show_line_numbers: bool, total_paragraphs: usize) -> i32 {
+    if show_line_numbers {
+        gutter_width(total_paragraphs)
+    } else {
+        0
+    }
+}
+
+/// X and width of the editor right of the gutter, left of the side panel.
+pub(super) fn editor_columns(client_w: u32, right_panel_w: u32, gutter_w: u32) -> (i32, u32) {
+    (gutter_w as i32, client_w.saturating_sub(right_panel_w).saturating_sub(gutter_w))
+}
+
 /// X coordinate of the right edge of the line numbers inside the gutter.
 pub(super) fn gutter_number_right(gutter_w: i32) -> i32 {
     gutter_w - GUTTER_RIGHT_PADDING
@@ -518,6 +533,10 @@ impl EditorForm {
     pub(super) fn paint_gutter(&self) {
         let gutter = *self.gutter_hwnd.borrow();
         if gutter == 0 {
+            return;
+        }
+        // Hidden by View > Line Numbers: layout_controls hid the window.
+        if !self.settings.borrow().show_line_numbers {
             return;
         }
 
