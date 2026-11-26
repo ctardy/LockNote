@@ -28,18 +28,18 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
 - **Auto-save and auto-lock under an open dialog**: auto-save kept running
   while a dialog or a message of LockNote was open (it could write changes
   then declined); it now waits and restarts its delay when the dialog
-  closes. Auto-lock could wipe the password under an open dialog: it still
-  locks on time, but first cancels the open LockNote dialogs (their input
-  is lost, the notes are not; an open question is answered No) and locks
-  once they are all closed; a window that cannot close at once gets the
-  notes hidden after 2 seconds. The Lock button and Quit do the same, and
-  while locked the menus only allow Quit and About. A Quit still waiting
-  for a window after 10 seconds names it and offers "Keep waiting" or
-  "Close without saving" (#30).
-- **A save that fails just before a lock no longer loses the unsaved
-  changes**: after Lock, LockNote asks "Keep open" or "Lock without
-  saving"; for the auto-lock, the notes stay hidden until the password is
-  typed, then come back with their changes and the reason (#30).
+  closes. Auto-lock could wipe the password under an open dialog (#30).
+  Now, as soon as a lock is due (auto-lock, Lock button, Ctrl+L), the
+  notes are hidden at once and only the password shows them again; every
+  open LockNote window or question gets its harmless answer (Cancel, No,
+  Keep open) and an answer clicked afterwards does nothing. LockNote
+  saves and locks for good once no window is open; if the save fails,
+  nothing is lost: the notes stay hidden with their changes, the save is
+  retried every 10 seconds, and the password brings them back with the
+  reason. LockNote cannot be closed while the notes are hidden. While
+  locked the menus only allow Quit and About. A Quit still waiting for a
+  window after 10 seconds names it and offers "Keep waiting" or "Close
+  without saving" (#30).
 - **"Copied" shown after a failed copy**: the TOTP panel and dialogs and
   the vault said "Copied" even when Windows refused the clipboard write.
   Now a failed copy says "Copy failed: ..." and "Copied" appears only after

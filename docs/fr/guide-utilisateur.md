@@ -765,41 +765,41 @@ nouvelle période. Une nouvelle valeur s'applique tout de suite.
 
 Tant qu'une fenêtre ou un message de LockNote est ouvert sur la fenêtre
 principale (une boîte de dialogue, la question de fermeture…), la sauvegarde
-auto attend et son délai repart à sa fermeture. Le verrouillage auto
-n'attend pas : son délai écoulé, les fenêtres ouvertes de LockNote sont
-annulées (ce que vous y aviez tapé est perdu, vos notes non), puis LockNote
-se verrouille. Une question ouverte à ce moment (par exemple « Supprimer ce
-secret ? ») reçoit la réponse **Non** : rien de ce qu'elle demandait n'est
-fait. Si une fenêtre ne peut pas se fermer tout de suite (la fenêtre des
-fichiers temporaires pendant la lecture d'un partage réseau), LockNote masque
-vos notes au bout de 2 secondes (« Notes masquées », avec le nom de la
-fenêtre attendue) et se verrouille dès que cette fenêtre est fermée. Le
-bouton Verrouiller fait de même, et fermer LockNote (Quitter de la zone de
-notification) annule d'abord les fenêtres ouvertes, puis ferme comme
-d'habitude ; si une fenêtre n'est toujours pas fermée au bout de
-10 secondes, LockNote la nomme et propose **Continuer d'attendre** ou
-**Fermer sans enregistrer**.
+auto attend et son délai repart à sa fermeture.
 
-**Si l'enregistrement avant un verrouillage échoue**, rien n'est perdu :
+**Quand LockNote se verrouille** (délai du verrouillage auto atteint, bouton
+Verrouiller, Ctrl+L), vos notes sont masquées tout de suite (« Notes
+masquées ») ; seul votre mot de passe les réaffiche (**Afficher les notes** ;
+les mots de passe erronés sont ralentis comme sur l'écran de verrouillage).
+À ce moment, chaque fenêtre ou question ouverte de LockNote reçoit sa
+réponse sans danger : la question de fermeture est annulée, « Fermer sans
+enregistrer ? » garde LockNote ouvert, une question Oui/Non reçoit la
+réponse **Non**, les autres fenêtres sont fermées comme par Annuler (ce que
+vous y aviez tapé est perdu, vos notes non). Une réponse cliquée ensuite
+n'a aucun effet.
 
-- après **Verrouiller** (bouton, Ctrl+L), LockNote demande : **Garder
-  ouvert** (par défaut ; Entrée, Échap ou la croix font de même) ou
-  **Verrouiller sans enregistrer** (les modifications non enregistrées
-  sont alors perdues) ;
-- pour le **verrouillage auto** (personne n'est là), vos notes sont
-  masquées (« Notes masquées ») jusqu'à ce que vous tapiez votre mot de
-  passe et cliquiez sur **Afficher les notes** ; elles reviennent alors avec
-  leurs modifications non enregistrées et LockNote indique pourquoi
-  l'enregistrement a échoué. Personne ne peut les afficher sans le mot de
-  passe (les mots de passe erronés sont ralentis comme sur l'écran de
-  verrouillage), et LockNote ne peut pas être fermé entre-temps : Quitter le
-  signale sur cet écran. LockNote réessaie d'enregistrer à chaque
-  vérification du verrouillage auto ; s'il y parvient, il se verrouille
-  normalement. Un arrêt forcé de Windows (confirmé malgré l'avertissement
-  de LockNote) perd ces modifications non enregistrées.
+LockNote enregistre puis se verrouille pour de bon dès qu'aucune fenêtre
+n'est plus ouverte. Si une fenêtre ne peut pas se fermer tout de suite (la
+fenêtre des fichiers temporaires pendant la lecture d'un partage réseau),
+l'écran la nomme et LockNote attend. Si l'enregistrement échoue, rien n'est
+perdu : vos notes restent masquées avec leurs modifications non
+enregistrées, LockNote réessaie d'enregistrer toutes les 10 secondes, et
+quand vous tapez votre mot de passe elles reviennent avec leurs
+modifications et la raison de l'échec. Pour abandonner les modifications,
+affichez les notes, puis fermez sans enregistrer.
 
-Pendant le verrouillage, les menus n'offrent que
-Fichier > Quitter et Aide > À propos.
+LockNote ne peut pas être fermé pendant que les notes sont masquées
+(Quitter le signale sur cet écran). Un arrêt forcé de Windows (confirmé
+malgré l'avertissement de LockNote) perd les modifications non
+enregistrées, comme pour toute note non enregistrée.
+
+Fermer LockNote (Quitter de la zone de notification) pendant qu'une fenêtre
+est ouverte annule d'abord cette fenêtre, puis ferme comme d'habitude ; si
+elle n'est toujours pas fermée au bout de 10 secondes, LockNote la nomme et
+propose **Continuer d'attendre** ou **Fermer sans enregistrer**.
+
+Pendant le verrouillage, les menus n'offrent que Fichier > Quitter et Aide >
+À propos.
 
 ### Sauvegarde auto
 
