@@ -129,13 +129,7 @@ impl EditorForm {
         if index == active || index >= count {
             return;
         }
-        let content = self.get_content();
-        let tb = self.tab_bar.borrow_mut();
-        tb.set_tab_content(active, &content);
-        tb.set_active(index);
-        let new_content = tb.get_tab_content(index);
-        drop(tb);
-        self.editor.set_text(&new_content);
+        switch_editor_tab(&self.editor, &self.tab_bar, |tb| tb.set_active(index));
         *self.detected_encoding.borrow_mut() = "UTF-8".to_string();
         self.update_title();
         self.update_status_bar();
@@ -693,13 +687,18 @@ mod tests {
         let tab_ops = crate::read_source(dir.join("tab_ops.rs"));
         let events = crate::read_source(dir.join("events.rs"));
         let ops = tab_ops.split("#[cfg(test)]").next().expect("code part");
-        for name in ["show_tab_overflow_menu", "on_new_tab", "on_next_tab", "on_prev_tab", "close_tab_at"] {
+        for name in ["switch_to_tab", "on_new_tab", "on_next_tab", "on_prev_tab", "close_tab_at"] {
             let start = ops.find(&format!("fn {name}(")).unwrap_or_else(|| panic!("{name} not found"));
             let body = &ops[start..];
             let body = &body[..body[1..].find("    pub(super) fn ").map_or(body.len(), |i| i + 1)];
             assert!(!body.contains("editor.set_text("), "{name} sets the editor text directly");
             assert!(body.contains("switch_editor_tab(") || body.contains("load_tab_text("), "{name} bypasses the helpers");
         }
+        // The "…" drop-down and the command palette switch through switch_to_tab.
+        let menu = ops.find("fn show_tab_overflow_menu(").expect("show_tab_overflow_menu not found");
+        let menu = &ops[menu..menu + ops[menu..].find("fn switch_to_tab(").expect("end of the overflow menu")];
+        assert!(!menu.contains("editor.set_text("), "the overflow menu sets the editor text directly");
+        assert!(menu.contains("switch_to_tab("), "the overflow menu bypasses switch_to_tab");
         let click = events.find("msg == 0x8001").expect("tab click handler");
         let click = &events[click..click + events[click..].find("TabHit::Overflow").expect("end of the tab arm")];
         assert!(!click.contains("editor.set_text("), "the tab click sets the editor text directly");
