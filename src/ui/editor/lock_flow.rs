@@ -41,6 +41,8 @@ pub(super) trait LockSteps {
     /// Every answer of a dialog opened before is now stale.
     fn bump_epoch(&mut self);
     fn modified(&self) -> bool;
+    /// A save attempt starts now: the next one waits `SAVE_RETRY`.
+    fn mark_tried(&mut self);
     fn save(&mut self) -> Result<(), String>;
     fn save_failed_reason(&self) -> Option<String>;
     fn set_save_failed_reason(&mut self, reason: Option<String>);
@@ -55,11 +57,13 @@ pub(super) trait LockSteps {
 
 /// A lock is due (auto-lock delay, Lock button, Ctrl+L): curtain at once,
 /// dialogs answered harmlessly, real lock if possible now. Never dropped,
-/// whatever box is open.
+/// whatever box is open. A lock already pending is not tried again here:
+/// its retries follow `tick` at `SAVE_RETRY` (pass 9).
 pub(super) fn request<S: LockSteps>(s: &mut S) {
     if s.locked() {
         return;
     }
+    let already_pending = s.pending();
     if !s.curtain_up() {
         s.bump_epoch();
         eprintln!("INFO lock: due, note hidden under the curtain epoch={}", s.epoch());
@@ -68,7 +72,7 @@ pub(super) fn request<S: LockSteps>(s: &mut S) {
     s.set_pending(true);
     if s.modal_open() {
         s.cancel_dialogs();
-    } else {
+    } else if !already_pending {
         try_lock(s);
     }
 }
@@ -105,6 +109,7 @@ pub(super) fn tick<S: LockSteps>(s: &mut S, since_cancel: std::time::Duration, s
 /// The real lock, only after a successful save (or nothing to save) and
 /// with no window open; otherwise the curtain stays and nothing is lost.
 fn try_lock<S: LockSteps>(s: &mut S) {
+    s.mark_tried();
     let saved = if s.modified() { s.save() } else { Ok(()) };
     match saved {
         Ok(()) => {
@@ -167,11 +172,16 @@ mod tests {
         /// stuck-close offer), when shown.
         close_box: Option<&'static str>,
         close_asked: bool,
+        /// Save attempts recorded (`mark_tried`).
+        tries: u32,
     }
 
     impl Fake {
         fn new() -> Fake {
-            Fake { dialogs: Vec::new(), locked: false, curtain: false, epoch: 0, modified: true, save_ok: true, reason: None, pending: false, log: Vec::new(), close_box: None, close_asked: false }
+            Fake { dialogs: Vec::new(), locked: false, curtain: false, epoch: 0, modified: true, save_ok: true, reason: None, pending: false, log: Vec::new(), close_box: None, close_asked: false, tries: 0 }
+        }
+        fn saves(&self) -> usize {
+            self.log.iter().filter(|l| *l == "save").count()
         }
         fn has(&self, e: &str) -> bool {
             self.log.iter().any(|l| l == e)
@@ -219,6 +229,9 @@ mod tests {
         }
         fn modified(&self) -> bool {
             self.modified
+        }
+        fn mark_tried(&mut self) {
+            self.tries += 1;
         }
         fn save(&mut self) -> Result<(), String> {
             self.log.push("save".into());
@@ -283,6 +296,23 @@ mod tests {
     }
 
     const S2: Duration = Duration::from_secs(2);
+
+    /// Pass 9: a lock already pending under the curtain is not saved again
+    /// by a new request: one save, then one per SAVE_RETRY (ticks), each
+    /// recorded so the next waits.
+    #[test]
+    fn a_second_request_does_not_save_again_the_retry_keeps_its_pace() {
+        let mut f = Fake::new();
+        f.save_ok = false;
+        request(&mut f);
+        request(&mut f);
+        assert_eq!(f.saves(), 1, "{:?}", f.log);
+        assert_eq!(f.tries, 1, "the request's attempt is recorded");
+        assert!(!tick(&mut f, S2, Some(S2)).tried);
+        assert_eq!(f.saves(), 1);
+        assert!(tick(&mut f, S2, Some(SAVE_RETRY)).tried);
+        assert_eq!((f.saves(), f.tries), (2, 2));
+    }
 
     /// Pass 9: the stuck-close offer is not cancelled by the close path's
     /// own ticks (they run inside its loop), but a due lock cancels it.
@@ -383,6 +413,7 @@ mod tests {
             request(&mut f);
             if sc.second_request {
                 request(&mut f);
+                assert_eq!(f.saves(), 1, "{}: one save for both requests", sc.name);
             }
             // (a) at the deadline (at once here) the note is hidden.
             assert!(f.curtain || f.locked, "{}: (a) note visible", sc.name);

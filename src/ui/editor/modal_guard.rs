@@ -216,16 +216,14 @@ impl EditorForm {
     /// the close flow's own boxes, `close_box_open`), and the real lock or
     /// the close only runs once no dialog is left.
     pub(super) fn run_pending_requests(&self) {
-        if let Some(mut p) = self.lock_pending.get() {
+        if let Some(p) = self.lock_pending.get() {
+            // The save attempt is recorded by the step itself (mark_tried).
             let done = super::lock_flow::tick(&mut FormLockSteps { form: self }, p.last_cancel.elapsed(), p.last_try.map(|t| t.elapsed()));
-            if done.cancelled {
-                p.last_cancel = std::time::Instant::now();
-            }
-            if done.tried {
-                p.last_try = Some(std::time::Instant::now());
-            }
-            if self.lock_pending.get().is_some() {
-                self.lock_pending.set(Some(p));
+            if let Some(mut now) = self.lock_pending.get() {
+                if done.cancelled {
+                    now.last_cancel = std::time::Instant::now();
+                    self.lock_pending.set(Some(now));
+                }
                 // Dialogs opened meanwhile must not show over the curtain.
                 hide_registered_dialogs();
             }
@@ -367,6 +365,12 @@ impl super::lock_flow::LockSteps for FormLockSteps<'_> {
     }
     fn modified(&self) -> bool {
         self.form.is_modified.load(Ordering::Relaxed)
+    }
+    fn mark_tried(&mut self) {
+        if let Some(mut p) = self.form.lock_pending.get() {
+            p.last_try = Some(std::time::Instant::now());
+            self.form.lock_pending.set(Some(p));
+        }
     }
     fn save(&mut self) -> Result<(), String> {
         // The persistence guard only here and in lock_now (scan test).
