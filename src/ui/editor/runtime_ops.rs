@@ -22,7 +22,11 @@ impl EditorForm {
             return;
         };
 
-        let _ = self.on_save();
+        // on_save shows a failure (never under the curtain: the timer gate
+        // skips it there); the next tick tries again after the delay.
+        if let Err(reason) = self.on_save() {
+            eprintln!("WARN autosave: save failed, retried after the delay reason={}", reason);
+        }
         self.autosave.borrow_mut().mark_saved();
     }
 

@@ -257,8 +257,9 @@ impl EditorForm {
                         }
                         if handle == f.autosave_timer.handle {
                             use super::modal_guard::TimerTick;
-                            let locked = *f.is_locked.borrow();
-                            match f.autosave_gate.tick(f.modal_open(), locked) {
+                            // The curtain counts as locked (pass 9): the
+                            // lock's own retry is the only save under it.
+                            match f.autosave_gate.tick(f.modal_open(), f.input_blocked()) {
                                 TimerTick::Skip => {}
                                 TimerTick::RestartDelay => f.autosave.borrow_mut().mark_saved(),
                                 TimerTick::Run => {

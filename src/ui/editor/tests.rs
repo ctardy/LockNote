@@ -990,6 +990,27 @@
         assert!(body(&guard, "pub(super) fn still_valid(").contains("Curtain::None"));
     }
 
+    /// Pass 9: no auto-save under the curtain (its failure box would cover
+    /// the password field); the lock's own retry is the only save there.
+    /// The result of the auto-save is handled, not discarded.
+    #[test]
+    fn auto_save_waits_under_the_curtain_and_handles_its_result() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
+        let read = |f: &str| std::fs::read_to_string(dir.join(f)).unwrap();
+        let events = read("events.rs");
+        let start = events.find("if handle == f.autosave_timer.handle {").expect("auto-save tick");
+        let tick = &events[start..start + 400];
+        assert!(tick.contains("f.autosave_gate.tick(f.modal_open(), f.input_blocked())"), "{}", tick);
+        let rt = read("runtime_ops.rs");
+        let start = rt.find("pub(super) fn on_autosave(").unwrap();
+        let end = start + rt[start..].find("
+    }
+").unwrap();
+        let autosave = &rt[start..end];
+        assert!(!autosave.contains("let _ = self.on_save();"), "auto-save result discarded");
+        assert!(autosave.contains("WARN autosave: save failed"), "auto-save failure logged");
+    }
+
     /// The reason of a failed save at lock, shown once the curtain is lifted
     /// (the decision itself is tested in lock_flow).
     #[test]

@@ -67,6 +67,7 @@ pub(super) struct TimerGate {
 }
 
 impl TimerGate {
+    /// `locked`: locked or under the curtain (`input_blocked`, pass 9).
     pub(super) fn tick(&self, modal_open: bool, locked: bool) -> TimerTick {
         if locked {
             // The unlock restarts the delays itself.
