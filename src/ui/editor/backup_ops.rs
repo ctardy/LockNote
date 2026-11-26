@@ -107,7 +107,14 @@ impl EditorForm {
             return;
         }
         let dir = crate::features::auto_backup::dir_path();
-        match BackupsDialog::show(&dir) {
+        let epoch = self.lock_epoch();
+        let action = BackupsDialog::show(&dir);
+        // An answer returning after a curtain went up does nothing (#30).
+        if !matches!(action, BackupsAction::Close) && !self.still_valid(epoch) {
+            eprintln!("INFO backups: action dropped, the note locked meanwhile");
+            return;
+        }
+        match action {
             BackupsAction::Close => {}
             BackupsAction::CreateNow => match self.write_auto_backup(crate::features::auto_backup::Kind::Manual) {
                 Ok(()) => {

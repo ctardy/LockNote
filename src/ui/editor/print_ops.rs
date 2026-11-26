@@ -9,8 +9,14 @@ impl EditorForm {
     pub(super) fn on_print(&self) {
         use crate::ui::dialogs::confirm_password::ConfirmPasswordDialog;
 
+        let epoch = self.lock_epoch();
         // Require password confirmation before printing
         if !ConfirmPasswordDialog::show(&self.password_copy(), &t("confirmpwd.print")) {
+            return;
+        }
+        // Answers returning after a curtain went up print nothing (#30).
+        if !self.still_valid(epoch) {
+            eprintln!("INFO print: dropped, the note locked meanwhile");
             return;
         }
 
@@ -28,7 +34,11 @@ impl EditorForm {
             if PrintDlgW(&mut pd) == true {
                 let hdc = pd.hDC;
                 if !hdc.is_invalid() {
-                    self.print_to_dc(hdc);
+                    if self.still_valid(epoch) {
+                        self.print_to_dc(hdc);
+                    } else {
+                        eprintln!("INFO print: dropped, the note locked meanwhile");
+                    }
                     let _ = DeleteDC(hdc);
                 }
             }

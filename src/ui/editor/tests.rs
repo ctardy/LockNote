@@ -994,7 +994,8 @@
         // Answers returning after a curtain are harmless (one shared check).
         assert!(close.matches("self.form.still_valid(epoch)").count() >= 2, "close prompt and save-failed question");
         assert!(body(&guard, "    fn offer_close_without_saving(&self) {").contains("self.still_valid(epoch)"));
-        assert!(body(&guard, "pub(super) fn still_valid(").contains("Curtain::None"));
+        assert!(body(&guard, "pub(super) fn still_valid(").contains("answer_still_valid("));
+        assert!(top(&flow, "pub(super) fn answer_still_valid<").contains("s.curtain_up(), s.locked()) && !s.exiting()"));
     }
 
     /// Pass 9: no auto-save under the curtain (its failure box would cover
@@ -1060,6 +1061,10 @@
             ("prefs_ops.rs", "fn on_security"),
             ("attach_ops.rs", "fn on_attach_open"),
             ("file_ops.rs", "fn on_export"),
+            // Pass 9: the remaining dialog-result call sites.
+            ("backup_ops.rs", "pub(super) fn on_backups("),
+            ("prefs_ops.rs", "pub(super) fn on_temp_files("),
+            ("print_ops.rs", "pub(super) fn on_print("),
         ] {
             let src = std::fs::read_to_string(dir.join(file)).unwrap();
             let start = src.find(fun).unwrap_or_else(|| panic!("{}", fun));
@@ -1068,6 +1073,26 @@
         }
         let ev = std::fs::read_to_string(dir.join("events.rs")).unwrap();
         assert!(ev.contains("let choice = DropChoiceDialog::show(") && ev.contains("f.still_valid(epoch)"));
+    }
+
+    /// Pass 9: the lock fake decides "an answer after the curtain" with the
+    /// production check that `still_valid` runs, not a copy of its own.
+    #[test]
+    fn the_fake_and_still_valid_share_one_check() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
+        let read = |f: &str| std::fs::read_to_string(dir.join(f)).unwrap();
+        let guard = read("modal_guard.rs");
+        let start = guard.find("pub(super) fn still_valid(").unwrap();
+        let still_valid = &guard[start..start + guard[start..].find("
+    }
+").unwrap()];
+        assert!(still_valid.contains("lock_flow::answer_still_valid(&FormLockSteps { form: self }, epoch)"), "{}", still_valid);
+        let flow = read("lock_flow.rs");
+        let start = flow.find("fn answer_returns(").unwrap();
+        let fake = &flow[start..start + flow[start..].find("
+        }
+").unwrap()];
+        assert!(fake.contains("answer_still_valid(self, epoch_at_open)") && !fake.contains("answer_applies("), "{}", fake);
     }
 
     /// Pass 5: nothing is saved while locked (the stores are wiped, a

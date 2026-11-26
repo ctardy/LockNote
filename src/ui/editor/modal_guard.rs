@@ -307,9 +307,8 @@ impl EditorForm {
     /// note.
     pub(super) fn still_valid(&self, epoch: u64) -> bool {
         // The one shared check of every answer (pass 8): the curtain moved
-        // the epoch, and none may be up.
-        super::lock_flow::answer_applies(epoch, self.lock_epoch.get(), self.curtain.get() != Curtain::None, *self.is_locked.borrow())
-            && !self.exiting.get()
+        // the epoch, and none may be up. The lock fake runs the same one.
+        super::lock_flow::answer_still_valid(&FormLockSteps { form: self }, epoch)
     }
 
     /// Every Yes/No question of the main window (pass 4): true only for Yes,
@@ -346,6 +345,9 @@ impl super::lock_flow::LockSteps for FormLockSteps<'_> {
     }
     fn locked(&self) -> bool {
         *self.form.is_locked.borrow()
+    }
+    fn exiting(&self) -> bool {
+        self.form.exiting.get()
     }
     fn curtain_up(&self) -> bool {
         self.form.curtain.get() != Curtain::None

@@ -33,6 +33,8 @@ pub(super) trait LockSteps {
     /// the LockNote dialogs behind the curtain.
     fn cancel_dialogs(&mut self);
     fn locked(&self) -> bool;
+    /// The Windows session ended (nothing may change the note any more).
+    fn exiting(&self) -> bool;
     fn curtain_up(&self) -> bool;
     fn show_curtain(&mut self);
     /// Lift the curtain: full layout, hidden dialogs shown again.
@@ -151,6 +153,13 @@ pub(super) fn answer_applies(epoch_before: u64, epoch_now: u64, curtain_up: bool
     epoch_before == epoch_now && !curtain_up && !locked
 }
 
+/// The check of every dialog answer (`EditorForm::still_valid`, pass 9:
+/// shared with the tests' fake): `answer_applies` on the window's state,
+/// and the session not ended.
+pub(super) fn answer_still_valid<S: LockSteps>(s: &S, epoch_at_open: u64) -> bool {
+    answer_applies(epoch_at_open, s.epoch(), s.curtain_up(), s.locked()) && !s.exiting()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,10 +195,11 @@ mod tests {
         fn has(&self, e: &str) -> bool {
             self.log.iter().any(|l| l == e)
         }
-        /// A dialog opened now returns `destructive` later: the caller acts
-        /// only if `answer_applies`; true when it acted destructively.
+        /// A dialog opened at `epoch_at_open` returns its destructive answer
+        /// now: the caller acts only if the production check of
+        /// `still_valid` lets it; true when it acted destructively.
         fn answer_returns(&mut self, epoch_at_open: u64) -> bool {
-            let acts = answer_applies(epoch_at_open, self.epoch, self.curtain, self.locked);
+            let acts = answer_still_valid(self, epoch_at_open);
             if acts {
                 self.log.push("destructive".into());
             }
@@ -209,6 +219,9 @@ mod tests {
         }
         fn locked(&self) -> bool {
             self.locked
+        }
+        fn exiting(&self) -> bool {
+            false
         }
         fn curtain_up(&self) -> bool {
             self.curtain

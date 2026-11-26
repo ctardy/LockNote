@@ -84,11 +84,17 @@ impl EditorForm {
         // The tray menu still reaches the disabled editor: `on_close` then
         // cancels this dialog and closes once it is gone, since the message
         // loop it would stop is the dialog's, not the application's.
+        let epoch = self.lock_epoch();
         let action = {
             let _modal = self.modal();
             TempFilesDialog::show(self.window.handle, &self.exe_path)
         };
         match action {
+            // An answer returning after a curtain went up does not close (#30).
+            TempFilesAction::CloseApp if !self.still_valid(epoch) => {
+                eprintln!("INFO tempfiles: close dropped, the note locked meanwhile");
+                false
+            }
             TempFilesAction::CloseApp => self.on_close(),
             TempFilesAction::Close => false,
         }
