@@ -157,6 +157,7 @@ impl EndSessionSteps for FormEndSessionSteps<'_> {
         // Locked too: shortcuts, menus (except Quit / About), the timers and
         // the dialogs all refuse to act on a locked note.
         *self.form.is_locked.borrow_mut() = true;
+        self.form.set_menus_for_lock(true);
     }
 
     fn stop_loop(&mut self) {

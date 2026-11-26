@@ -802,6 +802,34 @@
         assert!(cell.borrow().is_empty());
     }
 
+    /// Pass 3: while locked, only File > Quit and Help > About stay enabled.
+    /// Every menu field of the form is greyed by `set_menus_for_lock`,
+    /// directly or through its parent menu.
+    #[test]
+    fn every_menu_but_quit_and_about_is_greyed_while_locked() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
+        let fields = std::fs::read_to_string(dir.join("mod.rs")).unwrap();
+        let lock = std::fs::read_to_string(dir.join("lock_ops.rs")).unwrap();
+        let start = lock.find("fn set_menus_for_lock").expect("set_menus_for_lock");
+        let body = &lock[start..start + lock[start..].find("\n    }\n").unwrap()];
+        let parents = ["menu_edit", "menu_view", "menu_tab", "menu_tools", "menu_file_settings"];
+        let mut missing = Vec::new();
+        for line in fields.lines() {
+            let l = line.trim();
+            let Some(name) = l.strip_prefix("menu_").and_then(|r| r.split(':').next()) else { continue };
+            if !(l.contains("nwg::MenuItem") || l.contains("nwg::Menu,")) {
+                continue;
+            }
+            let name = format!("menu_{}", name);
+            let kept = ["menu_file", "menu_help", "menu_file_quit", "menu_help_about"].contains(&name.as_str());
+            let under_parent = parents.iter().any(|p| name.starts_with(&format!("{}_", p)));
+            if !kept && !under_parent && !body.contains(&format!("self.{}.", name)) {
+                missing.push(name);
+            }
+        }
+        assert!(missing.is_empty(), "not greyed while locked: {:?}", missing);
+    }
+
     /// Pass 3, B1: no dialog may be shown while a borrow of the password is
     /// held: its nested loop can run WM_ENDSESSION or the lock, which wipe
     /// the password.

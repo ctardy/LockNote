@@ -109,6 +109,7 @@ impl EditorForm {
 
         // Show lock overlay — unlock popup will appear on focus (WM_ACTIVATE) or click
         *self.is_locked.borrow_mut() = true;
+        self.set_menus_for_lock(true);
         self.show_lock_overlay();
     }
 
@@ -156,6 +157,34 @@ impl EditorForm {
         // Under a dialog the toolbar stays clickable: as the auto-lock, the
         // open dialogs are cancelled first (owner decision on #30).
         self.request_lock(true);
+    }
+
+    /// Grey out every menu command while locked (pass 3): only File > Quit
+    /// and Help > About stay; the menu handler ignores the others anyway.
+    pub(super) fn set_menus_for_lock(&self, locked: bool) {
+        let enabled = !locked;
+        // Whole menus.
+        self.menu_edit.set_enabled(enabled);
+        self.menu_view.set_enabled(enabled);
+        self.menu_tab.set_enabled(enabled);
+        self.menu_tools.set_enabled(enabled);
+        self.menu_file_settings.set_enabled(enabled);
+        // File and Help items, Quit and About excepted.
+        self.menu_file_save.set_enabled(enabled);
+        self.menu_file_print.set_enabled(enabled);
+        self.menu_file_export.set_enabled(enabled);
+        self.menu_file_backup_export.set_enabled(enabled);
+        self.menu_file_backup_import.set_enabled(enabled);
+        self.menu_file_import_exe.set_enabled(enabled);
+        self.menu_file_backups.set_enabled(enabled);
+        self.menu_help_updates.set_enabled(enabled);
+        if let Some(h) = self.window.handle.hwnd() {
+            unsafe {
+                if let Err(e) = windows::Win32::UI::WindowsAndMessaging::DrawMenuBar(windows::Win32::Foundation::HWND(h as *mut _)) {
+                    eprintln!("WARN menu: DrawMenuBar failed err={:?}", e);
+                }
+            }
+        }
     }
 
     /// Show the lock overlay, covering the entire window with a themed curtain.
@@ -537,6 +566,7 @@ impl EditorForm {
         self.lock_backoff_timer.stop();
 
         *self.is_locked.borrow_mut() = false;
+        self.set_menus_for_lock(false);
         self.hide_lock_overlay();
         self.update_title();
         self.update_status_bar();
