@@ -247,7 +247,7 @@ pub fn append_log(msg: &str) {
 
 /// `RANDOM_ID_LEN` random lowercase hex digits.
 pub fn random_id() -> String {
-    use rand::RngCore;
+    use rand::Rng;
     let mut bytes = [0u8; RANDOM_ID_LEN / 2];
     rand::rng().fill_bytes(&mut bytes);
     bytes.iter().map(|b| format!("{:02x}", b)).collect()

@@ -204,7 +204,7 @@ pub fn remaining_seconds() -> u32 {
 
 /// Generate a random 20-byte secret and return it as a Base32-encoded string.
 pub fn generate_secret() -> String {
-    use rand::RngCore;
+    use rand::Rng;
     let mut buf = [0u8; TOTP_SECRET_SIZE];
     rand::rng().fill_bytes(&mut buf);
     let encoded = base32_encode(&buf);

@@ -151,6 +151,7 @@ impl Options {
 /// position is drawn uniformly (no modulo bias).
 pub fn generate_with<R: rand::Rng + ?Sized>(options: &Options, rng: &mut R) -> Result<Zeroizing<String>, PassgenError> {
     use rand::seq::SliceRandom;
+    use rand::RngExt;
     use zeroize::Zeroize;
 
     let classes = options.classes()?;

@@ -1213,7 +1213,7 @@ const SWAP_HELPER_BINARY: &[u8] =
 /// (the exe still holds the previous one) until a later exit promotes it.
 #[cfg(windows)]
 pub fn launch_swap_helper(tmp_path: &Path, exe_path: &Path) -> Result<(), String> {
-    use rand::RngCore;
+    use rand::Rng;
     use std::io::Write;
     use std::os::windows::process::CommandExt;
     use std::process::Command;

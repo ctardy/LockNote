@@ -25,10 +25,10 @@ hmac = "0.13"
 sha2 = "0.11"
 sha1 = "0.11"
 argon2 = "0.6"
-rand = "0.9"
+rand = "0.10"
 
 # Release integrity: the updater verifies the Ed25519-signed SHA256SUMS.txt.
-ed25519-dalek = { version = "2", features = ["rand_core"] }
+ed25519-dalek = { version = "3", features = ["rand_core"] }
 zeroize = { version = "1", features = ["derive"] }
 
 # Compression
