@@ -254,6 +254,25 @@ pub fn encrypt(
     let mut rng = rand::rng();
     rng.fill_bytes(&mut salt);
     rng.fill_bytes(&mut iv);
+    let output = encrypt_with(plaintext, password, m_cost, t_cost, p_lanes, &salt, &iv);
+    salt.zeroize();
+    iv.zeroize();
+    output
+}
+
+/// `encrypt` with a given salt and IV (the known-answer tests pin its bytes).
+fn encrypt_with(
+    plaintext: &str,
+    password: &str,
+    m_cost: u32,
+    t_cost: u32,
+    p_lanes: u32,
+    salt: &[u8; SALT_SIZE],
+    iv: &[u8; IV_SIZE],
+) -> Result<Vec<u8>, CryptoError> {
+    // Local copies, wiped at the end like the rest.
+    let mut salt = *salt;
+    let mut iv = *iv;
 
     // 2. Derive keys
     let (mut enc_key, mut mac_key) = derive_keys(password, &salt, m_cost, t_cost, p_lanes)?;
@@ -559,6 +578,31 @@ mod tests {
         let (k1, _) = derive_keys("password", &salt, 256, 1, 1).unwrap();
         let (k2, _) = derive_keys("password", &salt, 512, 1, 1).unwrap();
         assert_ne!(k1, k2);
+    }
+
+    fn hex(b: &[u8]) -> String {
+        b.iter().map(|x| format!("{:02x}", x)).collect()
+    }
+
+    /// Known answers (computed before the dependency update of 2026-11-26
+    /// with aes 0.8, cbc 0.1, hmac 0.12, sha2 0.10, argon2 0.5): the bytes
+    /// written and the keys derived must never change, or existing notes
+    /// would no longer open.
+    #[test]
+    fn argon2id_keys_are_pinned() {
+        let (enc, mac) = derive_keys("correct horse", &[0x5au8; SALT_SIZE], 256, 2, 2).unwrap();
+        assert_eq!(hex(&enc), "78b0290fa0f20fc71e5a499458dcb69b7f158e28627d934755e6507afeabe61d");
+        assert_eq!(hex(&mac), "3afe3c32fab3f2b7ead2b28b986a1bc5b24ca22aaa2b0b2b96c88156df0b6a98");
+    }
+
+    #[test]
+    fn encrypted_payload_bytes_are_pinned() {
+        let salt: [u8; SALT_SIZE] = core::array::from_fn(|i| i as u8);
+        let iv: [u8; IV_SIZE] = core::array::from_fn(|i| 0xf0 ^ i as u8);
+        let plain = "LockNote KAT \u{2014} \u{e9}t\u{e9} 0123456789abcdef!";
+        let out = encrypt_with(plain, "correct horse", 256, 2, 2, &salt, &iv).unwrap();
+        assert_eq!(hex(&out), "000102030405060708090a0b0c0d0e0ff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff00010000020000000200000093ac0336f440718903bc82b4213be40f629e903f15215437a08a152fdc46724617a8ddbb5321704f076c31165366adc4f4627ea1914ffcd52d8688bd56eeceefbf04b149ec21d5f32008b6b08a00e237");
+        assert_eq!(decrypt(&out, "correct horse").unwrap(), plain);
     }
 
     #[test]

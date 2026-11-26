@@ -364,8 +364,22 @@ pub fn download_and_update(download_url: &str, exe_path: &Path) -> Result<String
         return Err("Update integrity check failed (SHA256 mismatch)".into());
     }
 
-    // Extract using zip crate (or fallback to temp file approach)
-    let cursor = std::io::Cursor::new(&zip_data);
+    let new_exe = extract_exe(&zip_data)?;
+
+    // Stage the new program followed by the notes of this session (its last
+    // save, whatever the files say), marked as the updater's program so the
+    // exit promotes it even without notes and later saves keep it. Atomic: a
+    // failed write leaves the previous .tmp (the latest save) as it was.
+    crate::storage::write_staged_update(exe_path, &new_exe)
+        .map_err(|e| format!("Write error: {}", e))?;
+
+    Ok("Update downloaded. Restart LockNote to apply.".into())
+}
+
+/// The edition's exe from the release zip (by its exact name, never
+/// another program of the zip).
+fn extract_exe(zip_data: &[u8]) -> Result<Vec<u8>, String> {
+    let cursor = std::io::Cursor::new(zip_data);
     let mut archive = zip::ZipArchive::new(cursor)
         .map_err(|e| format!("ZIP error: {}", e))?;
 
@@ -385,15 +399,7 @@ pub fn download_and_update(download_url: &str, exe_path: &Path) -> Result<String
     std::io::Read::read_to_end(&mut file, &mut new_exe)
         .map_err(|e| format!("Extract error: {}", e))?;
     drop(file);
-
-    // Stage the new program followed by the notes of this session (its last
-    // save, whatever the files say), marked as the updater's program so the
-    // exit promotes it even without notes and later saves keep it. Atomic: a
-    // failed write leaves the previous .tmp (the latest save) as it was.
-    crate::storage::write_staged_update(exe_path, &new_exe)
-        .map_err(|e| format!("Write error: {}", e))?;
-
-    Ok("Update downloaded. Restart LockNote to apply.".into())
+    Ok(new_exe)
 }
 
 pub fn current_version() -> &'static str {
@@ -693,6 +699,40 @@ a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2  LockNote-1.2.4
         assert_eq!(key.len(), 32);
         ed25519_dalek::VerifyingKey::from_bytes(&key)
             .expect("RELEASE_PUBLIC_KEY must parse as a valid Ed25519 point");
+    }
+
+    /// Known answer: a deflated zip (written by Python's zipfile) gives back
+    /// the exe's exact bytes, the other entry ignored (checked with zip 2
+    /// before the dependency update of 2026-11-26).
+    #[test]
+    fn the_exe_is_extracted_from_a_deflated_zip() {
+        const ZIP: &str = "504b030414000000080000007a5d9f4b7a450d000000200000000a000000524541444d452e7478742b4a4d4c51c84de52ac2410300504b030414000000080000007a5dabd4715819000000a00000000c0000004c6f636b4e6f74652e657865f38d52f0c94fcef6cb2f495548cbac28292d4a55f01d446200504b0102140014000000080000007a5d9f4b7a450d000000200000000a0000000000000000000000800100000000524541444d452e747874504b0102140014000000080000007a5dabd4715819000000a00000000c00000000000000000000008001350000004c6f636b4e6f74652e657865504b0506000000000200020072000000780000000000";
+        let bytes: Vec<u8> = (0..ZIP.len() / 2).map(|i| u8::from_str_radix(&ZIP[2 * i..2 * i + 2], 16).unwrap()).collect();
+        let exe = extract_exe(&bytes).unwrap();
+        assert_eq!(exe, b"MZ LockNote fixture ".repeat(8));
+        assert!(extract_exe(&bytes[..100]).is_err(), "a truncated zip fails");
+    }
+
+    /// Known answer: the SHA256SUMS.txt of the v2.1.0 release and its raw
+    /// signature (release assets) verify with the embedded key, as
+    /// `verify_sums_signature` does (checked with ed25519-dalek 2 before the
+    /// dependency update of 2026-11-26); one changed byte fails.
+    #[test]
+    fn the_v2_1_0_release_signature_verifies_with_the_embedded_key() {
+        const SUMS: &str = "097013215f78588414302d3e55cdd702c3316a076e89ad69dbb99ef2d9161f76 *LockNote.exe\n\
+0fd8425835e581b287816aa47001c9e56e9227ff6a762db1ae32a16cdbd4a451 *LockNote-windows-x64.zip\n";
+        const SIG: &str = "75ce904c8eef31a93178ea326a90616b9f6763bb0129f164e67899312d74ecca8a50fc72c61056d29759e2c4c375c84c362c8bb97b459b8a6302b54466ef9a05";
+        let mut sig = [0u8; 64];
+        for (i, b) in sig.iter_mut().enumerate() {
+            *b = u8::from_str_radix(&SIG[2 * i..2 * i + 2], 16).unwrap();
+        }
+        let key = VerifyingKey::from_bytes(&RELEASE_PUBLIC_KEY.unwrap()).unwrap();
+        let signature = ed25519_dalek::Signature::from_bytes(&sig);
+        assert_eq!(SUMS.len(), 170, "the file as published");
+        key.verify_strict(SUMS.as_bytes(), &signature).expect("the published signature verifies");
+        let mut changed = SUMS.as_bytes().to_vec();
+        changed[0] ^= 1;
+        assert!(key.verify_strict(&changed, &signature).is_err());
     }
 
     #[test]
