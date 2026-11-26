@@ -799,7 +799,8 @@
         assert!(last_read > last_question, "the text written is read before the question");
         assert!(body.contains("still_valid(epoch)"), "no lock epoch check before writing");
         assert!(!body.contains("let content = self.get_content();"), "plain String of the note");
-        assert!(!body.contains("let (bytes, had_replacements) = encoding.encode(&content);"), "plain Vec of the note");
+        assert!(body.contains("let _wiped = Zeroizing::new(bytes);"), "the bytes of the lossy check are not wiped");
+        assert!(body.contains("Zeroizing::new(encoding.encode(&content).0)"), "the bytes written are not wiped");
     }
 
     /// Pass 4: a wipe deferred at lock is retried while locked, never after
