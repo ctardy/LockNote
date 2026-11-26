@@ -121,12 +121,15 @@ impl EditorForm {
                 return;
             }
         };
-        {
+        // The Ref ends before the message: no borrow of a wiped store across
+        // a dialog (pass 4).
+        let limits = {
             let attachments = self.attachments.borrow();
-            if let Err(e) = crate::features::attachments::check_limits(&attachments, file_size, max_file, max_total) {
-                nwg::modal_info_message(&self.window, &t("attach.limit.title"), &attach_limit_message(&e));
-                return;
-            }
+            crate::features::attachments::check_limits(&attachments, file_size, max_file, max_total)
+        };
+        if let Err(e) = limits {
+            nwg::modal_info_message(&self.window, &t("attach.limit.title"), &attach_limit_message(&e));
+            return;
         }
 
         let data = match std::fs::read(path) {
@@ -210,24 +213,27 @@ impl EditorForm {
             None => return,
         };
 
-        let attachments = self.attachments.borrow();
-        let att = match attachments.get(idx) {
-            Some(a) => a,
-            None => return,
-        };
+        // A copy (wiped on drop) instead of a Ref held across the dialogs
+        // below, which a lock or WM_ENDSESSION would find borrowed (pass 4).
+        let Some((name, data, intact)) = self.attachment_copy(idx) else { return };
 
-        if !att.verify() {
+        if !intact {
             nwg::modal_info_message(&self.window, &t("attach.error.title"), &t("attach.error.corrupt"));
             return;
         }
 
-        let title = t("attach.save.title").replace("{}", &att.name);
-        let path = match self.show_save_dialog(&att.name, &title) {
+        let epoch = self.lock_epoch();
+        let title = t("attach.save.title").replace("{}", &name);
+        let path = match self.show_save_dialog(&name, &title) {
             Some(p) => p,
             None => return,
         };
+        if !self.still_valid(epoch) {
+            eprintln!("INFO attach: open dropped, the note locked meanwhile");
+            return;
+        }
 
-        if let Err(e) = std::fs::write(&path, &att.data) {
+        if let Err(e) = std::fs::write(&path, &data[..]) {
             let msg = t("attach.error.save").replace("{}", &e.to_string());
             nwg::modal_info_message(&self.window, &t("attach.error.title"), &msg);
             return;
@@ -276,6 +282,14 @@ impl EditorForm {
         }
     }
 
+    /// Name, bytes (wiped on drop) and SHA-256 check of an attachment, so no
+    /// `Ref` of the attachments is held across a dialog.
+    fn attachment_copy(&self, idx: usize) -> Option<(String, Zeroizing<Vec<u8>>, bool)> {
+        let attachments = self.attachments.borrow();
+        let att = attachments.get(idx)?;
+        Some((att.name.clone(), Zeroizing::new(att.data.to_vec()), att.verify()))
+    }
+
     /// Save the selected attachment to disk.
     pub(super) fn on_attach_save(&self) {
         let idx = match self.selected_attach_index() {
@@ -283,19 +297,20 @@ impl EditorForm {
             None => return,
         };
 
-        let attachments = self.attachments.borrow();
-        let att = match attachments.get(idx) {
-            Some(a) => a,
-            None => return,
-        };
+        let Some((name, data, _intact)) = self.attachment_copy(idx) else { return };
 
-        let title = t("attach.save.title").replace("{}", &att.name);
-        let path = match self.show_save_dialog(&att.name, &title) {
+        let epoch = self.lock_epoch();
+        let title = t("attach.save.title").replace("{}", &name);
+        let path = match self.show_save_dialog(&name, &title) {
             Some(p) => p,
             None => return,
         };
+        if !self.still_valid(epoch) {
+            eprintln!("INFO attach: save dropped, the note locked meanwhile");
+            return;
+        }
 
-        if let Err(e) = std::fs::write(&path, &att.data) {
+        if let Err(e) = std::fs::write(&path, &data[..]) {
             let msg = t("attach.error.save").replace("{}", &e.to_string());
             nwg::modal_info_message(&self.window, &t("attach.error.title"), &msg);
         }
@@ -325,8 +340,9 @@ impl EditorForm {
             icons: nwg::MessageIcons::Question,
         });
 
-        if confirmed {
-            self.attachments.borrow_mut().remove(idx);
+        // The index was read before the question: never trust it blindly
+        // (pass 4: `remove` on a list cleared by a lock panicked).
+        if confirmed && remove_checked(&mut self.attachments.borrow_mut(), idx, "attachment") {
             self.refresh_attach_list();
             self.mark_modified();
         }
@@ -474,8 +490,7 @@ impl EditorForm {
                     buttons: nwg::MessageButtons::YesNo,
                     icons: nwg::MessageIcons::Warning,
                 });
-                if confirmed {
-                    self.settings.borrow_mut().totp_entries.remove(idx);
+                if confirmed && remove_checked(&mut self.settings.borrow_mut().totp_entries, idx, "totp entry") {
                     self.mark_modified();
                     self.refresh_totp_list();
                     self.totp_lbl_status.set_text(&t("totp.removed"));

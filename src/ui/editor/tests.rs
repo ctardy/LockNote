@@ -786,6 +786,27 @@
         assert_eq!(fr_zero, "0 mot");
     }
 
+    /// Pass 4: a wipe deferred at lock is retried while locked, never after
+    /// the unlock restored the notes.
+    #[test]
+    fn a_deferred_wipe_runs_only_while_locked_or_exiting() {
+        assert!(wipe_retry_due(true, true, false));
+        assert!(wipe_retry_due(true, false, true));
+        assert!(!wipe_retry_due(true, false, false), "unlocked: the notes are back");
+        assert!(!wipe_retry_due(false, true, false));
+    }
+
+    /// Pass 4, B2: a removal with an index read before a question does not
+    /// panic once the list was emptied (lock) meanwhile.
+    #[test]
+    fn a_stale_index_removes_nothing_and_does_not_panic() {
+        let mut v = vec![1, 2, 3];
+        assert!(remove_checked(&mut v, 1, "x"));
+        assert_eq!(v, [1, 3]);
+        v.clear();
+        assert!(!remove_checked(&mut v, 1, "x"));
+    }
+
     /// Pass 3, B1: a wipe under a held borrow must not panic (abort in
     /// release); it is deferred and done once the borrow is gone.
     #[test]
@@ -852,6 +873,84 @@
             }
         }
         assert!(found.is_empty(), "questions outside confirm():\n{}", found.join("\n"));
+    }
+
+    /// Pass 4: no dialog may be shown while a `Ref` of a store the wipe
+    /// touches (password, attachments, tabs, settings) is alive: WM_ENDSESSION
+    /// dispatched in its nested loop wipes them. A `let x = self.store.borrow()`
+    /// is followed, brace by brace, to the end of its scope or its `drop(x)`;
+    /// a dialog call before that is reported.
+    #[test]
+    fn no_dialog_holds_a_borrow_of_a_wiped_store() {
+        let stores = ["password", "attachments", "tab_bar", "settings"];
+        let dialogs = ["::show(", "::show_", "show_save_dialog(", "self.confirm(", ".run(Some(", "modal_info_message(", "_dialog("];
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
+        let mut found = Vec::new();
+        for e in std::fs::read_dir(&dir).unwrap() {
+            let p = e.unwrap().path();
+            let file = p.file_name().unwrap().to_string_lossy().to_string();
+            if !file.ends_with(".rs") || file == "tests.rs" {
+                continue;
+            }
+            let text = std::fs::read_to_string(&p).unwrap();
+            for store in stores {
+                for kind in [".borrow()", ".borrow_mut()"] {
+                    let needle = format!("= self.{}{}", store, kind);
+                    let mut from = 0;
+                    while let Some(pos) = text[from..].find(&needle) {
+                        let at = from + pos;
+                        from = at + needle.len();
+                        // `let NAME = self.store.borrow()` (a temporary used
+                        // in one expression ends at its `;`).
+                        let line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
+                        let head = text[line_start..at].trim();
+                        let Some(name) = head.strip_prefix("let ").map(|n| n.trim_start_matches("mut ").trim()) else { continue };
+                        // Chained (`.borrow().clone()`...): no Ref is kept.
+                        let after = &text[at + needle.len()..];
+                        if !after.trim_start().starts_with(';') {
+                            continue;
+                        }
+                        let mut depth = 0i32;
+                        let rest = after;
+                        let mut i = 0;
+                        let bytes = rest.as_bytes();
+                        while i < bytes.len() {
+                            match bytes[i] {
+                                b'{' => depth += 1,
+                                b'}' => {
+                                    depth -= 1;
+                                    if depth < 0 {
+                                        break;
+                                    }
+                                }
+                                _ => {}
+                            }
+                            let Some(tail) = rest.get(i..) else {
+                                i += 1;
+                                continue;
+                            };
+                            if tail.starts_with(&format!("drop({})", name)) {
+                                break;
+                            }
+                            if dialogs.iter().any(|d| tail.starts_with(d)) {
+                                let line = text[..at].matches('\n').count() + 1;
+                                found.push(format!("{}:{}: {} held across a dialog", file, line, name));
+                                break;
+                            }
+                            i += 1;
+                        }
+                    }
+                }
+                // Inline: `show(&self.store.borrow()` and the like.
+                for (i, line) in text.lines().enumerate() {
+                    let inline = format!("self.{}.borrow", store);
+                    if line.contains(&inline) && dialogs.iter().any(|d| line.contains(d)) {
+                        found.push(format!("{}:{}: {}", file, i + 1, line.trim()));
+                    }
+                }
+            }
+        }
+        assert!(found.is_empty(), "borrows held across a dialog:\n{}", found.join("\n"));
     }
 
     /// Pass 3, B1: no dialog may be shown while a borrow of the password is

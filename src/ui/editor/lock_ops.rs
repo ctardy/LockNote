@@ -115,6 +115,28 @@ impl EditorForm {
         self.show_lock_overlay();
     }
 
+    /// A store could not be wiped now: retried on the next highlight tick
+    /// while locked or exiting.
+    pub(super) fn defer_wipe(&self, what: &str) {
+        eprintln!("WARN wipe: {} borrowed further up, wipe deferred to the next tick", what);
+        self.wipe_pending.set(true);
+    }
+
+    /// The deferred wipe of the next tick: only while the note is locked or
+    /// the session ended (pass 4: after an unlock it would wipe the restored
+    /// notes).
+    pub(super) fn retry_pending_wipe(&self) {
+        if !wipe_retry_due(self.wipe_pending.get(), *self.is_locked.borrow(), self.exiting.get()) {
+            if self.wipe_pending.get() {
+                self.wipe_pending.set(false);
+            }
+            return;
+        }
+        self.wipe_pending.set(false);
+        eprintln!("INFO wipe: deferred wipe retried");
+        self.wipe_plaintext_stores();
+    }
+
     /// The editor text, the password and every other plaintext store: used
     /// by the lock and by the end of the Windows session.
     pub(super) fn wipe_plaintext_stores(&self) {
@@ -127,14 +149,25 @@ impl EditorForm {
         // or attachment bytes. The UI structures stay (names, colors, sha256)
         // so restoration after unlock works — only the secret payloads are
         // zeroed. Restoration re-reads from disk via unlock_from_disk().
-        self.tab_bar.borrow().wipe_contents();
-        {
-            let mut atts = self.attachments.borrow_mut();
-            for a in atts.iter_mut() {
-                a.wipe();
-            }
-            atts.clear();
+        // Never a panic on a store still borrowed further up the stack
+        // (pass 4: the release build aborts): what cannot be wiped now is
+        // retried on the next tick (`wipe_pending`).
+        match self.tab_bar.try_borrow() {
+            Ok(tb) => tb.wipe_contents(),
+            Err(_) => self.defer_wipe("tabs"),
         }
+        match self.attachments.try_borrow_mut() {
+            Ok(mut atts) => {
+                for a in atts.iter_mut() {
+                    a.wipe();
+                }
+                atts.clear();
+            }
+            Err(_) => self.defer_wipe("attachments"),
+        }
+        // TOTP secrets too (pass 4): the unlock reads them back with the
+        // settings from the file.
+        self.wipe_totp_secrets();
         // Vault: hide any revealed value, drop the secrets (SecretEntry is
         // ZeroizeOnDrop) and empty the tree. Unlock reloads from disk.
         {
@@ -542,6 +575,8 @@ impl EditorForm {
     /// Parse the decrypted payload and restore editor state in place.
     /// Shared between the inline unlock flow and (future) alternative paths.
     pub(super) fn restore_after_unlock(&self, password: Zeroizing<String>, plaintext: String) {
+        // A wipe still pending from the lock must not hit the restored notes.
+        self.wipe_pending.set(false);
         *self.password.borrow_mut() = password;
 
         let plaintext = crate::features::compression::decompress(&plaintext);
@@ -572,8 +607,12 @@ impl EditorForm {
         self.hide_lock_overlay();
         self.update_title();
         self.update_status_bar();
-        // The settings were read back from the file: the menu follows them.
+        // The settings were read back from the file: the menu follows them,
+        // and the TOTP panel (wiped at lock) shows their entries again.
         self.sync_view_menu();
+        if self.totp_panel.is_visible() {
+            self.refresh_totp_list();
+        }
         self.layout_controls();
         self.paint_tab_bar();
 

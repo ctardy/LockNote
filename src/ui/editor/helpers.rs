@@ -746,6 +746,23 @@ pub(super) fn wipe_or_defer<T: zeroize::Zeroize>(cell: &RefCell<T>, pending: &Ce
     }
 }
 
+/// Whether a deferred wipe runs now: only while locked or exiting.
+pub(super) fn wipe_retry_due(pending: bool, locked: bool, exiting: bool) -> bool {
+    pending && (locked || exiting)
+}
+
+/// Remove `list[idx]` if it still exists; false (and a WARN) otherwise,
+/// never a panic (pass 4).
+pub(super) fn remove_checked<T>(list: &mut Vec<T>, idx: usize, what: &str) -> bool {
+    if idx < list.len() {
+        list.remove(idx);
+        true
+    } else {
+        eprintln!("WARN {}: index {} gone (len {}), nothing removed", what, idx, list.len());
+        false
+    }
+}
+
 /// The check marks of View > Word Wrap and View > Line Numbers for these
 /// settings, as (word wrap, line numbers).
 pub(super) fn view_menu_checks(settings: &crate::settings::Settings) -> (bool, bool) {

@@ -142,9 +142,10 @@ impl EndSessionSteps for FormEndSessionSteps<'_> {
     }
 
     fn wipe(&mut self) {
-        // Every plaintext store, as the lock, plus the TOTP secrets.
+        // Every plaintext store, as the lock (TOTP secrets included). Never
+        // a panic: a store still borrowed is retried on the next tick, and
+        // finish_exit below runs anyway.
         self.form.wipe_plaintext_stores();
-        self.form.wipe_totp_secrets();
     }
 
     fn finish_exit(&mut self) {
@@ -187,7 +188,8 @@ impl EditorForm {
         end_session_message(ending, blocked, &mut FormEndSessionSteps { form: self });
     }
 
-    /// The TOTP secrets of the settings and of the panel (end of session).
+    /// The TOTP secrets of the settings and of the panel (lock and end of
+    /// session; the unlock reads them back from the file).
     pub(super) fn wipe_totp_secrets(&self) {
         use zeroize::Zeroize;
         self.totp_panel.set_entries(Vec::new());
@@ -199,7 +201,7 @@ impl EditorForm {
                 s.totp_entries.clear();
                 s.totp_2fa_secret.zeroize();
             }
-            Err(_) => eprintln!("WARN endsession: settings borrowed, TOTP secrets not wiped"),
+            Err(_) => self.defer_wipe("settings (TOTP secrets)"),
         }
     }
 

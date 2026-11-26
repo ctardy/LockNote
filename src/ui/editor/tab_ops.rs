@@ -227,12 +227,13 @@ impl EditorForm {
         let tb = self.tab_bar.borrow();
         let current_name = tb.active_tab().name.clone();
         drop(tb);
+        let epoch = self.lock_epoch();
         let renamed = {
             let _modal = self.modal();
             crate::ui::dialogs::rename_tab::RenameTabDialog::show(&current_name)
         };
         if let Some(new_name) = renamed {
-            if *self.is_locked.borrow() {
+            if !self.still_valid(epoch) {
                 eprintln!("INFO tabs: rename dropped, the note locked meanwhile");
                 return;
             }
@@ -376,17 +377,19 @@ impl EditorForm {
 
     /// Rename the tab at a specific index (for context menu).
     pub(super) fn on_rename_tab_at(&self, index: usize) {
-        let tb = self.tab_bar.borrow();
-        let tabs = tb.all_tabs();
-        drop(tb);
-        if let Some(tab) = tabs.get(index) {
-            let current_name = tab.name.clone();
+        // Only the name: no copy of the tabs' text kept across the dialog.
+        let current_name = {
+            let tb = self.tab_bar.borrow();
+            tb.all_tabs().get(index).map(|t| t.name.clone())
+        };
+        if let Some(current_name) = current_name {
+            let epoch = self.lock_epoch();
             let renamed = {
                 let _modal = self.modal();
                 crate::ui::dialogs::rename_tab::RenameTabDialog::show(&current_name)
             };
             if let Some(new_name) = renamed {
-                if *self.is_locked.borrow() {
+                if !self.still_valid(epoch) {
                     eprintln!("INFO tabs: rename dropped, the note locked meanwhile");
                     return;
                 }

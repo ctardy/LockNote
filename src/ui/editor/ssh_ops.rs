@@ -252,13 +252,14 @@ impl EditorForm {
         let categories = self.vault_categories();
         let mut copied = None;
         let mut passgen = self.settings.borrow().passgen.clone();
+        let epoch = self.lock_epoch();
         let result =
             crate::ui::dialogs::secret_edit::SecretEditDialog::show(None, &categories, &mut copied, &mut passgen);
         self.arm_clipboard_guard(copied);
         self.store_passgen_options(passgen);
         if let Some(entry) = result {
-            if *self.is_locked.borrow() {
-                return; // locked while the dialog was open (issue 049)
+            if !self.still_valid(epoch) {
+                return; // locked while the dialog was open (issue 049, pass 4)
             }
             let vault_entry = crate::features::vault::SecretEntry::in_category(
                 &entry.name, &entry.value, &entry.category,
@@ -284,17 +285,20 @@ impl EditorForm {
         let categories = self.vault_categories();
         let mut copied = None;
         let mut passgen = self.settings.borrow().passgen.clone();
+        let epoch = self.lock_epoch();
         let result = crate::ui::dialogs::secret_edit::SecretEditDialog::show(
             Some(&edit_entry),
             &categories,
             &mut copied,
             &mut passgen,
         );
+        // The value given to the dialog is not needed any more.
+        drop(edit_entry);
         self.arm_clipboard_guard(copied);
         self.store_passgen_options(passgen);
         if let Some(updated) = result {
-            if *self.is_locked.borrow() {
-                return; // locked while the dialog was open (issue 049)
+            if !self.still_valid(epoch) {
+                return; // locked while the dialog was open (issue 049, pass 4)
             }
             let vault_entry = crate::features::vault::SecretEntry::in_category(
                 &updated.name, &updated.value, &updated.category,

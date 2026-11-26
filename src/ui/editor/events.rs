@@ -238,7 +238,7 @@ impl EditorForm {
                     }
                     Event::OnTimerTick => {
                         if handle == f.highlight_timer.handle && f.wipe_pending.get() {
-                            f.wipe_password();
+                            f.retry_pending_wipe();
                         }
                         if handle == f.highlight_timer.handle {
                             f.update_occurrence_highlights();
