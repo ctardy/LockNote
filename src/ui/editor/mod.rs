@@ -57,6 +57,7 @@ pub struct EditorForm {
     menu_edit_find: nwg::MenuItem,
     menu_edit_replace: nwg::MenuItem,
     menu_edit_goto_line: nwg::MenuItem,
+    menu_edit_goto_heading: nwg::MenuItem,
     menu_edit_sep2: nwg::MenuSeparator,
     menu_edit_duplicate_line: nwg::MenuItem,
     menu_edit_delete_line: nwg::MenuItem,
@@ -463,6 +464,7 @@ mod lock_flow;
 mod indent;
 mod lists;
 mod palette_ops;
+mod heading_flow;
 
 #[allow(unused_imports)]
 use self::helpers::*;

@@ -221,6 +221,13 @@ impl EditorForm {
             .build(&mut menu_edit_goto_line)
             .expect("Failed to build Go to Line menu item");
 
+        let mut menu_edit_goto_heading = nwg::MenuItem::default();
+        nwg::MenuItem::builder()
+            .text(&t("menu.edit.goto_heading"))
+            .parent(&menu_edit)
+            .build(&mut menu_edit_goto_heading)
+            .expect("Failed to build Go to Heading menu item");
+
         let mut menu_edit_sep2 = nwg::MenuSeparator::default();
         nwg::MenuSeparator::builder()
             .parent(&menu_edit)
@@ -1356,6 +1363,7 @@ impl EditorForm {
             menu_edit_find,
             menu_edit_replace,
             menu_edit_goto_line,
+            menu_edit_goto_heading,
             menu_edit_sep2,
             menu_edit_duplicate_line,
             menu_edit_delete_line,

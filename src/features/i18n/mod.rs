@@ -159,6 +159,11 @@ fn build_en() -> Dict {
     m.insert("menu.tab.rename", "&Rename Tab...\tF2");
     m.insert("menu.tab.next", "Next Tab\tCtrl+Tab");
     m.insert("menu.tab.prev", "Previous Tab\tCtrl+Shift+Tab");
+    m.insert("menu.edit.goto_heading", "Go to &Heading...\tCtrl+Shift+O");
+    m.insert("heading.title", "Go to Heading");
+    m.insert("heading.filter", "Filter:");
+    m.insert("heading.none", "No heading in this tab.");
+    m.insert("heading.no_match", "No heading matches the filter.");
     m.insert("tab.limit.title", "Tab Limit");
     m.insert("tab.limit.msg", "Maximum number of tabs reached (20).");
     m.insert("tab.close.title", "Close Tab");
@@ -850,6 +855,11 @@ fn build_fr() -> Dict {
     m.insert("menu.tab.rename", "&Renommer l'onglet...\tF2");
     m.insert("menu.tab.next", "Onglet suivant\tCtrl+Tab");
     m.insert("menu.tab.prev", "Onglet pr\u{00e9}c\u{00e9}dent\tCtrl+Shift+Tab");
+    m.insert("menu.edit.goto_heading", "Aller au t&itre...\tCtrl+Shift+O");
+    m.insert("heading.title", "Aller au titre");
+    m.insert("heading.filter", "Filtre :");
+    m.insert("heading.none", "Aucun titre dans cet onglet.");
+    m.insert("heading.no_match", "Aucun titre ne correspond au filtre.");
     m.insert("tab.limit.title", "Limite d\u{2019}onglets");
     m.insert("tab.limit.msg", "Nombre maximum d\u{2019}onglets atteint (20).");
     m.insert("tab.close.title", "Fermer l\u{2019}onglet");
@@ -1515,6 +1525,11 @@ fn build_es() -> Dict {
     m.insert("menu.tab.rename", "&Renombrar pesta\u{00f1}a...\tF2");
     m.insert("menu.tab.next", "Pesta\u{00f1}a siguiente\tCtrl+Tab");
     m.insert("menu.tab.prev", "Pesta\u{00f1}a anterior\tCtrl+Shift+Tab");
+    m.insert("menu.edit.goto_heading", "Ir al &encabezado...\tCtrl+Shift+O");
+    m.insert("heading.title", "Ir al encabezado");
+    m.insert("heading.filter", "Filtro:");
+    m.insert("heading.none", "No hay encabezados en esta pesta\u{00f1}a.");
+    m.insert("heading.no_match", "Ning\u{00fa}n encabezado coincide con el filtro.");
     m.insert("tab.limit.title", "L\u{00ed}mite de pesta\u{00f1}as");
     m.insert("tab.limit.msg", "N\u{00fa}mero m\u{00e1}ximo de pesta\u{00f1}as alcanzado (20).");
     m.insert("tab.close.title", "Cerrar pesta\u{00f1}a");
@@ -2181,6 +2196,11 @@ fn build_de() -> Dict {
     m.insert("menu.tab.rename", "Tab &umbenennen...\tF2");
     m.insert("menu.tab.next", "N\u{00e4}chster Tab\tStrg+Tab");
     m.insert("menu.tab.prev", "Vorheriger Tab\tStrg+Umschalt+Tab");
+    m.insert("menu.edit.goto_heading", "Gehe zu \u{00dc}&berschrift...\tStrg+Umschalt+O");
+    m.insert("heading.title", "Gehe zu \u{00dc}berschrift");
+    m.insert("heading.filter", "Filter:");
+    m.insert("heading.none", "Keine \u{00dc}berschrift in diesem Tab.");
+    m.insert("heading.no_match", "Keine \u{00dc}berschrift passt zum Filter.");
     m.insert("tab.limit.title", "Tab-Limit");
     m.insert("tab.limit.msg", "Maximale Anzahl an Tabs erreicht (20).");
     m.insert("tab.close.title", "Tab schlie\u{00df}en");
@@ -2953,6 +2973,39 @@ mod tests {
             for item in tools {
                 assert_ne!(key_of(d[item]), Some(mine), "{item} of {lang:?} uses the same key as Prompts");
             }
+        }
+    }
+
+    // Go to Heading: its access key is free in the Edit menu of every
+    // language (the items of `editor::build`), and the label names its
+    // shortcut.
+    #[test]
+    fn goto_heading_menu_access_key_is_free_in_every_language() {
+        let key_of = |label: &str| -> Option<char> {
+            let i = label.find('&')?;
+            label[i + 1..].chars().next().map(|c| c.to_lowercase().next().unwrap_or(c))
+        };
+        let edit = [
+            "menu.edit.cut",
+            "menu.edit.copy",
+            "menu.edit.paste",
+            "menu.edit.pasteplain",
+            "menu.edit.find",
+            "menu.edit.replace",
+            "menu.edit.goto",
+            "menu.edit.dupline",
+            "menu.edit.delline",
+            "menu.edit.selectall",
+            "menu.edit.timestamp",
+        ];
+        for lang in [Language::English, Language::French, Language::Spanish, Language::German] {
+            let d = dict_for(lang);
+            let label = d["menu.edit.goto_heading"];
+            let mine = key_of(label).unwrap_or_else(|| panic!("no access key {lang:?}"));
+            for item in edit {
+                assert_ne!(key_of(d[item]), Some(mine), "{item} of {lang:?} uses the same key as Go to Heading");
+            }
+            assert!(label.ends_with("+O"), "{label}");
         }
     }
 

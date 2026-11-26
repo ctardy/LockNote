@@ -57,3 +57,6 @@ pub mod auto_backup;
 
 // Import log: one line per import step (no secrets), see import_log/mod.rs.
 pub mod import_log;
+
+// Markdown headings of a tab, for Edit > Go to Heading (Ctrl+Shift+O).
+pub mod outline;

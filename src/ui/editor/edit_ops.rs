@@ -178,6 +178,7 @@ impl EditorForm {
             match vk {
                 0x56 => { self.on_paste_plain(); return true; } // Ctrl+Shift+V
                 0x4B => { self.on_delete_line(); return true; } // Ctrl+Shift+K
+                0x4F => { self.on_goto_heading(); return true; } // Ctrl+Shift+O
                 0x09 => { self.on_prev_tab(); return true; }    // Ctrl+Shift+Tab
                 0x50 => { self.on_command_palette(); return true; } // Ctrl+Shift+P
                 _ => {}
@@ -505,5 +506,40 @@ impl EditorForm {
             // EM_SCROLLCARET (0x00B7) — scroll the caret into view
             self.send_editor_message(0x00B7, 0, 0);
         }
+    }
+
+    /// Edit > Go to Heading (Ctrl+Shift+O): the sequence of heading_flow.
+    pub(super) fn on_goto_heading(&self) {
+        use super::heading_flow::{go_to_heading, HeadingOutcome};
+        match go_to_heading(&mut FormHeadingSteps { form: self }) {
+            HeadingOutcome::BadIndex { index, count } => {
+                eprintln!("ERROR outline: dialog returned index={} for count={}, caret not moved", index, count);
+            }
+            outcome => eprintln!("INFO outline: go to heading {:?}", outcome),
+        }
+    }
+}
+
+/// The steps of `heading_flow` on the window.
+struct FormHeadingSteps<'a> {
+    form: &'a EditorForm,
+}
+
+impl super::heading_flow::HeadingSteps for FormHeadingSteps<'_> {
+    fn text(&self) -> String {
+        self.form.get_content()
+    }
+    fn lock_epoch(&self) -> u64 {
+        self.form.lock_epoch()
+    }
+    fn pick(&mut self, headings: &[crate::features::outline::Heading]) -> Option<usize> {
+        let _modal = self.form.modal();
+        crate::ui::dialogs::goto_heading::GoToHeadingDialog::show(headings, Some(self.form.window.handle))
+    }
+    fn still_valid(&self, epoch: u64) -> bool {
+        self.form.still_valid(epoch)
+    }
+    fn move_caret(&mut self, line: u32) {
+        self.form.apply_cursor_line(line);
     }
 }
