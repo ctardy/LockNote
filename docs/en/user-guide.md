@@ -484,20 +484,19 @@ clipboard.").
 **Add a key.**
 
 1. **Add Key**, then type the **Entry name:**.
-2. The **TOTP Setup** window shows a new random secret in an editable field
-   ("Secret given by the site (Base32 or otpauth:// link), or this new one:",
-   with **Copy**) and as an **OtpAuth URI:**.
-3. To add the code of an existing website, replace that secret with the one
-   the site gives: the Base32 text (spaces and lowercase are accepted, e.g.
-   `jbsw y3dp ehpk 3pxp`) or the `otpauth://totp/...` link of its QR code. To
-   use the new secret instead, keep it and enter it at the site or in your
-   authenticator app.
-4. **Confirm** adds the key. A secret that is not valid is refused with the
-   reason (empty, not Base32, a link that is not `otpauth://totp/`, a link
-   without secret, or a link asking for other codes than SHA1 / 6 digits /
-   30 seconds) and nothing is added. **Verify** is optional here: type a code
+2. In the **TOTP Setup** window, the **Secret:** field is empty ("Base32 or
+   otpauth:// link"). Paste the secret the site gives: the Base32 text
+   (spaces and lowercase are accepted, e.g. `jbsw y3dp ehpk 3pxp`) or the
+   `otpauth://totp/...` link of its QR code. Or click **Generate** for a new
+   random secret, then enter it at the site or in your authenticator app
+   (**Copy**, or the **OtpAuth URI:** shown below).
+3. **Confirm** adds the key. A secret that is not valid is refused with the
+   reason (empty, not Base32, a length Base32 never gives because part of it
+   is missing or it was pasted twice, shorter than 80 bits, a link that is not
+   `otpauth://totp/`, a link without secret, or a link asking for other codes
+   than SHA1 / 6 digits / 30 seconds) and nothing is added. **Verify** is optional here: type a code
    and click it to check the secret before confirming.
-5. Enter the code LockNote then shows in the panel where the site asks for it.
+4. Enter the code LockNote then shows in the panel where the site asks for it.
 
 **Remove a key.** Select it, **Remove**, then confirm ("This cannot be undone.").
 

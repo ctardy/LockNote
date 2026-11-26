@@ -407,7 +407,10 @@ fn build_en() -> Dict {
     m.insert("totp.add.name", "Name:");
     m.insert("totp.add.secret", "Secret:");
     m.insert("totp.add.invalid", "Invalid TOTP secret.");
-    m.insert("totp.add.secret_hint", "Secret given by the site (Base32 or otpauth:// link), or this new one:");
+    m.insert("totp.add.secret_hint", "Base32 or otpauth:// link");
+    m.insert("totp.add.generate", "Generate");
+    m.insert("totp.secret.err.length", "This secret has a length Base32 never gives: part of it is missing or it was pasted twice. Paste it again, alone.");
+    m.insert("totp.secret.err.short", "This secret is too short (under 80 bits): part of it is probably missing.");
     m.insert("totp.secret.err.empty", "Enter the secret given by the site.");
     m.insert("totp.secret.err.base32", "This secret is not valid Base32 (letters A-Z and digits 2-7).");
     m.insert("totp.secret.err.not_totp", "Only otpauth://totp/ links are supported.");
@@ -1055,7 +1058,10 @@ fn build_fr() -> Dict {
     m.insert("totp.add.name", "Nom :");
     m.insert("totp.add.secret", "Secret :");
     m.insert("totp.add.invalid", "Secret TOTP invalide.");
-    m.insert("totp.add.secret_hint", "Secret donn\u{00e9} par le site (Base32 ou lien otpauth://), ou ce nouveau secret :");
+    m.insert("totp.add.secret_hint", "Base32 ou lien otpauth://");
+    m.insert("totp.add.generate", "G\u{00e9}n\u{00e9}rer");
+    m.insert("totp.secret.err.length", "Ce secret a une longueur que le Base32 ne donne jamais : une partie manque ou il a \u{00e9}t\u{00e9} coll\u{00e9} deux fois. Collez-le \u{00e0} nouveau, seul.");
+    m.insert("totp.secret.err.short", "Ce secret est trop court (moins de 80 bits) : il en manque sans doute une partie.");
     m.insert("totp.secret.err.empty", "Saisissez le secret donn\u{00e9} par le site.");
     m.insert("totp.secret.err.base32", "Ce secret n'est pas du Base32 valide (lettres A-Z et chiffres 2-7).");
     m.insert("totp.secret.err.not_totp", "Seuls les liens otpauth://totp/ sont pris en charge.");
@@ -1696,7 +1702,10 @@ fn build_es() -> Dict {
     m.insert("totp.add.name", "Nombre:");
     m.insert("totp.add.secret", "Secreto:");
     m.insert("totp.add.invalid", "Secreto TOTP no v\u{00e1}lido.");
-    m.insert("totp.add.secret_hint", "Secreto dado por el sitio (Base32 o enlace otpauth://), o este nuevo:");
+    m.insert("totp.add.secret_hint", "Base32 o enlace otpauth://");
+    m.insert("totp.add.generate", "Generar");
+    m.insert("totp.secret.err.length", "Este secreto tiene una longitud que Base32 nunca da: falta una parte o se peg\u{00f3} dos veces. P\u{00e9}guelo de nuevo, solo.");
+    m.insert("totp.secret.err.short", "Este secreto es demasiado corto (menos de 80 bits): probablemente falta una parte.");
     m.insert("totp.secret.err.empty", "Introduzca el secreto dado por el sitio.");
     m.insert("totp.secret.err.base32", "Este secreto no es Base32 v\u{00e1}lido (letras A-Z y d\u{00ed}gitos 2-7).");
     m.insert("totp.secret.err.not_totp", "Solo se admiten enlaces otpauth://totp/.");
@@ -2338,7 +2347,10 @@ fn build_de() -> Dict {
     m.insert("totp.add.name", "Name:");
     m.insert("totp.add.secret", "Geheimnis:");
     m.insert("totp.add.invalid", "Ung\u{00fc}ltiges TOTP-Geheimnis.");
-    m.insert("totp.add.secret_hint", "Vom Dienst angegebenes Geheimnis (Base32 oder otpauth://-Link) oder dieses neue:");
+    m.insert("totp.add.secret_hint", "Base32 oder otpauth://-Link");
+    m.insert("totp.add.generate", "Erzeugen");
+    m.insert("totp.secret.err.length", "Dieses Geheimnis hat eine L\u{00e4}nge, die Base32 nie ergibt: ein Teil fehlt oder es wurde doppelt eingef\u{00fc}gt. F\u{00fc}gen Sie es erneut allein ein.");
+    m.insert("totp.secret.err.short", "Dieses Geheimnis ist zu kurz (unter 80 Bit): wahrscheinlich fehlt ein Teil.");
     m.insert("totp.secret.err.empty", "Geben Sie das vom Dienst angegebene Geheimnis ein.");
     m.insert("totp.secret.err.base32", "Dieses Geheimnis ist kein g\u{00fc}ltiges Base32 (Buchstaben A-Z und Ziffern 2-7).");
     m.insert("totp.secret.err.not_totp", "Nur otpauth://totp/-Links werden unterst\u{00fc}tzt.");

@@ -9,10 +9,11 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
 ### Added
 - **TOTP: add the secret of an existing website**: Tools > TOTP > Add Key
   now lets you paste the secret given by the site, as Base32 text (spaces
-  and lowercase accepted) or as an `otpauth://totp/` link. Generating a new
-  secret stays the default. An invalid secret is refused with the reason and
-  never stored; links asking for codes LockNote does not make (other than
-  SHA1, 6 digits, 30 s) are refused (#23).
+  and lowercase accepted) or as an `otpauth://totp/` link; **Generate**
+  still creates a new secret. An invalid secret is refused with the reason
+  and never stored: not Base32, cut or pasted twice (impossible length),
+  shorter than 80 bits, or a link asking for codes LockNote does not make
+  (other than SHA1, 6 digits, 30 s) (#23).
 - **View > Line Numbers**: shows or hides the line-number gutter; the text
   takes the freed width. The choice is the existing `show_line_numbers`
   setting, saved with the note and restored at the next start (#26).

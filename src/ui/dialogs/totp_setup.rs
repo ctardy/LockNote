@@ -36,6 +36,8 @@ pub(crate) fn secret_input_error_text(e: totp::SecretInputError) -> String {
     match e {
         Empty => t("totp.secret.err.empty"),
         InvalidBase32 => t("totp.secret.err.base32"),
+        InvalidLength => t("totp.secret.err.length"),
+        TooShort => t("totp.secret.err.short"),
         NotTotpUri => t("totp.secret.err.not_totp"),
         UriWithoutSecret => t("totp.secret.err.no_secret"),
         UnsupportedParameters => t("totp.secret.err.unsupported"),
@@ -64,18 +66,21 @@ impl TotpSetupDialog {
 
     fn show_mode(name: &str, existing_secret: Option<&str>, mode: Mode) -> Option<TotpEntry> {
         let add = mode == Mode::AddKey;
-        // Add Key: a two-line hint above the secret, everything below moves down.
-        let dy: i32 = if add { 16 } else { 0 };
-        let secret = match existing_secret {
-            Some(s) => s.to_string(),
-            None => totp::generate_secret(),
+        // Add Key starts EMPTY (pass 2): a pre-filled random secret took a
+        // paste without select-all as a longer valid secret, and a forgotten
+        // paste stored a random secret under the site's name. Generate
+        // fills it on request.
+        let secret = match (mode, existing_secret) {
+            (Mode::AddKey, _) => String::new(),
+            (Mode::Generate, Some(s)) => s.to_string(),
+            (Mode::Generate, None) => totp::generate_secret(),
         };
 
-        let uri = totp::build_uri(name, &secret, Some("LockNote"));
+        let uri = if add { String::new() } else { totp::build_uri(name, &secret, Some("LockNote")) };
 
         let mut window = Default::default();
         nwg::Window::builder()
-            .size((500, 380 + dy))
+            .size((500, 380))
             .position((250, 180))
             .title(&t("2fa.setup.title"))
             .flags(nwg::WindowFlags::WINDOW | nwg::WindowFlags::VISIBLE)
@@ -112,31 +117,46 @@ impl TotpSetupDialog {
         // --- Secret label ---
         let mut lbl_secret_title = Default::default();
         nwg::Label::builder()
-            .text(&if add { t("totp.add.secret_hint") } else { t("2fa.setup.secret") })
+            .text(&if add { t("totp.add.secret") } else { t("2fa.setup.secret") })
             .parent(&window)
             .position((20, 50))
-            .size((460, 20 + dy))
+            .size((460, 20))
             .font(Some(&font))
             .build(&mut lbl_secret_title)
             .expect("Failed to build secret title");
 
+        let hint = t("totp.add.secret_hint");
         let mut txt_secret = Default::default();
         nwg::TextInput::builder()
             .text(&secret)
             .parent(&window)
-            .position((20, 73 + dy))
-            .size((370, 25))
+            .position((20, 73))
+            // Add Key: room for the Generate button.
+            .size((if add { 275 } else { 370 }, 25))
             .font(Some(&font_mono))
             .readonly(!add)
+            .placeholder_text(if add { Some(&hint) } else { None })
             .build(&mut txt_secret)
             .expect("Failed to build secret text");
+
+        // Add Key: fills the field with a new random secret.
+        let mut btn_generate = Default::default();
+        nwg::Button::builder()
+            .text(&t("totp.add.generate"))
+            .parent(&window)
+            .position((300, 73))
+            .size((90, 25))
+            .font(Some(&font))
+            .build(&mut btn_generate)
+            .expect("Failed to build generate button");
+        btn_generate.set_visible(add);
 
         // Copy button
         let mut btn_copy = Default::default();
         nwg::Button::builder()
             .text(&t("2fa.setup.copy"))
             .parent(&window)
-            .position((400, 73 + dy))
+            .position((400, 73))
             .size((75, 25))
             .font(Some(&font))
             .build(&mut btn_copy)
@@ -147,7 +167,7 @@ impl TotpSetupDialog {
         nwg::Label::builder()
             .text(&t("2fa.setup.uri"))
             .parent(&window)
-            .position((20, 115 + dy))
+            .position((20, 115))
             .size((460, 20))
             .font(Some(&font))
             .build(&mut lbl_uri_title)
@@ -157,7 +177,7 @@ impl TotpSetupDialog {
         nwg::TextInput::builder()
             .text(&uri)
             .parent(&window)
-            .position((20, 138 + dy))
+            .position((20, 138))
             .size((455, 25))
             .font(Some(&font_mono))
             .readonly(true)
@@ -168,7 +188,7 @@ impl TotpSetupDialog {
         let mut sep = Default::default();
         nwg::Frame::builder()
             .parent(&window)
-            .position((20, 180 + dy))
+            .position((20, 180))
             .size((455, 1))
             .build(&mut sep)
             .expect("Failed to build separator");
@@ -178,7 +198,7 @@ impl TotpSetupDialog {
         nwg::Label::builder()
             .text(&t("2fa.setup.verify"))
             .parent(&window)
-            .position((20, 195 + dy))
+            .position((20, 195))
             .size((460, 20))
             .font(Some(&font))
             .build(&mut lbl_verify)
@@ -188,7 +208,7 @@ impl TotpSetupDialog {
         nwg::TextInput::builder()
             .text("")
             .parent(&window)
-            .position((20, 220 + dy))
+            .position((20, 220))
             .size((150, 25))
             .font(Some(&font_mono))
             .limit(6)
@@ -200,7 +220,7 @@ impl TotpSetupDialog {
         nwg::Button::builder()
             .text(&t("2fa.verify"))
             .parent(&window)
-            .position((180, 220 + dy))
+            .position((180, 220))
             .size((80, 25))
             .font(Some(&font))
             .build(&mut btn_verify)
@@ -211,7 +231,7 @@ impl TotpSetupDialog {
         nwg::Label::builder()
             .text("")
             .parent(&window)
-            .position((270, 223 + dy))
+            .position((270, 223))
             .size((200, 20))
             .font(Some(&font))
             .build(&mut lbl_status)
@@ -222,7 +242,7 @@ impl TotpSetupDialog {
         nwg::Button::builder()
             .text(&t("2fa.setup.confirm"))
             .parent(&window)
-            .position((290, 310 + dy))
+            .position((290, 310))
             .size((85, 30))
             .font(Some(&font))
             // Add Key: valid secrets are checked at Confirm, no verification.
@@ -235,7 +255,7 @@ impl TotpSetupDialog {
         nwg::Button::builder()
             .text(&t("2fa.cancel"))
             .parent(&window)
-            .position((390, 310 + dy))
+            .position((390, 310))
             .size((85, 30))
             .font(Some(&font))
             .build(&mut btn_cancel)
@@ -262,7 +282,11 @@ impl TotpSetupDialog {
                     lbl_status.set_text("");
                 }
                 nwg::Event::OnButtonClick => {
-                    if handle == btn_copy.handle {
+                    if add && handle == btn_generate.handle {
+                        // OnTextInput then updates the link.
+                        txt_secret.set_text(&totp::generate_secret());
+                        eprintln!("INFO totp: add key, secret generated");
+                    } else if handle == btn_copy.handle {
                         // Copy secret to clipboard
                         let secret_text = txt_secret.text();
                         let _ = set_clipboard_text(&secret_text);
@@ -361,7 +385,7 @@ mod tests {
         use crate::features::totp::SecretInputError::*;
         let _g = crate::features::i18n::test_support::lang_guard();
         crate::features::i18n::set_language(crate::features::i18n::Language::French);
-        let texts: Vec<String> = [Empty, InvalidBase32, NotTotpUri, UriWithoutSecret, UnsupportedParameters]
+        let texts: Vec<String> = [Empty, InvalidBase32, InvalidLength, TooShort, NotTotpUri, UriWithoutSecret, UnsupportedParameters]
             .into_iter()
             .map(super::secret_input_error_text)
             .collect();

@@ -16,6 +16,10 @@ type HmacSha1 = Hmac<Sha1>;
 pub const TOTP_PERIOD: u64 = 30;
 pub const TOTP_DIGITS: u32 = 6;
 pub const TOTP_SECRET_SIZE: usize = 20;
+/// Shortest secret accepted when the user pastes one: 80 bits, the size many
+/// sites give (RFC 4226 asks for 128; refusing below 80 catches a paste cut
+/// short without refusing real secrets).
+pub const MIN_SECRET_BYTES: usize = 10;
 
 // ---------------------------------------------------------------------------
 // TotpEntry model
@@ -310,6 +314,11 @@ pub enum SecretInputError {
     Empty,
     /// Not Base32 (RFC 4648 alphabet), or no data once decoded.
     InvalidBase32,
+    /// A Base32 length no byte count gives (8k+1, 8k+3 or 8k+6 characters
+    /// once the padding is removed): a truncated or doubled paste.
+    InvalidLength,
+    /// Under `MIN_SECRET_BYTES` (80 bits).
+    TooShort,
     /// An `otpauth://` link that is not `otpauth://totp/` (e.g. `hotp`), or
     /// another scheme.
     NotTotpUri,
@@ -378,12 +387,25 @@ fn normalize_base32_secret(s: &str) -> Result<String, SecretInputError> {
     if !clean.bytes().all(|b| BASE32_ALPHABET.contains(&b)) {
         return Err(SecretInputError::InvalidBase32);
     }
+    if clean.is_empty() {
+        return Err(SecretInputError::InvalidBase32);
+    }
+    // Base32 writes n bytes in ceil(8n/5) characters: 8k+1, 8k+3 and 8k+6
+    // never occur, so such a text was cut or pasted twice.
+    if matches!(clean.len() % 8, 1 | 3 | 6) {
+        return Err(SecretInputError::InvalidLength);
+    }
     match base32_decode(&clean) {
-        Some(mut bytes) if !bytes.is_empty() => {
+        Some(mut bytes) => {
+            let len = bytes.len();
             bytes.zeroize();
-            Ok(clean)
+            if len < MIN_SECRET_BYTES {
+                Err(SecretInputError::TooShort)
+            } else {
+                Ok(clean)
+            }
         }
-        _ => Err(SecretInputError::InvalidBase32),
+        None => Err(SecretInputError::InvalidBase32),
     }
 }
 
@@ -650,7 +672,7 @@ mod tests {
         let s = parse_secret_input("  gezd gnbv gy3t qojq gezd gnbv gy3t qojq ").unwrap();
         assert_eq!(s, TEST_SECRET_B32);
         // Padding and tabs too.
-        assert_eq!(parse_secret_input("JBSW\tY3DP====").unwrap(), "JBSWY3DP");
+        assert_eq!(parse_secret_input("JBSW\tY3DPEHPK3PXP====").unwrap(), "JBSWY3DPEHPK3PXP");
     }
 
     #[test]
@@ -658,10 +680,10 @@ mod tests {
         let uri = "otpauth://totp/Example:alice@example.com?secret=gezdgnbvgy3tqojqgezdgnbvgy3tqojq&issuer=Example";
         assert_eq!(parse_secret_input(uri).unwrap(), TEST_SECRET_B32);
         // The defaults written out are accepted.
-        let uri = "otpauth://totp/x?secret=JBSWY3DP&algorithm=SHA1&digits=6&period=30";
-        assert_eq!(parse_secret_input(uri).unwrap(), "JBSWY3DP");
+        let uri = "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP&algorithm=SHA1&digits=6&period=30";
+        assert_eq!(parse_secret_input(uri).unwrap(), "JBSWY3DPEHPK3PXP");
         // Percent-encoded spaces in the secret, as some sites write it.
-        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSW%20Y3DP").unwrap(), "JBSWY3DP");
+        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSW%20Y3DPEHPK3PXP").unwrap(), "JBSWY3DPEHPK3PXP");
     }
 
     #[test]
@@ -682,22 +704,22 @@ mod tests {
         use SecretInputError::*;
         assert_eq!(parse_secret_input(""), Err(Empty));
         assert_eq!(parse_secret_input("   "), Err(Empty));
-        assert_eq!(parse_secret_input("JBSWY3DP1"), Err(InvalidBase32)); // 1 is not Base32
+        assert_eq!(parse_secret_input("JBSWY3DPEHPK3PXP1"), Err(InvalidBase32)); // 1 is not Base32
         assert_eq!(parse_secret_input("hello world!"), Err(InvalidBase32));
         assert_eq!(parse_secret_input("===="), Err(InvalidBase32));
         // Multi-byte characters: refused, never a panic on a char boundary.
         assert_eq!(parse_secret_input("ééééééééé"), Err(InvalidBase32));
-        assert_eq!(parse_secret_input("otpaut\u{e9}://totp/x?secret=JBSWY3DP"), Err(InvalidBase32));
-        assert_eq!(parse_secret_input("otpauth://tot\u{e9}/x?secret=JBSWY3DP"), Err(NotTotpUri));
-        assert_eq!(parse_secret_input("otpauth://hotp/x?secret=JBSWY3DP&counter=1"), Err(NotTotpUri));
-        assert_eq!(parse_secret_input("https://example.com/?secret=JBSWY3DP"), Err(InvalidBase32));
-        assert_eq!(parse_secret_input("OTPAUTH://HOTP/x?secret=JBSWY3DP"), Err(NotTotpUri));
+        assert_eq!(parse_secret_input("otpaut\u{e9}://totp/x?secret=JBSWY3DPEHPK3PXP"), Err(InvalidBase32));
+        assert_eq!(parse_secret_input("otpauth://tot\u{e9}/x?secret=JBSWY3DPEHPK3PXP"), Err(NotTotpUri));
+        assert_eq!(parse_secret_input("otpauth://hotp/x?secret=JBSWY3DPEHPK3PXP&counter=1"), Err(NotTotpUri));
+        assert_eq!(parse_secret_input("https://example.com/?secret=JBSWY3DPEHPK3PXP"), Err(InvalidBase32));
+        assert_eq!(parse_secret_input("OTPAUTH://HOTP/x?secret=JBSWY3DPEHPK3PXP"), Err(NotTotpUri));
         assert_eq!(parse_secret_input("otpauth://totp/x?issuer=X"), Err(UriWithoutSecret));
         assert_eq!(parse_secret_input("otpauth://totp/x"), Err(UriWithoutSecret));
         assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3D1"), Err(InvalidBase32));
-        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DP&algorithm=SHA256"), Err(UnsupportedParameters));
-        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DP&digits=8"), Err(UnsupportedParameters));
-        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DP&period=60"), Err(UnsupportedParameters));
+        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DPEHPK3PXP&algorithm=SHA256"), Err(UnsupportedParameters));
+        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DPEHPK3PXP&digits=8"), Err(UnsupportedParameters));
+        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DPEHPK3PXP&period=60"), Err(UnsupportedParameters));
     }
 
     /// Pass 2, B1: the percent-decoding sliced the text on byte offsets and
@@ -708,15 +730,15 @@ mod tests {
         use SecretInputError::*;
         assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSW%1\u{e9}"), Err(InvalidBase32));
         assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSW%a\u{e9}"), Err(InvalidBase32));
-        assert_eq!(parse_secret_input("otpauth://totp/%1\u{e9}?secret=JBSWY3DP"), Ok("JBSWY3DP".into()));
+        assert_eq!(parse_secret_input("otpauth://totp/%1\u{e9}?secret=JBSWY3DPEHPK3PXP"), Ok("JBSWY3DPEHPK3PXP".into()));
         // A trailing escape is decoded (%41 = A).
-        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DP%41%41"), Ok("JBSWY3DPAA".into()));
+        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DPEHPK3PXP%41%41"), Ok("JBSWY3DPEHPK3PXPAA".into()));
         // %FF is not UTF-8 once decoded: refused, not replaced by U+FFFD.
-        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DP%FF"), Err(InvalidBase32));
+        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DPEHPK3PXP%FF"), Err(InvalidBase32));
         // `+` is not a hex digit (from_str_radix accepted "+1").
-        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DP%+1"), Err(InvalidBase32));
+        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DPEHPK3PXP%+1"), Err(InvalidBase32));
         // An incomplete escape stays as text, which is not Base32.
-        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DP%4"), Err(InvalidBase32));
+        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DPEHPK3PXP%4"), Err(InvalidBase32));
         assert_eq!(uri_decode_bytes("%4"), b"%4".to_vec());
         assert_eq!(uri_decode_bytes("a%41"), b"aA".to_vec());
     }
@@ -742,6 +764,25 @@ mod tests {
             }
         }
         assert_eq!(count, n * n * n * n);
+    }
+
+    /// Pass 2, M2: a truncated or concatenated paste must not be stored as
+    /// a valid secret. A Base32 length that no byte count gives (8k+1, 8k+3,
+    /// 8k+6 characters) and secrets under 80 bits are refused.
+    #[test]
+    fn truncated_or_short_secrets_are_refused() {
+        use SecretInputError::*;
+        assert_eq!(parse_secret_input("AAA"), Err(InvalidLength));
+        assert_eq!(parse_secret_input("JBSWY3DPEHPK3PXPA"), Err(InvalidLength)); // 17 = 8*2+1
+        assert_eq!(parse_secret_input("JBSWY3DPEHPK3P"), Err(InvalidLength)); // 14 = 8+6
+        // 15 characters: 9 bytes, under the 10-byte floor.
+        assert_eq!(parse_secret_input("JBSWY3DPEHPK3PX"), Err(TooShort));
+        // A 5-byte secret.
+        assert_eq!(parse_secret_input("JBSWY3DP"), Err(TooShort));
+        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DP"), Err(TooShort));
+        // 10 bytes (16 characters) and the 20-byte RFC 6238 secret pass.
+        assert_eq!(parse_secret_input("JBSWY3DPEHPK3PXP").unwrap(), "JBSWY3DPEHPK3PXP");
+        assert_eq!(parse_secret_input(TEST_SECRET_B32).unwrap(), TEST_SECRET_B32);
     }
 
     // -- Entry serialization ------------------------------------------------

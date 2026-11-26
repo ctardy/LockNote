@@ -530,21 +530,20 @@ copié dans le presse-papiers. »).
 **Ajouter une clé.**
 
 1. **Ajouter une clé**, puis tapez le **Nom de l’entrée :**.
-2. La fenêtre **Configuration TOTP** affiche un nouveau secret aléatoire dans
-   un champ modifiable (« Secret donné par le site (Base32 ou lien
-   otpauth://), ou ce nouveau secret : », avec **Copier**) ainsi que sous
-   forme d'**URI OtpAuth :**.
-3. Pour ajouter le code d'un site existant, remplacez ce secret par celui que
-   donne le site : le texte Base32 (espaces et minuscules acceptés, par
-   exemple `jbsw y3dp ehpk 3pxp`) ou le lien `otpauth://totp/...` de son code
-   QR. Pour utiliser le nouveau secret, gardez-le et saisissez-le sur le site
-   ou dans votre application d'authentification.
-4. **Confirmer** ajoute la clé. Un secret non valide est refusé avec la raison
-   (vide, pas du Base32, lien autre que `otpauth://totp/`, lien sans secret,
-   ou lien qui demande d'autres codes que SHA1 / 6 chiffres / 30 secondes) et
-   rien n'est ajouté. **Vérifier** est facultatif ici : tapez un code et
+2. Dans la fenêtre **Configuration TOTP**, le champ **Secret :** est vide
+   (« Base32 ou lien otpauth:// »). Collez le secret donné par le site : le
+   texte Base32 (espaces et minuscules acceptés, par exemple
+   `jbsw y3dp ehpk 3pxp`) ou le lien `otpauth://totp/...` de son code QR. Ou
+   cliquez sur **Générer** pour un nouveau secret aléatoire, puis saisissez-le
+   sur le site ou dans votre application d'authentification (**Copier**, ou
+   l'**URI OtpAuth :** affichée dessous).
+3. **Confirmer** ajoute la clé. Un secret non valide est refusé avec la raison
+   (vide, pas du Base32, longueur que le Base32 ne donne jamais parce qu'une
+   partie manque ou qu'il a été collé deux fois, moins de 80 bits, lien autre
+   que `otpauth://totp/`, lien sans secret, ou lien qui demande d'autres codes
+   que SHA1 / 6 chiffres / 30 secondes) et rien n'est ajouté. **Vérifier** est facultatif ici : tapez un code et
    cliquez dessus pour contrôler le secret avant de confirmer.
-5. Saisissez sur le site le code que LockNote affiche alors dans le panneau.
+4. Saisissez sur le site le code que LockNote affiche alors dans le panneau.
 
 **Supprimer une clé.** Sélectionnez-la, **Supprimer**, puis confirmez (« Cette
 action est irréversible. »).
