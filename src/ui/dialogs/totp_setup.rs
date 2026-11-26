@@ -38,6 +38,8 @@ pub(crate) fn secret_input_error_text(e: totp::SecretInputError) -> String {
         InvalidBase32 => t("totp.secret.err.base32"),
         InvalidLength => t("totp.secret.err.length"),
         TooShort => t("totp.secret.err.short"),
+        DoubledPaste => t("totp.secret.err.doubled"),
+        DuplicateParameter => t("totp.secret.err.duplicate"),
         NotTotpUri => t("totp.secret.err.not_totp"),
         UriWithoutSecret => t("totp.secret.err.no_secret"),
         UnsupportedParameters => t("totp.secret.err.unsupported"),
@@ -397,7 +399,7 @@ mod tests {
         use crate::features::totp::SecretInputError::*;
         let _g = crate::features::i18n::test_support::lang_guard();
         crate::features::i18n::set_language(crate::features::i18n::Language::French);
-        let texts: Vec<String> = [Empty, InvalidBase32, InvalidLength, TooShort, NotTotpUri, UriWithoutSecret, UnsupportedParameters]
+        let texts: Vec<String> = [Empty, InvalidBase32, InvalidLength, TooShort, DoubledPaste, DuplicateParameter, NotTotpUri, UriWithoutSecret, UnsupportedParameters]
             .into_iter()
             .map(super::secret_input_error_text)
             .collect();

@@ -414,6 +414,8 @@ fn build_en() -> Dict {
     m.insert("totp.add.generate", "Generate");
     m.insert("totp.secret.err.length", "This secret has a length Base32 never gives: part of it is missing or it was pasted twice. Paste it again, alone.");
     m.insert("totp.secret.err.short", "This secret is too short (under 80 bits): part of it is probably missing.");
+    m.insert("totp.secret.err.doubled", "The same text appears twice: it was probably pasted twice. Clear the field and paste the secret once.");
+    m.insert("totp.secret.err.duplicate", "This link gives the same parameter twice (for example two secrets): it is refused, as the right one cannot be known.");
     m.insert("totp.secret.err.empty", "Enter the secret given by the site.");
     m.insert("totp.secret.err.base32", "This secret is not valid Base32 (letters A-Z and digits 2-7).");
     m.insert("totp.secret.err.not_totp", "Only otpauth://totp/ links are supported.");
@@ -1073,6 +1075,8 @@ fn build_fr() -> Dict {
     m.insert("totp.add.generate", "G\u{00e9}n\u{00e9}rer");
     m.insert("totp.secret.err.length", "Ce secret a une longueur que le Base32 ne donne jamais : une partie manque ou il a \u{00e9}t\u{00e9} coll\u{00e9} deux fois. Collez-le \u{00e0} nouveau, seul.");
     m.insert("totp.secret.err.short", "Ce secret est trop court (moins de 80 bits) : il en manque sans doute une partie.");
+    m.insert("totp.secret.err.doubled", "Le m\u{00ea}me texte appara\u{00ee}t deux fois : il a sans doute \u{00e9}t\u{00e9} coll\u{00e9} deux fois. Videz le champ et collez le secret une seule fois.");
+    m.insert("totp.secret.err.duplicate", "Ce lien donne deux fois le m\u{00ea}me param\u{00e8}tre (par exemple deux secrets) : il est refus\u{00e9}, le bon ne pouvant \u{00ea}tre connu.");
     m.insert("totp.secret.err.empty", "Saisissez le secret donn\u{00e9} par le site.");
     m.insert("totp.secret.err.base32", "Ce secret n'est pas du Base32 valide (lettres A-Z et chiffres 2-7).");
     m.insert("totp.secret.err.not_totp", "Seuls les liens otpauth://totp/ sont pris en charge.");
@@ -1725,6 +1729,8 @@ fn build_es() -> Dict {
     m.insert("totp.add.generate", "Generar");
     m.insert("totp.secret.err.length", "Este secreto tiene una longitud que Base32 nunca da: falta una parte o se peg\u{00f3} dos veces. P\u{00e9}guelo de nuevo, solo.");
     m.insert("totp.secret.err.short", "Este secreto es demasiado corto (menos de 80 bits): probablemente falta una parte.");
+    m.insert("totp.secret.err.doubled", "El mismo texto aparece dos veces: probablemente se peg\u{00f3} dos veces. Vac\u{00ed}e el campo y pegue el secreto una sola vez.");
+    m.insert("totp.secret.err.duplicate", "Este enlace da dos veces el mismo par\u{00e1}metro (por ejemplo dos secretos): se rechaza, ya que no se puede saber cu\u{00e1}l es el correcto.");
     m.insert("totp.secret.err.empty", "Introduzca el secreto dado por el sitio.");
     m.insert("totp.secret.err.base32", "Este secreto no es Base32 v\u{00e1}lido (letras A-Z y d\u{00ed}gitos 2-7).");
     m.insert("totp.secret.err.not_totp", "Solo se admiten enlaces otpauth://totp/.");
@@ -2378,6 +2384,8 @@ fn build_de() -> Dict {
     m.insert("totp.add.generate", "Erzeugen");
     m.insert("totp.secret.err.length", "Dieses Geheimnis hat eine L\u{00e4}nge, die Base32 nie ergibt: ein Teil fehlt oder es wurde doppelt eingef\u{00fc}gt. F\u{00fc}gen Sie es erneut allein ein.");
     m.insert("totp.secret.err.short", "Dieses Geheimnis ist zu kurz (unter 80 Bit): wahrscheinlich fehlt ein Teil.");
+    m.insert("totp.secret.err.doubled", "Derselbe Text steht zweimal da: er wurde wohl zweimal eingef\u{00fc}gt. Leeren Sie das Feld und f\u{00fc}gen Sie das Geheimnis einmal ein.");
+    m.insert("totp.secret.err.duplicate", "Dieser Link enth\u{00e4}lt denselben Parameter zweimal (zum Beispiel zwei Geheimnisse): er wird abgelehnt, da das richtige nicht bekannt ist.");
     m.insert("totp.secret.err.empty", "Geben Sie das vom Dienst angegebene Geheimnis ein.");
     m.insert("totp.secret.err.base32", "Dieses Geheimnis ist kein g\u{00fc}ltiges Base32 (Buchstaben A-Z und Ziffern 2-7).");
     m.insert("totp.secret.err.not_totp", "Nur otpauth://totp/-Links werden unterst\u{00fc}tzt.");

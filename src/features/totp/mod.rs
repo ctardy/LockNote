@@ -319,6 +319,11 @@ pub enum SecretInputError {
     InvalidLength,
     /// Under `MIN_SECRET_BYTES` (80 bits).
     TooShort,
+    /// The same text twice in a row: a paste done twice.
+    DoubledPaste,
+    /// A link with the same parameter twice (two `secret=`): which one the
+    /// site meant cannot be known.
+    DuplicateParameter,
     /// An `otpauth://` link that is not `otpauth://totp/` (e.g. `hotp`), or
     /// another scheme.
     NotTotpUri,
@@ -340,6 +345,9 @@ pub fn parse_secret_input(input: &str) -> Result<String, SecretInputError> {
     if input.is_empty() {
         return Err(SecretInputError::Empty);
     }
+    if is_doubled(input) {
+        return Err(SecretInputError::DoubledPaste);
+    }
     const PREFIX: &str = "otpauth://totp/";
     // `get`, not `[..n]`: a pasted text may have a multi-byte character there.
     let starts_with = |p: &str| input.get(..p.len()).map_or(false, |s| s.eq_ignore_ascii_case(p));
@@ -352,9 +360,19 @@ pub fn parse_secret_input(input: &str) -> Result<String, SecretInputError> {
         let uri = format!("{}{}", PREFIX, &input[PREFIX.len()..]);
         let (_label, secret, _issuer) = parse_uri(&uri).ok_or(SecretInputError::UriWithoutSecret)?;
         let query = uri.split_once('?').map(|(_, q)| q).unwrap_or("");
+        let mut seen: Vec<String> = Vec::new();
         for param in query.split('&') {
             let Some((key, value)) = param.split_once('=') else { continue };
-            let supported = match key.to_ascii_lowercase().as_str() {
+            // Compared once percent-decoded: "%53HA256" is SHA256.
+            let key = String::from_utf8_lossy(&uri_decode_bytes(key)).to_ascii_lowercase();
+            let value = String::from_utf8_lossy(&uri_decode_bytes(value)).to_string();
+            // parse_uri keeps the last `secret=`: two of them (or of any
+            // parameter) leave the site's intent unknown.
+            if seen.contains(&key) {
+                return Err(SecretInputError::DuplicateParameter);
+            }
+            seen.push(key.clone());
+            let supported = match key.as_str() {
                 "algorithm" => value.eq_ignore_ascii_case("SHA1"),
                 "digits" => value == TOTP_DIGITS.to_string(),
                 "period" => value == TOTP_PERIOD.to_string(),
@@ -370,6 +388,18 @@ pub fn parse_secret_input(input: &str) -> Result<String, SecretInputError> {
         return normalize_base32_secret(&decoded);
     }
     normalize_base32_secret(input)
+}
+
+/// An `otpauth://` link pasted twice: the same text twice in a row (spaces
+/// and case ignored) holding the scheme. Base32 alone is not checked: a real
+/// secret can have two equal halves (RFC 6238's own test secret,
+/// "12345678901234567890", does), and the length check catches most
+/// doubled Base32 pastes.
+fn is_doubled(s: &str) -> bool {
+    let clean: Vec<char> = s.chars().filter(|c| !c.is_whitespace()).flat_map(|c| c.to_uppercase()).collect();
+    let n = clean.len();
+    let half: String = clean[..n / 2].iter().collect();
+    n >= 2 && n % 2 == 0 && clean[..n / 2] == clean[n / 2..] && half.starts_with("OTPAUTH:")
 }
 
 /// `s` without spaces or trailing `=`, uppercase, when it is Base32 holding
@@ -782,6 +812,27 @@ mod tests {
         assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DP"), Err(TooShort));
         // 10 bytes (16 characters) and the 20-byte RFC 6238 secret pass.
         assert_eq!(parse_secret_input("JBSWY3DPEHPK3PXP").unwrap(), "JBSWY3DPEHPK3PXP");
+        assert_eq!(parse_secret_input(TEST_SECRET_B32).unwrap(), TEST_SECRET_B32);
+    }
+
+    /// Pass 3: two `secret=` are refused (not last-wins), the parameters are
+    /// compared once percent-decoded, and a paste done twice is named.
+    #[test]
+    fn ambiguous_links_and_doubled_pastes_are_refused() {
+        use SecretInputError::*;
+        let s = "JBSWY3DPEHPK3PXP";
+        assert_eq!(parse_secret_input(&format!("otpauth://totp/x?secret={s}&secret=GEZDGNBVGY3TQOJQ")), Err(DuplicateParameter));
+        assert_eq!(parse_secret_input(&format!("otpauth://totp/x?secret={s}&digits=6&DIGITS=8")), Err(DuplicateParameter));
+        // %53HA256 is SHA256 once decoded; %36 is 6.
+        assert_eq!(parse_secret_input(&format!("otpauth://totp/x?secret={s}&algorithm=%53HA256")), Err(UnsupportedParameters));
+        assert_eq!(parse_secret_input(&format!("otpauth://totp/x?secret={s}&digits=%36")), Ok(s.to_string()));
+        assert_eq!(parse_secret_input(&format!("otpauth://totp/x?secret={s}&%64igits=8")), Err(UnsupportedParameters));
+        // Base32 twice cannot be told from a real secret with equal halves
+        // (the RFC 6238 one below): accepted; a link twice is refused.
+        assert_eq!(parse_secret_input(&format!("{s}{s}")), Ok(format!("{s}{s}")));
+        let uri = format!("otpauth://totp/x?secret={s}");
+        assert_eq!(parse_secret_input(&format!("{uri}{uri}")), Err(DoubledPaste));
+        // A real secret is still accepted.
         assert_eq!(parse_secret_input(TEST_SECRET_B32).unwrap(), TEST_SECRET_B32);
     }
 
