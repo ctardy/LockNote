@@ -157,8 +157,10 @@ mod tests {
         let inform = &ops[ops.find("fn inform(&mut self").unwrap()..];
         let inform = &inform[..inform.find("\n    }\n").unwrap()];
         assert!(inform.contains("self.form.inform("), "{}", inform);
-        let events = crate::read_source(dir.join("events.rs"));
-        assert!(events.contains("handle == f.menu_tab_compare.handle {\n                                f.on_compare_with_last_save();"));
+        // The menu runs through the command table (palette_ops.rs).
+        let table = crate::read_source(dir.join("palette_ops.rs"));
+        assert!(table.contains("CompareWithLastSave => &self.menu_tab_compare,"));
+        assert!(table.contains("CompareWithLastSave => self.on_compare_with_last_save(),"));
         let shortcuts = crate::read_source(dir.join("edit_ops.rs"));
         assert!(!shortcuts.contains("on_compare_with_last_save"));
     }

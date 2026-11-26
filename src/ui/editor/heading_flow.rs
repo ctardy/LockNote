@@ -137,8 +137,10 @@ mod tests {
         let pick = &ops[ops.find("fn pick(&mut self").unwrap()..];
         let pick = &pick[..pick.find("\n    }\n").unwrap()];
         assert!(pick.contains("let _modal = self.form.modal();") && pick.contains("Some(self.form.window.handle)"), "{}", pick);
-        let events = crate::read_source(dir.join("events.rs"));
-        assert!(events.contains("handle == f.menu_edit_goto_heading.handle {\n                            f.on_goto_heading();"));
+        // The menu runs through the command table (palette_ops.rs).
+        let table = crate::read_source(dir.join("palette_ops.rs"));
+        assert!(table.contains("GotoHeading => &self.menu_edit_goto_heading,"));
+        assert!(table.contains("GotoHeading => self.on_goto_heading(),"));
     }
 
     #[test]
