@@ -241,7 +241,7 @@ impl EditorForm {
         // A new lock starts fresh (empty field, no backoff, counter reset);
         // the curtain turning into the lock screen keeps them
         // (`lock_screen_field`, pass 9).
-        let field = lock_screen_field(curtain_was_up, *self.lock_attempts.borrow(), self.lock_backoff_remaining.get());
+        let field = lock_screen_field(curtain_was_up, self.lock_backoff_remaining.get());
         if field.clear_text {
             self.lock_input.set_text("");
         }
@@ -259,8 +259,7 @@ impl EditorForm {
         self.lock_eye.set_visible(true);
         self.lock_btn.set_visible(true);
         self.lock_status.set_visible(true);
-        if field.clear_text {
-            // The wrong-password / retry message stays with its field.
+        if field.clear_status {
             self.lock_status_msg.clear();
         }
         // The typed text is never left visible from a previous session.
@@ -623,7 +622,7 @@ impl EditorForm {
                     return;
                 }
 
-                const MAX_ATTEMPTS: u32 = 5;
+                const MAX_ATTEMPTS: u32 = super::lock_overlay::LOCK_SCREEN_MAX_ATTEMPTS;
                 let attempts_now = {
                     let mut att = self.lock_attempts.borrow_mut();
                     *att += 1;

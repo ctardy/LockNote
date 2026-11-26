@@ -22,25 +22,34 @@ pub(super) fn unlock_backoff_seconds(att: u32) -> u32 {
     }
 }
 
+/// Wrong passwords on the lock screen before LockNote quits.
+pub(super) const LOCK_SCREEN_MAX_ATTEMPTS: u32 = 5;
+
 /// The unlock field when the lock screen is shown.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct LockScreenField {
     /// The typed text is cleared.
     pub(super) clear_text: bool,
+    /// The status message is cleared.
+    pub(super) clear_status: bool,
     pub(super) attempts: u32,
     /// Seconds of a running backoff (0: none, field enabled).
     pub(super) backoff_remaining: u32,
 }
 
-/// What the lock screen keeps of the unlock field (`attempts`,
-/// `backoff_remaining`: the current ones) when it is shown;
+/// What the lock screen keeps of the unlock field (`backoff_remaining`:
+/// the current one) when it is shown;
 /// `curtain_was_up`: the curtain becomes the real lock screen.
-pub(super) fn lock_screen_field(curtain_was_up: bool, attempts: u32, backoff_remaining: u32) -> LockScreenField {
+pub(super) fn lock_screen_field(curtain_was_up: bool, backoff_remaining: u32) -> LockScreenField {
     if curtain_was_up {
-        // Pass 9: the same screen goes on, only the note behind it is gone.
-        LockScreenField { clear_text: false, attempts, backoff_remaining }
+        // Pass 9: the same screen goes on, only the note behind it is gone:
+        // the typed text and a running backoff (with its message) stay. The
+        // curtain has no cap, so its wrong passwords do not count towards
+        // the lock screen's (a first typo would quit LockNote); any other
+        // message (Quit refused, wrong password) is cleared.
+        LockScreenField { clear_text: false, clear_status: backoff_remaining == 0, attempts: 0, backoff_remaining }
     } else {
-        LockScreenField { clear_text: true, attempts: 0, backoff_remaining: 0 }
+        LockScreenField { clear_text: true, clear_status: true, attempts: 0, backoff_remaining: 0 }
     }
 }
 
@@ -49,13 +58,35 @@ mod lock_screen_field_tests {
     use super::*;
 
     /// Pass 9: a retry that succeeds under the curtain turns it into the
-    /// lock screen without clearing a half-typed password or resetting the
-    /// attempt counter and the backoff; a lock from the open note starts
-    /// fresh.
+    /// lock screen without clearing a half-typed password or a running
+    /// backoff; a lock from the open note starts fresh.
     #[test]
     fn the_curtain_becoming_the_lock_screen_keeps_the_typed_password_and_the_backoff() {
-        assert_eq!(lock_screen_field(true, 3, 2), LockScreenField { clear_text: false, attempts: 3, backoff_remaining: 2 });
-        assert_eq!(lock_screen_field(false, 3, 2), LockScreenField { clear_text: true, attempts: 0, backoff_remaining: 0 });
+        let f = lock_screen_field(true, 2);
+        assert!(!f.clear_text && f.backoff_remaining == 2, "{:?}", f);
+        assert_eq!(lock_screen_field(false, 2), LockScreenField { clear_text: true, clear_status: true, attempts: 0, backoff_remaining: 0 });
+    }
+
+    /// Final fixes, 1: wrong passwords on the curtain (no cap there) do not
+    /// count towards the lock screen's cap: its first typo never quits.
+    #[test]
+    fn curtain_attempts_never_make_the_first_lock_screen_typo_quit() {
+        for backoff in [0, 8] {
+            let f = lock_screen_field(true, backoff);
+            assert!(f.attempts + 1 < LOCK_SCREEN_MAX_ATTEMPTS, "carried: {:?}", f);
+            assert_eq!(f.attempts, 0, "the lock screen gives its normal attempts");
+            assert_eq!(f.backoff_remaining, backoff, "a running backoff is kept");
+        }
+    }
+
+    /// Final fixes, 2: only a running backoff keeps its message (the
+    /// field stays disabled with it); any other curtain message (Quit
+    /// refused, wrong password) is cleared.
+    #[test]
+    fn only_the_backoff_message_survives_the_curtain() {
+        assert!(!lock_screen_field(true, 2).clear_status, "backoff running");
+        assert!(lock_screen_field(true, 0).clear_status, "quit refused or wrong password, no backoff");
+        assert!(lock_screen_field(false, 2).clear_status);
     }
 }
 
