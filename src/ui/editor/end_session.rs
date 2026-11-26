@@ -100,15 +100,6 @@ pub(super) fn end_session(steps: &mut impl EndSessionSteps) {
     steps.stop_loop();
 }
 
-/// A save asked once the session ended is refused.
-pub(super) fn exit_refuses_save(exiting: bool) -> Result<(), ()> {
-    if exiting {
-        Err(())
-    } else {
-        Ok(())
-    }
-}
-
 /// `EndSessionSteps` on the real window.
 pub(super) struct FormEndSessionSteps<'a> {
     pub(super) form: &'a EditorForm,
@@ -278,12 +269,6 @@ mod tests {
         let mut f = Fake::new(Ok(()));
         end_session_message(false, false, &mut f);
         assert!(f.log.is_empty());
-    }
-
-    #[test]
-    fn nothing_is_saved_once_exiting() {
-        assert_eq!(exit_refuses_save(true), Err(()));
-        assert_eq!(exit_refuses_save(false), Ok(()));
     }
 
     #[test]

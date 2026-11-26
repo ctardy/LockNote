@@ -885,6 +885,56 @@
         assert!(q.request(false), "a new box logs again");
     }
 
+    /// Pass 6 (m6): the WM_MOUSEMOVE Windows sends after a dialog closes,
+    /// cursor unchanged, is not user activity.
+    #[test]
+    fn a_mouse_move_without_moving_does_not_count_as_activity() {
+        assert!(mouse_really_moved(None, 0x0010_0020));
+        assert!(!mouse_really_moved(Some(0x0010_0020), 0x0010_0020));
+        assert!(mouse_really_moved(Some(0x0010_0020), 0x0010_0021));
+    }
+
+    /// Pass 6: the wiring of the lock and dialog decisions. Each assert
+    /// fails if the call is removed or moved back (reasoned per line).
+    #[test]
+    fn the_lock_and_dialog_decisions_are_wired() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
+        let read = |f: &str| std::fs::read_to_string(dir.join(f)).unwrap();
+        let body = |src: &str, fun: &str| -> String {
+            let start = src.find(fun).unwrap_or_else(|| panic!("{}", fun));
+            let end = src[start..].find("\n    }\n").map_or(src.len(), |e| start + e);
+            src[start..end].to_string()
+        };
+        let lock = read("lock_ops.rs");
+        let auto = body(&lock, "pub(super) fn on_autolock(");
+        // The save decision comes before any wipe.
+        let decision = auto.find("failed_lock_save_step(").expect("on_autolock decides after its save");
+        let wipe = auto.find("self.wipe_plaintext_stores()").expect("on_autolock wipes");
+        assert!(decision < wipe, "decision after the wipe");
+        // The ssh-agent list save failure at lock is reported, not erased.
+        assert!(auto.contains("WARN lock: the shortened ssh-agent list was not saved"));
+        let guard = read("modal_guard.rs");
+        assert!(body(&guard, "pub(super) fn run_pending_requests(").contains("lock_step("));
+        assert!(body(&guard, "pub(super) fn request_lock(").contains("merged_manual("));
+        assert!(body(&guard, "pub(super) fn request_lock(").contains("lock_box_queue.request("));
+        let unlock = body(&lock, "pub(super) fn unlock_from_disk(");
+        let m = unlock.find("let _modal = self.modal();").expect("unlock window under a modal guard");
+        assert!(m < unlock.find("show_with_parent(").unwrap());
+        assert!(unlock.contains("self.refresh_totp_list();"), "TOTP panel after unlock_from_disk");
+        let restore = body(&lock, "pub(super) fn restore_after_unlock(");
+        assert!(restore.contains("        self.refresh_totp_list();"), "TOTP refresh not gated");
+        assert!(!restore.contains("if self.totp_panel.is_visible() {\n            self.refresh_totp_list();"));
+        let prefs = read("prefs_ops.rs");
+        for fun in ["pub(super) fn on_security(", "pub(super) fn on_preferences("] {
+            let b = body(&prefs, fun);
+            assert!(b.contains("zeroize_settings_secrets(&mut current)"), "{} wipes its settings copy", fun);
+            assert!(b.contains("still_valid(epoch)"), "{} re-checks the epoch", fun);
+        }
+        assert!(body(&lock, "pub(super) fn on_unlock_overlay(").contains("lift_save_failed_curtain()"));
+        assert!(body(&lock, "pub(super) fn show_curtain(").contains("self.lock_epoch.set("));
+        assert!(read("close_flow.rs").contains("Curtain::SaveFailed"), "quit refused under the save-failed curtain");
+    }
+
     /// Pass 5: a failed save before the lock keeps the note (no wipe of the
     /// unsaved changes); an unmodified note or a saved one locks.
     #[test]
@@ -1004,11 +1054,13 @@
     }
 
     /// Pass 5: every information box of the editor goes through `inform`
-    /// (counted as a modal, owned by the main window).
+    /// (counted as a modal, owned by the main window). Pass 6: every
+    /// `modal_*_message(` (error, warning, fatal...) too.
     #[test]
     fn every_main_window_message_goes_through_inform() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
         let needle = format!("modal_{}_message(", "info");
+        let others: Vec<String> = ["error", "warning", "fatal"].iter().map(|k| format!("modal_{}_message(", k)).collect();
         let mut found = Vec::new();
         for e in std::fs::read_dir(&dir).unwrap() {
             let p = e.unwrap().path();
@@ -1019,7 +1071,7 @@
             let text = std::fs::read_to_string(&p).unwrap();
             for (i, line) in text.lines().enumerate() {
                 let allowed = name == "modal_guard.rs" && line.trim() == format!("nwg::{}&self.window, title, content);", needle);
-                if line.contains(&needle) && !allowed {
+                if (line.contains(&needle) && !allowed) || others.iter().any(|o| line.contains(o.as_str())) {
                     found.push(format!("{}:{}: {}", name, i + 1, line.trim()));
                 }
             }

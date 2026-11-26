@@ -544,9 +544,17 @@ impl EditorForm {
                     f2.focus_lock_input();
                 }
 
-                // WM_MOUSEMOVE = 0x0200, WM_LBUTTONDOWN = 0x0201
-                if msg == 0x0200 || msg == 0x0201 {
+                // WM_MOUSEMOVE = 0x0200, WM_LBUTTONDOWN = 0x0201. A move with
+                // the cursor where it was (sent after a dialog closes) is not
+                // activity (pass 6).
+                if msg == 0x0201 {
                     f2.autolock.borrow_mut().reset();
+                }
+                if msg == 0x0200 {
+                    let last = f2.last_mouse_pos.replace(Some(l_param));
+                    if mouse_really_moved(last, l_param) {
+                        f2.autolock.borrow_mut().reset();
+                    }
                 }
 
                 // WM_KEYDOWN = 0x0100

@@ -73,6 +73,8 @@ impl EditorForm {
 
                 // Keys a failed removal at lock time left in ssh-agent.
                 self.unload_agent_keys(true);
+                // The TOTP panel shows the entries read back (pass 6).
+                self.refresh_totp_list();
 
                 true
             }
@@ -132,8 +134,14 @@ impl EditorForm {
 
         // Take this file's SSH keys out of ssh-agent before anything else.
         // No modal (the lock must not block, issue 049): failures are logged
-        // and the keys stay listed for the next unlock.
+        // and the keys stay listed for the next unlock. Order: note saved
+        // above, keys unloaded, then the shortened list saved by
+        // unload_agent_keys; if that last save fails the note is modified
+        // again, which the lock below would clear: say it (pass 6).
         self.unload_agent_keys(false);
+        if self.is_modified.load(Ordering::Relaxed) {
+            eprintln!("WARN lock: the shortened ssh-agent list was not saved; the keys stay listed on disk and are removed again at the next unlock");
+        }
         // Remember where the user was (tab + caret line) before the editor
         // is cleared. The disk copy may be stale (tab switches are not a
         // modification, and the save above may have failed), so unlock

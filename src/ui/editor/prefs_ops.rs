@@ -17,8 +17,17 @@ impl EditorForm {
 
     /// Open preferences dialog (appearance + behavior).
     pub(super) fn on_preferences(&self) {
-        let current = self.settings.borrow().clone();
-        if let Some(changes) = crate::ui::dialogs::preferences_dialog::PreferencesDialog::show(&current) {
+        let mut current = self.settings.borrow().clone();
+        let epoch = self.lock_epoch();
+        let changes = crate::ui::dialogs::preferences_dialog::PreferencesDialog::show(&current);
+        // The copy of the settings held TOTP secrets (pass 6). `current` is
+        // still read below for the old theme and language only.
+        zeroize_settings_secrets(&mut current);
+        if changes.is_some() && !self.still_valid(epoch) {
+            eprintln!("INFO preferences: changes dropped, the note locked meanwhile");
+            return;
+        }
+        if let Some(changes) = changes {
             let mut settings = self.settings.borrow_mut();
             settings.save_on_close = changes.save_on_close;
             settings.theme = changes.theme;

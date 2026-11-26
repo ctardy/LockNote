@@ -160,11 +160,6 @@ pub(super) fn lock_goes_on(manual: bool, still_due: bool) -> bool {
     manual || still_due
 }
 
-/// Whether a lock waiting for `waited` is overdue (ERROR, once).
-pub(super) fn lock_overdue(waited: std::time::Duration) -> bool {
-    waited >= LOCK_DEADLINE
-}
-
 /// The curtain over the note (pass 5/6): the lock screen while the note is
 /// not locked yet.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -626,8 +621,6 @@ mod tests {
         // Pass 4: never run under a dialog that stays open; ask it again.
         assert_eq!(pending_step(true, RECANCEL_EVERY), PendingStep::CancelAgain);
         assert_eq!(pending_step(true, Duration::from_secs(60)), PendingStep::CancelAgain);
-        assert!(!lock_overdue(Duration::from_millis(1999)));
-        assert!(lock_overdue(LOCK_DEADLINE));
     }
 
     /// Auto-save stays suspended under a dialog.

@@ -123,22 +123,6 @@ impl Form {
     }
 }
 
-/// Enable or disable `owner` (the dialog the generator was opened from), so
-/// it cannot be used or closed underneath the generator.
-fn set_owner_enabled(owner: Option<nwg::ControlHandle>, enabled: bool) {
-    if let Some(nwg::ControlHandle::Hwnd(h)) = owner {
-        let hwnd = windows::Win32::Foundation::HWND(h as *mut _);
-        unsafe {
-            let _ = windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow(hwnd, enabled);
-            if enabled {
-                // Back to the dialog the generator was opened from, not to
-                // whichever window happens to be next.
-                let _ = windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(hwnd);
-            }
-        }
-    }
-}
-
 pub struct PasswordGeneratorDialog;
 
 impl PasswordGeneratorDialog {
@@ -416,9 +400,10 @@ impl PasswordGeneratorDialog {
             _ => {}
         });
 
-        set_owner_enabled(owner, false);
+        // Its previous state comes back when the guard drops (pass 6).
+        let owner_disabled = super::disable_owner(owner, true);
         nwg::dispatch_thread_events();
-        set_owner_enabled(owner, true);
+        drop(owner_disabled);
         nwg::unbind_event_handler(&handler);
 
         let options = last.borrow().clone();

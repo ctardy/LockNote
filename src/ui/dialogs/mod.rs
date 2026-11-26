@@ -109,6 +109,55 @@ mod duration_option_tests {
     }
 }
 
+/// Calls `set_enabled(false)` now and, when dropped (also on an early
+/// return or a panic), puts back the state it had: `set_enabled` returns
+/// whether the window was enabled before the call (pass 5: an owner already
+/// disabled by another dialog was enabled under it).
+pub(crate) struct DisabledWhile<F: FnMut(bool) -> bool> {
+    set_enabled: F,
+    was_enabled: bool,
+}
+
+impl<F: FnMut(bool) -> bool> DisabledWhile<F> {
+    pub(crate) fn new(mut set_enabled: F) -> Self {
+        let was_enabled = set_enabled(false);
+        DisabledWhile { set_enabled, was_enabled }
+    }
+}
+
+impl<F: FnMut(bool) -> bool> Drop for DisabledWhile<F> {
+    fn drop(&mut self) {
+        if self.was_enabled {
+            (self.set_enabled)(true);
+        }
+    }
+}
+
+/// Disable `owner` until the guard is dropped, then put back its previous
+/// state (pass 6: also used by the temporary files dialog and the password
+/// generator, which re-enabled their owner unconditionally). `focus_back`:
+/// give the owner the foreground again when it is re-enabled.
+pub(crate) fn disable_owner(owner: Option<nwg::ControlHandle>, focus_back: bool) -> DisabledWhile<impl FnMut(bool) -> bool> {
+    let hwnd = owner.and_then(|o| o.hwnd());
+    DisabledWhile::new(move |enabled| {
+        let Some(h) = hwnd else { return false };
+        // EnableWindow returns TRUE when the window WAS disabled.
+        let was_disabled = unsafe {
+            windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow(
+                windows::Win32::Foundation::HWND(h as *mut _),
+                enabled,
+            )
+        };
+        if enabled && focus_back {
+            // The return value only says whether it came to the front.
+            let _came_to_front = unsafe {
+                windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(windows::Win32::Foundation::HWND(h as *mut _))
+            };
+        }
+        !was_disabled.as_bool()
+    })
+}
+
 /// Give a dialog the shared look. Call right after the window is built, before
 /// its controls: the styling pass runs from the first message of the dialog's
 /// loop, when every control exists (see `style.rs`).

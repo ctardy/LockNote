@@ -379,33 +379,6 @@ impl Live {
     }
 }
 
-/// Disables a window while it lives (the dialog is modal to the editor),
-/// and enables it again when dropped.
-struct Disabled(Option<windows::Win32::Foundation::HWND>);
-
-impl Disabled {
-    fn new(parent: nwg::ControlHandle) -> Disabled {
-        let hwnd = parent.hwnd().map(|h| windows::Win32::Foundation::HWND(h as *mut _));
-        if let Some(h) = hwnd {
-            unsafe {
-                let _ = windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow(h, false);
-            }
-        }
-        Disabled(hwnd)
-    }
-}
-
-impl Drop for Disabled {
-    fn drop(&mut self) {
-        if let Some(h) = self.0 {
-            unsafe {
-                let _ = windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow(h, true);
-                let _ = windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(h);
-            }
-        }
-    }
-}
-
 pub struct TempFilesDialog;
 
 impl TempFilesDialog {
@@ -413,7 +386,8 @@ impl TempFilesDialog {
     /// window `parent` (disabled meanwhile).
     pub fn show(parent: nwg::ControlHandle, exe: &Path) -> TempFilesAction {
         let dir = crate::storage::staging_dir();
-        let _modal = Disabled::new(parent);
+        // Modal to the editor; its previous state comes back (pass 6).
+        let _modal = super::disable_owner(Some(parent), true);
 
         let mut window = Default::default();
         nwg::Window::builder()

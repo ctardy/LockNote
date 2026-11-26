@@ -745,6 +745,13 @@ pub(super) fn wipe_or_defer<T: zeroize::Zeroize>(cell: &RefCell<T>, pending: &Ce
     }
 }
 
+/// Whether a WM_MOUSEMOVE is a real move: its packed position (lParam)
+/// differs from the last one (pass 6: Windows sends one after a dialog
+/// closes, cursor unchanged, which reset the auto-lock).
+pub(super) fn mouse_really_moved(last: Option<isize>, now: isize) -> bool {
+    last != Some(now)
+}
+
 /// Whether input and display behave as locked: locked, or a curtain up
 /// (pass 6: one predicate for every input entry point and the layout).
 pub(super) fn input_blocked_by(locked: bool, curtain: super::modal_guard::Curtain) -> bool {

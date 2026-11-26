@@ -158,6 +158,8 @@ pub struct EditorForm {
     lock_save_failed_reason: RefCell<String>,
     /// Lock requests made during the lock's own box (pass 6).
     lock_box_queue: self::helpers::LockBoxQueue,
+    /// Last WM_MOUSEMOVE position (lParam) on the main window.
+    last_mouse_pos: Cell<Option<isize>>,
     /// A failed save blocked the shutdown (issue #29): the reason is removed
     /// at WM_ENDSESSION.
     shutdown_blocked: Cell<bool>,
