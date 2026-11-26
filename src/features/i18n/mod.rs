@@ -434,13 +434,7 @@ fn build_en() -> Dict {
     m.insert("totp.add.prompt", "Entry name:");
 
     // TOTP Manager
-    m.insert("totp.manager.title", "TOTP Authenticator");
-    m.insert("totp.manager.desc", "Your one-time codes. Select an entry and click Copy.");
     m.insert("totp.manager.copy", "Copy Code");
-    m.insert("totp.manager.close", "Close");
-    m.insert("totp.manager.select", "Select an entry first.");
-    m.insert("totp.manager.added", "Entry added.");
-    m.insert("totp.manager.removed", "Entry removed.");
 
     // 2FA / TOTP Verify
     m.insert("2fa.title", "LockNote \u{2014} Two-Factor Authentication");
@@ -754,14 +748,12 @@ fn build_en() -> Dict {
     // About
     m.insert("about.title", "About LockNote");
     m.insert("about.desc", "Self-contained encrypted notepad for Windows");
-    m.insert("about.open", "Open in browser");
 
     // Texts that were hard-coded in English in src/ui (issue #25)
     m.insert("confirmpwd.title", "Confirm Password");
     m.insert("confirmpwd.export", "Enter your password to export:");
     m.insert("confirmpwd.print", "Enter your password to print:");
     m.insert("about.version", "Version {version}");
-    m.insert("totp.manager.copied", "Copied code for {name}");
     m.insert("totp.setup.for", "Setting up TOTP for: {name}");
     m.insert("2fa.invalid.left", "Invalid code. Attempts left: {n}.");
     m.insert("attach.error.title", "Error");
@@ -1095,13 +1087,7 @@ fn build_fr() -> Dict {
     m.insert("totp.add.prompt", "Nom de l\u{2019}entr\u{00e9}e :");
 
     // TOTP Manager
-    m.insert("totp.manager.title", "Authentificateur TOTP");
-    m.insert("totp.manager.desc", "Vos codes \u{00e0} usage unique. S\u{00e9}lectionnez une entr\u{00e9}e et cliquez sur Copier.");
     m.insert("totp.manager.copy", "Copier le code");
-    m.insert("totp.manager.close", "Fermer");
-    m.insert("totp.manager.select", "S\u{00e9}lectionnez d'abord une entr\u{00e9}e.");
-    m.insert("totp.manager.added", "Entr\u{00e9}e ajout\u{00e9}e.");
-    m.insert("totp.manager.removed", "Entr\u{00e9}e supprim\u{00e9}e.");
 
     // 2FA / TOTP Verify
     m.insert("2fa.title", "LockNote \u{2014} Authentification \u{00e0} deux facteurs");
@@ -1411,13 +1397,11 @@ fn build_fr() -> Dict {
 
     m.insert("about.title", "\u{00c0} propos de LockNote");
     m.insert("about.desc", "Bloc-notes chiffr\u{00e9} autonome pour Windows");
-    m.insert("about.open", "Ouvrir dans le navigateur");
 
     m.insert("confirmpwd.title", "Confirmer le mot de passe");
     m.insert("confirmpwd.export", "Saisissez votre mot de passe pour exporter :");
     m.insert("confirmpwd.print", "Saisissez votre mot de passe pour imprimer :");
     m.insert("about.version", "Version {version}");
-    m.insert("totp.manager.copied", "Code copi\u{00e9} pour {name}");
     m.insert("totp.setup.for", "Configuration TOTP pour : {name}");
     m.insert("2fa.invalid.left", "Code invalide. Tentatives restantes : {n}.");
     m.insert("attach.error.title", "Erreur");
@@ -1749,13 +1733,7 @@ fn build_es() -> Dict {
     m.insert("totp.add.prompt", "Nombre de la entrada:");
 
     // TOTP Manager
-    m.insert("totp.manager.title", "Autenticador TOTP");
-    m.insert("totp.manager.desc", "Tus c\u{00f3}digos de un solo uso. Selecciona una entrada y haz clic en Copiar.");
     m.insert("totp.manager.copy", "Copiar c\u{00f3}digo");
-    m.insert("totp.manager.close", "Cerrar");
-    m.insert("totp.manager.select", "Selecciona una entrada primero.");
-    m.insert("totp.manager.added", "Entrada a\u{00f1}adida.");
-    m.insert("totp.manager.removed", "Entrada eliminada.");
 
     // 2FA / TOTP Verify
     m.insert("2fa.title", "LockNote \u{2014} Autenticaci\u{00f3}n de dos factores");
@@ -2066,13 +2044,11 @@ fn build_es() -> Dict {
 
     m.insert("about.title", "Acerca de LockNote");
     m.insert("about.desc", "Bloc de notas cifrado aut\u{00f3}nomo para Windows");
-    m.insert("about.open", "Abrir en el navegador");
 
     m.insert("confirmpwd.title", "Confirmar contrase\u{00f1}a");
     m.insert("confirmpwd.export", "Introduzca su contrase\u{00f1}a para exportar:");
     m.insert("confirmpwd.print", "Introduzca su contrase\u{00f1}a para imprimir:");
     m.insert("about.version", "Versi\u{00f3}n {version}");
-    m.insert("totp.manager.copied", "C\u{00f3}digo copiado para {name}");
     m.insert("totp.setup.for", "Configurando TOTP para: {name}");
     m.insert("2fa.invalid.left", "C\u{00f3}digo no v\u{00e1}lido. Intentos restantes: {n}.");
     m.insert("attach.error.title", "Error");
@@ -2404,13 +2380,7 @@ fn build_de() -> Dict {
     m.insert("totp.add.prompt", "Name des Eintrags:");
 
     // TOTP Manager
-    m.insert("totp.manager.title", "TOTP-Authenticator");
-    m.insert("totp.manager.desc", "Ihre Einmalcodes. W\u{00e4}hlen Sie einen Eintrag und klicken Sie auf Kopieren.");
     m.insert("totp.manager.copy", "Code kopieren");
-    m.insert("totp.manager.close", "Schlie\u{00df}en");
-    m.insert("totp.manager.select", "W\u{00e4}hlen Sie zuerst einen Eintrag.");
-    m.insert("totp.manager.added", "Eintrag hinzugef\u{00fc}gt.");
-    m.insert("totp.manager.removed", "Eintrag entfernt.");
 
     // 2FA / TOTP Verify
     m.insert("2fa.title", "LockNote \u{2014} Zwei-Faktor-Authentifizierung");
@@ -2721,13 +2691,11 @@ fn build_de() -> Dict {
 
     m.insert("about.title", "\u{00dc}ber LockNote");
     m.insert("about.desc", "Eigenst\u{00e4}ndiger verschl\u{00fc}sselter Notizblock f\u{00fc}r Windows");
-    m.insert("about.open", "Im Browser \u{00f6}ffnen");
 
     m.insert("confirmpwd.title", "Passwort best\u{00e4}tigen");
     m.insert("confirmpwd.export", "Geben Sie Ihr Passwort ein, um zu exportieren:");
     m.insert("confirmpwd.print", "Geben Sie Ihr Passwort ein, um zu drucken:");
     m.insert("about.version", "Version {version}");
-    m.insert("totp.manager.copied", "Code f\u{00fc}r {name} kopiert");
     m.insert("totp.setup.for", "TOTP-Einrichtung f\u{00fc}r: {name}");
     m.insert("2fa.invalid.left", "Ung\u{00fc}ltiger Code. Verbleibende Versuche: {n}.");
     m.insert("attach.error.title", "Fehler");

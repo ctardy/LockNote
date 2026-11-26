@@ -1276,10 +1276,8 @@ Opened from Tools > Password Generator... and from the SecretEditDialog. Logic i
 
 #### AboutDialog
 
-- Shield icon, product name, version
-- Description: "Self-contained encrypted notepad for Windows"
-- Crypto info (Rust, issue #28): `about::crypto_summary()`, built from `crypto::DEFAULT_M_COST` / `DEFAULT_T_COST` / `DEFAULT_P_LANES`, e.g. "AES-256-CBC + HMAC-SHA256 | Argon2id m=64 MiB, t=3, p=4"; Help > About LockNote... (`on_about`, a message box) shows the same line. The C# dialog showed "PBKDF2 100k iterations"
-- GitHub link (clickable, opens browser)
+- C#: shield icon, product name, version, description, "PBKDF2 100k iterations", GitHub link.
+- Rust: there is no About dialog (the unused `AboutDialog`, opened only by the snapshot tool, was deleted in pass 3, like the unused `TotpManagerDialog`). Help > About LockNote... is a message box (`help_ops::on_about`, title `about.title`): "LockNote", `about.version`, `about.desc`, the crypto line `about::crypto_summary()` (built from `crypto::DEFAULT_M_COST` / `DEFAULT_T_COST` / `DEFAULT_P_LANES`, e.g. "AES-256-CBC + HMAC-SHA256 | Argon2id m=64 MiB, t=3, p=4", issue #28) and the two web addresses.
 
 ### 11.5 TabBar
 

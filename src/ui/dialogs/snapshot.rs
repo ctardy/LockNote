@@ -213,7 +213,6 @@ fn dialog_snapshots() {
         };
     }
 
-    shot!("about", super::about::AboutDialog::show());
     shot!("backup_password", super::backup_password::BackupPasswordDialog::show(
         "Export full backup", "Password to protect the backup:", "Export", "Cancel", "The password cannot be empty."));
     shot!("backups", super::backups_dialog::BackupsDialog::show(&dir.join("no-backups")));
@@ -240,7 +239,6 @@ fn dialog_snapshots() {
     shot!("settings", super::settings_dialog::SettingsDialog::show(&settings));
     shot!("ssh_keygen", super::ssh_keygen::SshKeygenDialog::show(&[]));
     shot!("ssh_agent", super::ssh_keygen::SshAgentDialog::show(&["deploy key".to_string()]));
-    shot!("totp_manager", super::totp_manager::TotpManagerDialog::show(&[]));
     shot!("totp_setup", super::totp_setup::TotpSetupDialog::show("Mail", None));
     shot!("totp_add_key", super::totp_setup::TotpSetupDialog::show_add_key("Mail", &mut None));
     shot!("totp_verify", super::totp_verify::TotpVerifyDialog::show("JBSWY3DPEHPK3PXP"));
