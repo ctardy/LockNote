@@ -260,6 +260,12 @@ impl TabBar {
     pub fn all_tabs(&self) -> Vec<Tab> {
         self.tabs.borrow().clone()
     }
+
+    /// The tab names in order, without cloning any content (the command
+    /// palette: no extra plaintext copy).
+    pub fn names(&self) -> Vec<String> {
+        self.tabs.borrow().iter().map(|t| t.name.clone()).collect()
+    }
 }
 
 #[cfg(test)]
@@ -274,6 +280,13 @@ mod tests {
 
     fn order(bar: &TabBar) -> String {
         bar.all_tabs().iter().map(|t| t.name.as_str()).collect()
+    }
+
+    #[test]
+    fn names_lists_the_tabs_in_order() {
+        assert_eq!(bar_abc(1).names(), ["A", "B", "C"]);
+        let bar = TabBar::with_tabs(vec![Tab::new("n"), Tab::new("n")]);
+        assert_eq!(bar.names(), ["n", "n"]);
     }
 
     #[test]

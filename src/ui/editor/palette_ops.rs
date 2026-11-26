@@ -12,7 +12,7 @@
 use super::*;
 
 use crate::ui::command_palette::{
-    menu_label_parts, run_palette, save_shortcut_text, CommandId, PaletteEntry, PaletteOutcome, PaletteSteps,
+    menu_label_parts, run_palette, save_shortcut_text, secret_entries, CommandId, PaletteEntry, PaletteOutcome, PaletteSteps,
     PaletteTarget, COMMANDS,
 };
 
@@ -148,7 +148,7 @@ impl EditorForm {
             })
             .collect();
         let tab_label = t("palette.tab");
-        let tab_names: Vec<String> = self.tab_bar.borrow().all_tabs().into_iter().map(|tab| tab.name.clone()).collect();
+        let tab_names = self.tab_bar.borrow().names();
         for (index, name) in tab_names.into_iter().enumerate() {
             entries.push(PaletteEntry {
                 label: tab_label.replace("{name}", &name),
@@ -156,14 +156,7 @@ impl EditorForm {
                 target: PaletteTarget::Tab { index, name },
             });
         }
-        let vault_label = t("palette.vault");
-        for (index, name) in self.vault_panel.names().into_iter().enumerate() {
-            entries.push(PaletteEntry {
-                label: vault_label.replace("{name}", &name),
-                shortcut: None,
-                target: PaletteTarget::Secret { index, name },
-            });
-        }
+        entries.extend(secret_entries(&self.vault_panel.keys(), &t("palette.vault")));
         let prompt_label = t("palette.prompt");
         for (index, name) in self.prompts_panel.names().into_iter().enumerate() {
             entries.push(PaletteEntry {
@@ -181,9 +174,16 @@ impl EditorForm {
         eprintln!("INFO palette: open entries={}", entries.len());
         let outcome = run_palette(&FormPaletteSteps { form: self }, &entries);
         match &outcome {
-            PaletteOutcome::Cancelled => {}
+            // Closing the palette reactivates the main window, whose
+            // DefWindowProc keeps the focus on itself: give it back to the
+            // editor so the next keys are not lost.
+            PaletteOutcome::Cancelled => self.editor.set_focus(),
+            // The lock screen or the curtain owns the focus.
             PaletteOutcome::DroppedByLock => eprintln!("INFO palette: choice dropped, the note locked meanwhile"),
-            PaletteOutcome::Stale => eprintln!("INFO palette: choice dropped, the tab, secret or prompt changed meanwhile"),
+            PaletteOutcome::Stale => {
+                eprintln!("INFO palette: choice dropped, the tab, secret or prompt changed meanwhile");
+                self.editor.set_focus();
+            }
             PaletteOutcome::Ran(target) => {
                 let kind = match target {
                     PaletteTarget::Command(id) => format!("command {:?}", id),
@@ -232,16 +232,16 @@ impl PaletteSteps for FormPaletteSteps<'_> {
         crate::ui::dialogs::command_palette::CommandPaletteDialog::show(entries)
     }
 
-    fn tab_name(&self, index: usize) -> Option<String> {
-        self.form.tab_bar.borrow().all_tabs().get(index).map(|tab| tab.name.clone())
+    fn tab_names(&self) -> Vec<String> {
+        self.form.tab_bar.borrow().names()
     }
 
-    fn secret_name(&self, index: usize) -> Option<String> {
-        self.form.vault_panel.names().get(index).cloned()
+    fn secret_keys(&self) -> Vec<(String, String)> {
+        self.form.vault_panel.keys()
     }
 
-    fn prompt_name(&self, index: usize) -> Option<String> {
-        self.form.prompts_panel.names().get(index).cloned()
+    fn prompt_names(&self) -> Vec<String> {
+        self.form.prompts_panel.names()
     }
 
     fn run_command(&self, id: CommandId) {
@@ -347,11 +347,44 @@ mod tests {
         assert!(entries.contains("self.prompts_panel.names()") && !entries.contains("get_prompts"), "names only, no prompt text");
     }
 
+    /// After Esc or a stale choice the keyboard focus goes back to the
+    /// editor; not after a lock, where the lock screen owns it.
+    #[test]
+    fn cancel_and_stale_give_the_focus_back_to_the_editor() {
+        let ops = source("palette_ops.rs");
+        let open = body(&ops, "pub(super) fn on_command_palette(");
+        let arm = |head: &str| {
+            let start = open.find(head).unwrap_or_else(|| panic!("{head}"));
+            let rest = &open[start + head.len()..];
+            let end = rest.find("PaletteOutcome::").unwrap_or(rest.len());
+            rest[..end].to_string()
+        };
+        assert!(arm("PaletteOutcome::Cancelled =>").contains("self.editor.set_focus()"));
+        assert!(arm("PaletteOutcome::Stale =>").contains("self.editor.set_focus()"));
+        assert!(!arm("PaletteOutcome::DroppedByLock =>").contains("set_focus"));
+    }
+
+    /// The palette reads the tab names only, never a clone of the tabs and
+    /// their plaintext.
+    #[test]
+    fn the_palette_does_not_clone_the_tabs() {
+        let ops = source("palette_ops.rs");
+        let code = &ops[..ops.find("#[cfg(test)]").expect("tests")];
+        assert!(!code.contains(".all_tabs()"), "use TabBar::names()");
+    }
+
     #[test]
     fn the_save_menu_and_the_palette_show_the_same_shortcut_text() {
         let build = source("build.rs");
         assert!(build.contains("save_shortcut_text(settings.save_modifiers, settings.save_key)"));
         let ops = source("palette_ops.rs");
         assert!(ops.contains("save_shortcut_text(save_mod, save_key)"));
+        // The Preferences and Settings dialogs use the same formatter, so
+        // Ctrl+F5 reads the same everywhere.
+        for dialog in ["preferences_dialog.rs", "settings_dialog.rs"] {
+            let src = crate::read_source(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("dialogs").join(dialog));
+            assert!(src.contains("use crate::ui::command_palette::save_shortcut_text as format_shortcut;"), "{dialog}");
+            assert!(!src.contains("fn format_shortcut("), "{dialog}: a second formatter");
+        }
     }
 }

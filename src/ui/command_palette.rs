@@ -114,17 +114,21 @@ pub const COMMANDS: &[Command] = &[
     Command { id: CommandId::About, label_key: "menu.help.about" },
 ];
 
-/// Accelerator text of the save shortcut (configurable in the settings):
-/// "Ctrl+S", "Ctrl+Shift+S"... Shown by the File menu and the palette.
+/// Text of the save shortcut (configurable in the settings): "Ctrl+S",
+/// "Ctrl+Shift+F5"... The one formatter of it, shown by the File menu, the
+/// palette and the Preferences / Settings dialogs. Modifiers: 0x01 Alt,
+/// 0x02 Ctrl, 0x04 Shift.
 pub fn save_shortcut_text(modifiers: u32, key: u32) -> String {
     let mut parts = Vec::new();
     if modifiers & 0x02 != 0 { parts.push("Ctrl".to_string()); }
     if modifiers & 0x04 != 0 { parts.push("Shift".to_string()); }
     if modifiers & 0x01 != 0 { parts.push("Alt".to_string()); }
     // The settings keep a virtual-key code; for A-Z and 0-9 it is the ASCII
-    // code. Any other key is shown as its code, never as a stray character.
+    // code, 0x70..=0x87 are F1-F24 (the dialogs accept them). Any other key
+    // is shown as its code, never as a stray character.
     let key_text = match char::from_u32(key) {
         Some(c) if c.is_ascii_uppercase() || c.is_ascii_digit() => c.to_string(),
+        _ if (0x70..=0x87).contains(&key) => format!("F{}", key - 0x6F),
         _ => format!("0x{:02X}", key),
     };
     parts.push(key_text);
@@ -233,19 +237,28 @@ pub fn fuzzy_score(query: &str, candidate: &str) -> Option<i32> {
         .collect();
     for &qc in &q[1..] {
         let mut next: Vec<Option<i32>> = vec![None; c.len()];
+        // From k = j-1 the link is BONUS_CONSECUTIVE; from any k < j-1 it is
+        // -PENALTY_GAP * (j-k-1) = (best[k] + PENALTY_GAP*k) - PENALTY_GAP*(j-1).
+        // `run` keeps the max of best[k] + PENALTY_GAP*k over k < j-1, so
+        // each position costs O(1): linear in the label, whatever its
+        // length (names have no limit).
+        let mut run: Option<i32> = None;
         for j in 0..c.len() {
+            if j >= 2 {
+                if let Some(prev) = best[j - 2] {
+                    let v = prev + PENALTY_GAP * (j - 2) as i32;
+                    run = Some(run.map_or(v, |r| r.max(v)));
+                }
+            }
             if c[j] != qc {
                 continue;
             }
-            let mut from: Option<i32> = None;
-            for k in 0..j {
-                let Some(prev) = best[k] else { continue };
-                let link = if k + 1 == j { BONUS_CONSECUTIVE } else { -PENALTY_GAP * (j - k - 1) as i32 };
-                let s = prev + link;
-                if from.map_or(true, |f| s > f) {
-                    from = Some(s);
-                }
-            }
+            let gap = run.map(|r| r - PENALTY_GAP * (j - 1) as i32);
+            let consecutive = if j >= 1 { best[j - 1].map(|p| p + BONUS_CONSECUTIVE) } else { None };
+            let from = match (gap, consecutive) {
+                (Some(a), Some(b)) => Some(a.max(b)),
+                (a, b) => a.or(b),
+            };
             next[j] = from.map(|f| f + bonus(j));
         }
         best = next;
@@ -270,6 +283,28 @@ pub fn rank(query: &str, labels: &[String]) -> Vec<usize> {
     scored.into_iter().map(|(_, i)| i).collect()
 }
 
+/// The "Vault: <name>" rows, from (name, category) in storage order and the
+/// translated template ("{name}" is replaced). Secret names need not be
+/// unique (the same "admin" under Work and Home): a name that occurs more
+/// than once gets its category, "Vault: admin (Work)", so the rows differ.
+/// Display only, nothing is stored.
+pub fn secret_entries<N: AsRef<str>, C: AsRef<str>>(secrets: &[(N, C)], template: &str) -> Vec<PaletteEntry> {
+    secrets
+        .iter()
+        .enumerate()
+        .map(|(index, (name, category))| {
+            let name = name.as_ref();
+            let shared = secrets.iter().filter(|(n, _)| n.as_ref() == name).count() > 1;
+            let shown = if shared { format!("{} ({})", name, category.as_ref()) } else { name.to_string() };
+            PaletteEntry {
+                label: template.replace("{name}", &shown),
+                shortcut: None,
+                target: PaletteTarget::Secret { index, name: name.to_string() },
+            }
+        })
+        .collect()
+}
+
 /// Text of a list row: the label, a tab, the shortcut (the list box aligns
 /// it in a right-hand column).
 pub fn row_text(entry: &PaletteEntry) -> String {
@@ -285,12 +320,12 @@ pub trait PaletteSteps {
     fn still_valid(&self, epoch: u64) -> bool;
     /// Show the palette; the index of the chosen entry, `None` on Esc.
     fn show(&self, entries: &[PaletteEntry]) -> Option<usize>;
-    /// Name of the tab at `index` now, `None` if there is none.
-    fn tab_name(&self, index: usize) -> Option<String>;
-    /// Name of the secret at `index` now, `None` if there is none.
-    fn secret_name(&self, index: usize) -> Option<String>;
-    /// Name of the prompt at `index` now, `None` if there is none.
-    fn prompt_name(&self, index: usize) -> Option<String>;
+    /// Names of all the tabs now, in order.
+    fn tab_names(&self) -> Vec<String>;
+    /// (name, category) of all the secrets now, in storage order.
+    fn secret_keys(&self) -> Vec<(String, String)>;
+    /// Names of all the prompts now, in storage order.
+    fn prompt_names(&self) -> Vec<String>;
     fn run_command(&self, id: CommandId);
     fn switch_to_tab(&self, index: usize);
     fn copy_secret(&self, index: usize);
@@ -311,8 +346,16 @@ pub enum PaletteOutcome {
 
 /// One palette run: show, then act on the choice only if no lock came in
 /// between and the chosen tab, secret or prompt is still the one listed.
+///
+/// Names need not be unique ("admin" under Work and under Home, two tabs
+/// "n"), so the name at the index proves nothing: the whole list is taken
+/// before the dialog and the choice runs only if that list is unchanged
+/// after it. `entries` must be built from the same state, just before.
 pub fn run_palette(steps: &impl PaletteSteps, entries: &[PaletteEntry]) -> PaletteOutcome {
     let epoch = steps.lock_epoch();
+    let tabs = steps.tab_names();
+    let secrets = steps.secret_keys();
+    let prompts = steps.prompt_names();
     let Some(chosen) = steps.show(entries) else { return PaletteOutcome::Cancelled };
     if !steps.still_valid(epoch) {
         return PaletteOutcome::DroppedByLock;
@@ -321,19 +364,19 @@ pub fn run_palette(steps: &impl PaletteSteps, entries: &[PaletteEntry]) -> Palet
     match &entry.target {
         PaletteTarget::Command(id) => steps.run_command(*id),
         PaletteTarget::Tab { index, name } => {
-            if steps.tab_name(*index).as_deref() != Some(name.as_str()) {
+            if steps.tab_names() != tabs || tabs.get(*index) != Some(name) {
                 return PaletteOutcome::Stale;
             }
             steps.switch_to_tab(*index);
         }
         PaletteTarget::Secret { index, name } => {
-            if steps.secret_name(*index).as_deref() != Some(name.as_str()) {
+            if steps.secret_keys() != secrets || secrets.get(*index).map(|(n, _)| n) != Some(name) {
                 return PaletteOutcome::Stale;
             }
             steps.copy_secret(*index);
         }
         PaletteTarget::Prompt { index, name } => {
-            if steps.prompt_name(*index).as_deref() != Some(name.as_str()) {
+            if steps.prompt_names() != prompts || prompts.get(*index) != Some(name) {
                 return PaletteOutcome::Stale;
             }
             steps.insert_prompt(*index);
@@ -473,9 +516,88 @@ mod tests {
         assert_eq!(save_shortcut_text(0x02, 0x53), "Ctrl+S");
         assert_eq!(save_shortcut_text(0x02 | 0x04, 0x53), "Ctrl+Shift+S");
         assert_eq!(save_shortcut_text(0x01, 0x31), "Alt+1");
-        assert_eq!(save_shortcut_text(0x02, 0x74), "Ctrl+0x74"); // F5, not "t"
+        // F1-F24 as the Preferences dialog shows them (it accepts them as the save key).
+        assert_eq!(save_shortcut_text(0x02, 0x74), "Ctrl+F5");
+        assert_eq!(save_shortcut_text(0, 0x70), "F1");
+        assert_eq!(save_shortcut_text(0x02 | 0x04, 0x87), "Ctrl+Shift+F24");
         assert_eq!(save_shortcut_text(0x02, 0x0D), "Ctrl+0x0D");
         assert_eq!(save_shortcut_text(0x02, 0x11_0000), "Ctrl+0x110000");
+    }
+
+    #[test]
+    fn secret_rows_with_the_same_name_show_their_category() {
+        let e = secret_entries(&[("admin", "Work"), ("admin", "Home"), ("gmail", "Email")], "Vault: {name}");
+        let l: Vec<&str> = e.iter().map(|x| x.label.as_str()).collect();
+        assert_eq!(l, ["Vault: admin (Work)", "Vault: admin (Home)", "Vault: gmail"]);
+        assert_eq!(e[1].target, PaletteTarget::Secret { index: 1, name: "admin".into() });
+        assert!(e.iter().all(|x| x.shortcut.is_none()));
+        // A unique name, a translated template, a non-ASCII name.
+        let e = secret_entries(&[("cl\u{e9}", "Cloud")], "Coffre : {name}");
+        assert_eq!(e[0].label, "Coffre : cl\u{e9}");
+        assert!(secret_entries::<&str, &str>(&[], "Vault: {name}").is_empty());
+    }
+
+    /// The linear scorer gives exactly the scores of the former quadratic
+    /// one (kept here as the reference).
+    #[test]
+    fn fuzzy_score_matches_the_quadratic_reference() {
+        fn reference(query: &str, candidate: &str) -> Option<i32> {
+            let q: Vec<char> = query.chars().filter(|c| !c.is_whitespace()).map(fold).collect();
+            if q.is_empty() {
+                return Some(0);
+            }
+            let orig: Vec<char> = candidate.chars().collect();
+            let c: Vec<char> = orig.iter().map(|&ch| fold(ch)).collect();
+            if q.len() > c.len() {
+                return None;
+            }
+            let bonus = |j: usize| -> i32 {
+                let mut b = SCORE_MATCH;
+                if j == 0 {
+                    b += BONUS_FIRST;
+                } else if is_word_start(&orig, j) {
+                    b += BONUS_WORD_START;
+                }
+                b
+            };
+            let mut best: Vec<Option<i32>> = (0..c.len()).map(|j| (c[j] == q[0]).then(|| bonus(j) - PENALTY_GAP * j as i32)).collect();
+            for &qc in &q[1..] {
+                let mut next = vec![None; c.len()];
+                for j in 0..c.len() {
+                    if c[j] != qc {
+                        continue;
+                    }
+                    let mut from: Option<i32> = None;
+                    for k in 0..j {
+                        let Some(prev) = best[k] else { continue };
+                        let link = if k + 1 == j { BONUS_CONSECUTIVE } else { -PENALTY_GAP * (j - k - 1) as i32 };
+                        let s = prev + link;
+                        if from.map_or(true, |f| s > f) {
+                            from = Some(s);
+                        }
+                    }
+                    next[j] = from.map(|f| f + bonus(j));
+                }
+                best = next;
+            }
+            let score = best.into_iter().flatten().max()?;
+            let typed: Vec<char> = query.trim_start().chars().map(fold).collect();
+            let prefix = !typed.is_empty() && c.len() >= typed.len() && c[..typed.len()] == typed[..];
+            Some(if prefix { score + BONUS_PREFIX } else { score })
+        }
+        let pairs = [
+            ("", "Save"), ("SVE", "save"), ("dl", "Delete Line"), ("evas", "Save"), ("saves", "Save"),
+            ("del line", "Delete Line"), ("d l", "DeleteLine"), ("pa", "Paste"), ("pa", "Compare"),
+            ("dl", "Addle"), ("nt", "New Tab"), ("nt", "Print"), ("dli", "Delete Line"), ("dli", "Deletli"),
+            ("ab", "xabx"), ("ab", "xaxb"), ("pref", "Pr\u{e9}f\u{e9}rences"), ("pr\u{c9}f", "Pr\u{e9}f\u{e9}rences"),
+            ("\u{1F512}", "\u{1F512} Lock"), ("onglet", "Onglet : R&D \u{2014} \u{e9}t\u{e9}"),
+            ("w", "Tab: work"), ("w", "Tab: swork"), ("k", "sshKey"), ("aaa", "a a a aaa"),
+            ("abab", "a b a b ab ab"), ("vlt", "Vault: admin (Work)"), ("\u{e9}\u{e9}", "caf\u{e9} \u{e9}t\u{e9}"),
+            ("tab", "Tab: one"), ("xyz", "x_y_z xyz"), ("aa", "aaaaaaaaaa"),
+        ];
+        for (q, l) in pairs {
+            assert_eq!(fuzzy_score(q, l), reference(q, l), "{q:?} in {l:?}");
+        }
     }
 
     #[test]
@@ -532,11 +654,12 @@ mod tests {
         choice: Option<usize>,
         lock_while_open: bool,
         tabs: RefCell<Vec<String>>,
-        secrets: RefCell<Vec<String>>,
+        secrets: RefCell<Vec<(String, String)>>,
         prompts: RefCell<Vec<String>>,
         rename_tab_while_open: Option<(usize, String)>,
         drop_prompt_while_open: Option<usize>,
         drop_secret_while_open: Option<usize>,
+        drop_tab_while_open: Option<usize>,
         log: RefCell<Vec<String>>,
     }
 
@@ -557,6 +680,9 @@ mod tests {
             if let Some((i, n)) = &self.rename_tab_while_open {
                 self.tabs.borrow_mut()[*i] = n.clone();
             }
+            if let Some(i) = self.drop_tab_while_open {
+                self.tabs.borrow_mut().remove(i);
+            }
             if let Some(i) = self.drop_secret_while_open {
                 self.secrets.borrow_mut().remove(i);
             }
@@ -565,14 +691,14 @@ mod tests {
             }
             self.choice
         }
-        fn tab_name(&self, index: usize) -> Option<String> {
-            self.tabs.borrow().get(index).cloned()
+        fn tab_names(&self) -> Vec<String> {
+            self.tabs.borrow().clone()
         }
-        fn secret_name(&self, index: usize) -> Option<String> {
-            self.secrets.borrow().get(index).cloned()
+        fn secret_keys(&self) -> Vec<(String, String)> {
+            self.secrets.borrow().clone()
         }
-        fn prompt_name(&self, index: usize) -> Option<String> {
-            self.prompts.borrow().get(index).cloned()
+        fn prompt_names(&self) -> Vec<String> {
+            self.prompts.borrow().clone()
         }
         fn run_command(&self, id: CommandId) {
             self.log.borrow_mut().push(format!("run {:?}", id));
@@ -602,7 +728,7 @@ mod tests {
         Fake {
             choice,
             tabs: RefCell::new(vec!["a".into(), "b".into()]),
-            secrets: RefCell::new(vec!["j".into(), "k".into()]),
+            secrets: RefCell::new(vec![("j".into(), "General".into()), ("k".into(), "General".into())]),
             prompts: RefCell::new(vec!["p".into(), "q".into()]),
             ..Default::default()
         }
@@ -693,6 +819,42 @@ mod tests {
         f.lock_while_open = true;
         assert_eq!(run_palette(&f, &entries()), PaletteOutcome::DroppedByLock);
         assert!(!f.log.borrow().iter().any(|l| l.starts_with("insert")));
+    }
+
+    #[test]
+    fn a_secret_with_a_duplicate_name_is_stale_when_the_list_shifted() {
+        // [X, admin(Work), admin(Home)]: deleting X moves admin(Home) to
+        // index 1. The name at index 1 is still "admin", but it is not the
+        // secret that was listed: nothing is copied.
+        let mut f = fake(Some(0));
+        *f.secrets.borrow_mut() = vec![("X".into(), "General".into()), ("admin".into(), "Work".into()), ("admin".into(), "Home".into())];
+        f.drop_secret_while_open = Some(0);
+        let e = vec![PaletteEntry { label: "Vault: admin (Work)".into(), shortcut: None, target: PaletteTarget::Secret { index: 1, name: "admin".into() } }];
+        assert_eq!(run_palette(&f, &e), PaletteOutcome::Stale);
+        assert!(!f.log.borrow().iter().any(|l| l.starts_with("copy")), "{:?}", f.log.borrow());
+    }
+
+    #[test]
+    fn a_tab_with_a_duplicate_name_is_stale_when_the_list_shifted() {
+        let mut f = fake(Some(0));
+        *f.tabs.borrow_mut() = vec!["a".into(), "n".into(), "n".into()];
+        f.drop_tab_while_open = Some(0);
+        let e = vec![PaletteEntry { label: "Tab: n".into(), shortcut: None, target: PaletteTarget::Tab { index: 1, name: "n".into() } }];
+        assert_eq!(run_palette(&f, &e), PaletteOutcome::Stale);
+        assert!(!f.log.borrow().iter().any(|l| l.starts_with("tab")), "{:?}", f.log.borrow());
+    }
+
+    #[test]
+    fn fuzzy_score_is_linear_in_the_label_length() {
+        // Names have no length limit: a long one must not freeze the UI
+        // thread on each keystroke.
+        let label = "a b ".repeat(5000);
+        let query = "ab".repeat(4);
+        let start = std::time::Instant::now();
+        for _ in 0..50 {
+            assert!(fuzzy_score(&query, &label).is_some());
+            assert!(start.elapsed() < std::time::Duration::from_secs(2), "too slow: {:?}", start.elapsed());
+        }
     }
 
     #[test]

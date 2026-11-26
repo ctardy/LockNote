@@ -131,10 +131,10 @@ impl VaultPanel {
         }
     }
 
-    /// The names of the secrets, in storage order: what the command palette
-    /// lists, without copying any value.
-    pub fn names(&self) -> Vec<String> {
-        self.secrets.borrow().iter().map(|s| s.name.clone()).collect()
+    /// (name, category) of the secrets, in storage order: what the command
+    /// palette lists and checks, without copying any value.
+    pub fn keys(&self) -> Vec<(String, String)> {
+        self.secrets.borrow().iter().map(|s| (s.name.clone(), s.category.clone())).collect()
     }
 
     /// Get a secret by global index.
@@ -477,12 +477,12 @@ mod tests {
     }
 
     #[test]
-    fn names_lists_every_secret_in_storage_order() {
+    fn keys_list_every_secret_in_storage_order() {
         let panel = VaultPanel::new();
-        assert!(panel.names().is_empty());
+        assert!(panel.keys().is_empty());
         panel.add_secret(SecretEntry::new("gmail", "pw", "Email"));
         panel.add_secret(SecretEntry::new("aws", "key", "Cloud"));
-        assert_eq!(panel.names(), ["gmail", "aws"]);
+        assert_eq!(panel.keys(), [("gmail".to_string(), "Email".to_string()), ("aws".to_string(), "Cloud".to_string())]);
     }
 
     fn raw(name: &str, category: &str) -> SecretEntry {

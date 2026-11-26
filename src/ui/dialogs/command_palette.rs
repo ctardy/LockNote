@@ -1,9 +1,8 @@
 // CommandPaletteDialog — Ctrl+Shift+P command palette
 //
 // A filter field over a list. Typing re-ranks the list (fuzzy subsequence,
-// `ui::command_palette::rank`); Up / Down / Page Up / Page Down move the
-// selection while the focus stays in the field; Enter or a double-click
-// runs the selected row; Esc closes.
+// `ui::command_palette::rank`); Up / Down move the selection while the
+// focus stays in the field; Enter runs the selected row; Esc closes.
 // Returns Option<usize>: the index of the chosen entry, or None.
 
 use native_windows_gui as nwg;
@@ -24,8 +23,6 @@ const IDOK: usize = 1;
 /// Column of the shortcuts, in quarters of the list font's average
 /// character width (the unit of LB_SETTABSTOPS): about 48 characters.
 const SHORTCUT_TAB_STOP: i32 = 4 * 48;
-/// Rows moved by Page Up / Page Down.
-const PAGE_ROWS: usize = 10;
 
 /// New selection after an arrow key: `None` when the key does not move it.
 /// Pure, so the clamping is tested (`len` rows, `current` selected).
@@ -38,8 +35,6 @@ pub(crate) fn moved_selection(vk: usize, current: Option<usize>, len: usize) -> 
     match vk {
         0x26 => Some(cur.saturating_sub(1)),            // VK_UP
         0x28 => Some((cur + 1).min(last)),              // VK_DOWN
-        0x21 => Some(cur.saturating_sub(PAGE_ROWS)),    // VK_PRIOR
-        0x22 => Some((cur + PAGE_ROWS).min(last)),      // VK_NEXT
         _ => None,
     }
 }
@@ -132,7 +127,7 @@ impl CommandPaletteDialog {
         };
         refill("");
 
-        // Run the selected row (Enter or double-click).
+        // Run the selected row (Enter).
         let choose = {
             let list = list.clone();
             let shown = shown.clone();
@@ -186,15 +181,11 @@ impl CommandPaletteDialog {
         };
 
         let window_handle = window.handle;
-        let list_handle = list.handle;
         let filter_handle = txt_filter.handle;
         let handler = nwg::full_bind_event_handler(&window_handle, move |evt, _evt_data, handle| {
             match evt {
                 nwg::Event::OnTextInput if handle == filter_handle => {
                     refill(&txt_filter.text());
-                }
-                nwg::Event::OnListBoxDoubleClick if handle == list_handle => {
-                    choose();
                 }
                 nwg::Event::OnWindowClose => {
                     nwg::stop_thread_dispatch();
@@ -226,9 +217,6 @@ mod tests {
         assert_eq!(moved_selection(0x28, Some(2), 3), Some(2));
         assert_eq!(moved_selection(0x26, Some(0), 3), Some(0));
         assert_eq!(moved_selection(0x26, Some(2), 3), Some(1));
-        assert_eq!(moved_selection(0x22, Some(1), 30), Some(11));
-        assert_eq!(moved_selection(0x22, Some(25), 30), Some(29));
-        assert_eq!(moved_selection(0x21, Some(5), 30), Some(0));
     }
 
     #[test]
@@ -241,7 +229,8 @@ mod tests {
 
     #[test]
     fn other_keys_are_left_to_the_field() {
-        for vk in [0x25, 0x27, 0x0D, 0x1B, 0x41, 0x24, 0x23] {
+        // Page Up / Page Down are not in the spec: left to the field.
+        for vk in [0x25, 0x27, 0x0D, 0x1B, 0x41, 0x24, 0x23, 0x21, 0x22] {
             assert_eq!(moved_selection(vk, Some(1), 3), None, "{vk:#x}");
         }
     }

@@ -58,32 +58,8 @@ const FONT_FAMILIES: &[&str] = &[
     "Segoe UI",
 ];
 const FONT_SIZES: &[&str] = &["8", "9", "10", "11", "12", "14", "16", "18", "20", "24"];
-/// Format a shortcut from modifiers bitmask (0x01=Alt, 0x02=Ctrl, 0x04=Shift) and VK code.
-fn format_shortcut(modifiers: u32, vk: u32) -> String {
-    let mut parts = Vec::new();
-    if modifiers & 0x02 != 0 { parts.push("Ctrl"); }
-    if modifiers & 0x04 != 0 { parts.push("Shift"); }
-    if modifiers & 0x01 != 0 { parts.push("Alt"); }
-    if vk >= 0x41 && vk <= 0x5A {
-        let ch = (vk as u8) as char;
-        parts.push(match ch {
-            'A'..='Z' => match vk {
-                0x41 => "A", 0x42 => "B", 0x43 => "C", 0x44 => "D", 0x45 => "E",
-                0x46 => "F", 0x47 => "G", 0x48 => "H", 0x49 => "I", 0x4A => "J",
-                0x4B => "K", 0x4C => "L", 0x4D => "M", 0x4E => "N", 0x4F => "O",
-                0x50 => "P", 0x51 => "Q", 0x52 => "R", 0x53 => "S", 0x54 => "T",
-                0x55 => "U", 0x56 => "V", 0x57 => "W", 0x58 => "X", 0x59 => "Y",
-                0x5A => "Z", _ => "?",
-            },
-            _ => "?",
-        });
-    } else if vk >= 0x70 && vk <= 0x87 {
-        // F1-F24
-        let fnum = vk - 0x70 + 1;
-        return format!("{}F{}", if parts.is_empty() { String::new() } else { format!("{}+", parts.join("+")) }, fnum);
-    }
-    parts.join("+")
-}
+// The one shortcut formatter, shared with the File menu and the palette.
+use crate::ui::command_palette::save_shortcut_text as format_shortcut;
 
 const LANGUAGES: &[&str] = &["English", "Français", "Español", "Deutsch"];
 
