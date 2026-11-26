@@ -960,6 +960,40 @@
 
     /// Pass 4: every Yes/No question of the main window goes through
     /// `confirm` (lock epoch, locked and exiting re-checked after the box).
+    /// Pass 5: no other way to show a box either (raw MessageBoxW, a task
+    /// dialog, an alias of nwg's functions). The questions asked inside the
+    /// dialogs of `src/ui/dialogs` (backups, SSH keys, temporary files...)
+    /// only decide for that dialog, and "No" (what a lock answers) is
+    /// harmless there; what they return to the note goes through the
+    /// callers' epoch check.
+    #[test]
+    fn no_other_box_api_is_used_by_the_editor() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
+        let banned = [
+            format!("MessageBox{}", "W"),
+            format!("MessageBox{}", "A"),
+            format!("TaskDia{}", "log"),
+            format!("modal_message {}", "as"),
+            format!("message {}", "as "),
+            format!("modal_info_message {}", "as"),
+        ];
+        let mut found = Vec::new();
+        for e in std::fs::read_dir(&dir).unwrap() {
+            let p = e.unwrap().path();
+            let name = p.file_name().unwrap().to_string_lossy().to_string();
+            if !name.ends_with(".rs") || name == "tests.rs" {
+                continue;
+            }
+            let text = std::fs::read_to_string(&p).unwrap();
+            for (i, line) in text.lines().enumerate() {
+                if banned.iter().any(|b| line.contains(b.as_str())) {
+                    found.push(format!("{}:{}: {}", name, i + 1, line.trim()));
+                }
+            }
+        }
+        assert!(found.is_empty(), "other box APIs:\n{}", found.join("\n"));
+    }
+
     #[test]
     fn every_main_window_question_goes_through_confirm() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");

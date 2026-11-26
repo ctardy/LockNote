@@ -770,7 +770,13 @@ n'attend pas : son délai écoulé, les fenêtres ouvertes de LockNote sont
 annulées (ce que vous y aviez tapé est perdu, vos notes non), puis LockNote
 se verrouille. Une question ouverte à ce moment (par exemple « Supprimer ce
 secret ? ») reçoit la réponse **Non** : rien de ce qu'elle demandait n'est
-fait. Le bouton Verrouiller fait de même, et fermer LockNote
+fait. Si une fenêtre ne peut pas se fermer tout de suite (la fenêtre des
+fichiers temporaires pendant la lecture d'un partage réseau), LockNote masque
+vos notes au bout de 2 secondes (« LockNote se verrouille… ») et se verrouille
+dès que cette fenêtre est fermée. Si l'enregistrement avant le verrouillage
+échoue, LockNote ne se verrouille pas et ne perd rien : il affiche la raison
+par-dessus la fenêtre masquée, puis votre texte réapparaît, toujours non
+enregistré : réenregistrez-le ou copiez-le. Le bouton Verrouiller fait de même, et fermer LockNote
 (Quitter de la zone de notification) annule d'abord les fenêtres ouvertes,
 puis ferme comme d'habitude. Pendant le verrouillage, les menus n'offrent que
 Fichier > Quitter et Aide > À propos.

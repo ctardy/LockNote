@@ -636,7 +636,7 @@ impl SettingsDialog {
                             let checked = chk_totp.check_state() == nwg::CheckBoxState::Checked;
                             if checked && current_totp_secret.is_empty() {
                                 // Enabling TOTP: launch setup dialog
-                                if let Some(entry) = super::totp_setup::TotpSetupDialog::show("LockNote 2FA", None, &mut None) {
+                                if let Some(entry) = super::totp_setup::TotpSetupDialog::show("LockNote 2FA", None, &mut None /* snapshot-only dialog: no clipboard guard here */) {
                                     (true, entry.secret.clone())
                                 } else {
                                     // User cancelled setup — don't enable
