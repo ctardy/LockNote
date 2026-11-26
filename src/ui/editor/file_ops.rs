@@ -4,6 +4,23 @@
 #[allow(unused_imports)]
 use super::*;
 
+/// Why `save_note` did not write the note; both carry the translated text.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum SaveFailure {
+    /// Refused before anything was done (empty password).
+    Refused(String),
+    /// The encryption or the write failed.
+    Failed(String),
+}
+
+impl SaveFailure {
+    pub(super) fn message(&self) -> &str {
+        match self {
+            SaveFailure::Refused(m) | SaveFailure::Failed(m) => m,
+        }
+    }
+}
+
 impl EditorForm {
     // =====================================================================
     // File operations
@@ -15,14 +32,32 @@ impl EditorForm {
     /// `Err(msg)` with a human-readable error. Callers that do not care about
     /// the outcome can discard the result with `let _ = ...`; callers that
     /// need to act on failure (e.g. the autolock timer's `SaveThenLock`
-    /// branch) inspect it.
+    /// branch) inspect it. A write or encryption failure is shown in a
+    /// "Save Error" box; `save_note` is the same save without that box.
     pub(super) fn on_save(&self) -> Result<(), String> {
-        // Fail fast before touching the payload: no modal here, the caller
-        // (possibly the autolock timer, see issue 049) gets the Err.
+        match self.save_note() {
+            Ok(()) => Ok(()),
+            // No modal here, the caller (possibly the autolock timer, see
+            // issue 049) gets the Err.
+            Err(SaveFailure::Refused(msg)) => Err(msg),
+            Err(SaveFailure::Failed(msg)) => {
+                nwg::modal_info_message(&self.window, &t("save.error.title"), &msg);
+                Err(msg)
+            }
+        }
+    }
+
+    /// The save of `on_save`, without any message box: for the callers that
+    /// tell the user themselves (the close flow asks one question that holds
+    /// the reason) or on purpose not at all (the ssh-agent list, see
+    /// `unload_agent_keys`). The failure is logged here, in English, before
+    /// the translated text is built.
+    pub(super) fn save_note(&self) -> Result<(), SaveFailure> {
+        // Fail fast before touching the payload.
         let precondition = save_precondition(&self.password.borrow());
         if let Err(msg) = precondition {
             eprintln!("save: refused reason=empty_password");
-            return Err(msg);
+            return Err(SaveFailure::Refused(msg));
         }
 
         let note_text = self.get_content();
@@ -82,13 +117,8 @@ impl EditorForm {
         ) {
             Ok(bytes) => bytes,
             Err(e) => {
-                let msg = t("save.error.encrypt").replace("{}", &e.to_string());
-                nwg::modal_info_message(
-                    &self.window,
-                    &t("save.error.title"),
-                    &msg,
-                );
-                return Err(msg);
+                eprintln!("WARN save: failed stage=encrypt err={}", e);
+                return Err(SaveFailure::Failed(t("save.error.encrypt").replace("{}", &e.to_string())));
             }
         };
 
@@ -98,13 +128,8 @@ impl EditorForm {
                 Ok(())
             }
             Err(e) => {
-                let msg = t("save.error.msg").replace("{}", &e.to_string());
-                nwg::modal_info_message(
-                    &self.window,
-                    &t("save.error.title"),
-                    &msg,
-                );
-                Err(msg)
+                eprintln!("WARN save: failed stage=write err={}", e);
+                Err(SaveFailure::Failed(t("save.error.msg").replace("{}", &e.to_string())))
             }
         }
     }

@@ -267,10 +267,14 @@ et les paramètres.
 **Sauvegarde auto.** Voir la [section 17](#17-verrouillage-auto-sauvegarde-auto-et-effacement-du-presse-papiers).
 
 **Attention.** Si un enregistrement échoue, un message « Erreur de
-sauvegarde » en donne la raison. Vos modifications sont toujours dans la fenêtre : réessayez avant de
-fermer. Un enregistrement qui échoue pendant la fermeture (Oui à la question,
-Toujours enregistrer, ou le dernier enregistrement) arrête la fermeture :
-LockNote reste ouvert avec votre texte, pour réessayer ou le copier.
+sauvegarde » en donne la raison. Vos modifications sont toujours dans la
+fenêtre : réessayez avant de fermer. Quand un enregistrement échoue pendant la
+fermeture (**Enregistrer** à la question, Toujours enregistrer, ou le dernier
+enregistrement), LockNote demande « LockNote n'a pas pu enregistrer : …
+Garder LockNote ouvert, pour réessayer ou copier votre texte ? » avec la
+raison. **Oui** (par défaut) laisse LockNote ouvert avec votre texte ;
+**Non** ferme sans enregistrer et les modifications non enregistrées sont
+perdues.
 
 ## 7. Onglets
 

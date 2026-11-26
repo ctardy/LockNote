@@ -225,10 +225,13 @@ impl EditorForm {
         // at a later unlock, the same key added by hand. Saved silently when
         // nothing else is pending (no "unsaved changes" prompt for it);
         // otherwise the pending save writes it. Not while locked: the
-        // password is wiped.
+        // password is wiped. A failure shows no box (save_note): the note
+        // stays modified, so the next save, or the close flow's question when
+        // closing, reports it once.
         let locked = *self.is_locked.borrow();
         if changed && !locked && !self.is_modified.load(Ordering::Relaxed) {
-            if let Err(msg) = self.on_save() {
+            if let Err(f) = self.save_note() {
+                let msg = f.message();
                 eprintln!("ssh-agent: list save failed level=warn err={}", msg);
                 // Keep the shorter list for the next save rather than lose it.
                 self.mark_modified();

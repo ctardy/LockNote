@@ -98,8 +98,12 @@ pub(super) trait CloseSteps {
     /// Tell the user that "Remember my choice" with Don't save cannot be
     /// stored (see `run_close`).
     fn tell_choice_not_remembered(&mut self);
-    /// `EditorForm::on_save`: it shows its own error message.
+    /// `EditorForm::save_note`: no message box, the error is the translated
+    /// reason shown by `close_without_saving`.
     fn save(&mut self) -> Result<(), String>;
+    /// A save at close failed with `reason`: does the user close anyway,
+    /// without saving? `false` (keep LockNote open) is the default answer.
+    fn close_without_saving(&mut self, reason: &str) -> bool;
     fn unload_agent_keys(&mut self);
     /// Wipe the password and the editor text.
     fn wipe(&mut self);
@@ -125,7 +129,10 @@ pub(super) fn remembered_close_action(
 
 /// The close flow once the window state is captured: prompt (setting `Ask`),
 /// saves, ssh-agent unload, wipe. A failed save stops it before the wipe, so
-/// the unsaved changes stay in the open window (issue #22: they were lost).
+/// the unsaved changes stay in the open window (issue #22: they were lost),
+/// unless the user then explicitly chooses to close without saving: a save
+/// that keeps failing (unreachable share, full disk) must not make LockNote
+/// impossible to close.
 pub(super) fn run_close(
     modified: bool,
     save_on_close: crate::settings::CloseAction,
@@ -163,8 +170,13 @@ pub(super) fn run_close(
         };
         if save_now {
             if let Err(msg) = steps.save() {
-                eprintln!("WARN close: save failed, window stays open err={}", msg);
-                return CloseOutcome::StayOpen;
+                // The reason is logged by the save, in English.
+                if !steps.close_without_saving(&msg) {
+                    eprintln!("WARN close: save failed, window stays open");
+                    return CloseOutcome::StayOpen;
+                }
+                eprintln!("WARN close: save failed, closing without saving (user choice)");
+                user_declined_save = true;
             }
         } else {
             user_declined_save = true;
@@ -179,8 +191,11 @@ pub(super) fn run_close(
     // unless the user explicitly declined saving.
     if !user_declined_save {
         if let Err(msg) = steps.save() {
-            eprintln!("WARN close: final save failed, window stays open err={}", msg);
-            return CloseOutcome::StayOpen;
+            if !steps.close_without_saving(&msg) {
+                eprintln!("WARN close: final save failed, window stays open");
+                return CloseOutcome::StayOpen;
+            }
+            eprintln!("WARN close: final save failed, closing without saving (user choice)");
         }
     }
 
@@ -215,7 +230,30 @@ impl CloseSteps for FormCloseSteps<'_> {
     }
 
     fn save(&mut self) -> Result<(), String> {
-        self.form.on_save()
+        // Without on_save's "Save Error" box: close_without_saving shows the
+        // reason in its question, one message instead of two.
+        self.form.save_note().map_err(|f| f.message().to_string())
+    }
+
+    fn close_without_saving(&mut self, reason: &str) -> bool {
+        // Yes = keep open: a message box's default button is its first one,
+        // and the safe answer must be the default (Enter, a stray key).
+        let title = t("save.error.title");
+        let content = t("close.save_failed").replace("{error}", reason);
+        let params = nwg::MessageParams {
+            title: &title,
+            content: &content,
+            buttons: nwg::MessageButtons::YesNo,
+            icons: nwg::MessageIcons::Warning,
+        };
+        // Owned by the main window (above it even when it is always on top);
+        // a close request meanwhile (tray menu) is refused by on_close.
+        self.form.modal_dialog_open.set(true);
+        let choice = nwg::modal_message(&self.form.window, &params);
+        self.form.modal_dialog_open.set(false);
+        let close = choice == nwg::MessageChoice::No;
+        eprintln!("INFO close: save failed, close_without_saving={}", close);
+        close
     }
 
     fn unload_agent_keys(&mut self) {
@@ -242,6 +280,8 @@ mod tests {
         log: Vec<&'static str>,
         password: String,
         text: String,
+        /// Answer to "close without saving?" after a failed save.
+        close_anyway: bool,
     }
 
     impl Fake {
@@ -252,6 +292,7 @@ mod tests {
                 log: Vec::new(),
                 password: "pw".into(),
                 text: "unsaved".into(),
+                close_anyway: false,
             }
         }
     }
@@ -276,6 +317,11 @@ mod tests {
             assert!(!self.saves.is_empty(), "unexpected save");
             self.saves.remove(0)
         }
+        fn close_without_saving(&mut self, reason: &str) -> bool {
+            assert_eq!(reason, "Failed to save: disk full");
+            self.log.push(if self.close_anyway { "close_anyway?yes" } else { "close_anyway?no" });
+            self.close_anyway
+        }
         fn unload_agent_keys(&mut self) {
             self.log.push("unload");
         }
@@ -290,12 +336,40 @@ mod tests {
         Err("Failed to save: disk full".into())
     }
 
+    /// Pass 2, M1: a save that keeps failing (unreachable share, disk full)
+    /// must not make LockNote impossible to close: the user is asked, and
+    /// only an explicit Yes to "close without saving" closes.
+    #[test]
+    fn failed_save_with_ask_offers_to_close_without_saving() {
+        let mut f = Fake::new(Choice::Save, vec![disk_full()]);
+        f.close_anyway = true;
+        assert_eq!(run_close(true, CloseAction::Ask, &mut f), CloseOutcome::Close);
+        // No second save after the user chose to close without saving.
+        assert_eq!(f.log, ["ask", "save", "close_anyway?yes", "unload", "wipe"]);
+    }
+
+    #[test]
+    fn failed_save_with_always_offers_to_close_without_saving() {
+        let mut f = Fake::new(Choice::Cancel, vec![disk_full()]);
+        f.close_anyway = true;
+        assert_eq!(run_close(true, CloseAction::Always, &mut f), CloseOutcome::Close);
+        assert_eq!(f.log, ["save", "close_anyway?yes", "unload", "wipe"]);
+    }
+
+    #[test]
+    fn failed_final_save_offers_to_close_without_saving() {
+        let mut f = Fake::new(Choice::Cancel, vec![disk_full()]);
+        f.close_anyway = true;
+        assert_eq!(run_close(false, CloseAction::Ask, &mut f), CloseOutcome::Close);
+        assert_eq!(f.log, ["unload", "save", "close_anyway?yes", "wipe"]);
+    }
+
     /// Issue #22: a failed save at close kept closing and lost the text.
     #[test]
     fn failed_save_at_the_prompt_keeps_the_window_open_with_text_and_password() {
         let mut f = Fake::new(Choice::Save, vec![disk_full()]);
         assert_eq!(run_close(true, CloseAction::Ask, &mut f), CloseOutcome::StayOpen);
-        assert_eq!(f.log, ["ask", "save"]);
+        assert_eq!(f.log, ["ask", "save", "close_anyway?no"]);
         assert_eq!((f.password.as_str(), f.text.as_str()), ("pw", "unsaved"));
     }
 
@@ -303,7 +377,7 @@ mod tests {
     fn failed_save_with_always_keeps_the_window_open() {
         let mut f = Fake::new(Choice::Cancel, vec![disk_full()]);
         assert_eq!(run_close(true, CloseAction::Always, &mut f), CloseOutcome::StayOpen);
-        assert_eq!(f.log, ["save"]);
+        assert_eq!(f.log, ["save", "close_anyway?no"]);
         assert_eq!((f.password.as_str(), f.text.as_str()), ("pw", "unsaved"));
     }
 
@@ -312,7 +386,7 @@ mod tests {
         // Not modified: only the final save (window state) runs.
         let mut f = Fake::new(Choice::Cancel, vec![disk_full()]);
         assert_eq!(run_close(false, CloseAction::Ask, &mut f), CloseOutcome::StayOpen);
-        assert_eq!(f.log, ["unload", "save"]);
+        assert_eq!(f.log, ["unload", "save", "close_anyway?no"]);
         assert_eq!(f.password, "pw");
     }
 
