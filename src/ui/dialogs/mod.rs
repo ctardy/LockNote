@@ -65,6 +65,34 @@ pub(crate) fn minutes_options(values: &[u32]) -> Vec<String> {
 }
 
 #[cfg(test)]
+mod open_dialog_tests {
+    use native_windows_gui as nwg;
+
+    /// Pass 3: the count the timers and the lock rely on follows a real
+    /// dialog: one while it exists, none once it is destroyed (no leaked
+    /// registration).
+    #[test]
+    fn a_themed_dialog_is_counted_while_it_exists() {
+        let _ = nwg::init();
+        let before = super::style::open_dialog_count();
+        {
+            let mut window = nwg::Window::default();
+            nwg::Window::builder()
+                .size((200, 100))
+                .position((-3000, -3000))
+                .title("count test")
+                .flags(nwg::WindowFlags::WINDOW)
+                .build(&mut window)
+                .expect("test window");
+            super::apply_dialog_theme(&window);
+            assert_eq!(super::style::open_dialog_count(), before + 1);
+            assert!(super::style::registered_dialogs().len() == before + 1);
+        }
+        assert_eq!(super::style::open_dialog_count(), before);
+    }
+}
+
+#[cfg(test)]
 mod duration_option_tests {
     #[test]
     fn duration_options_are_translated() {
