@@ -138,6 +138,8 @@ The marker is reconstructed at runtime via `byte[i] ^ 0xAA`.
 | Salt | Random | 16 bytes |
 | IV | Random | 16 bytes |
 
+The table and the wire format below describe the C# format. The Rust code (`src/crypto`) derives the key with **Argon2id** (`DEFAULT_M_COST` 65,536 KiB = 64 MiB, `DEFAULT_T_COST` 3, `DEFAULT_P_LANES` 4), stored in the 12-byte Argon2 params field of the payload (`MIN_PAYLOAD_SIZE` 92). The About box states these constants (`about::crypto_summary`).
+
 ### Key Derivation
 
 ```
@@ -1273,7 +1275,7 @@ Opened from Tools > Password Generator... and from the SecretEditDialog. Logic i
 
 - Shield icon, product name, version
 - Description: "Self-contained encrypted notepad for Windows"
-- Crypto info: "AES-256-CBC + HMAC-SHA256 | PBKDF2 100k iterations"
+- Crypto info (Rust, issue #28): `about::crypto_summary()`, built from `crypto::DEFAULT_M_COST` / `DEFAULT_T_COST` / `DEFAULT_P_LANES`, e.g. "AES-256-CBC + HMAC-SHA256 | Argon2id m=64 MiB, t=3, p=4"; Help > About LockNote... (`on_about`, a message box) shows the same line. The C# dialog showed "PBKDF2 100k iterations"
 - GitHub link (clickable, opens browser)
 
 ### 11.5 TabBar

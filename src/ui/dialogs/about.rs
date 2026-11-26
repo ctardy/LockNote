@@ -12,6 +12,18 @@ fn t(key: &str) -> String {
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const GITHUB_URL: &str = "https://github.com/ctardy/LockNote";
 
+/// The crypto line of the About box, built from the constants `encrypt` is
+/// called with: the hand-written line had drifted to PBKDF2 after the move to
+/// Argon2id (issue #28). Argon2 notation (m, t, p) needs no translation.
+pub(crate) fn crypto_summary() -> String {
+    format!(
+        "AES-256-CBC + HMAC-SHA256 | Argon2id m={} MiB, t={}, p={}",
+        crate::crypto::DEFAULT_M_COST / 1024,
+        crate::crypto::DEFAULT_T_COST,
+        crate::crypto::DEFAULT_P_LANES,
+    )
+}
+
 pub struct AboutDialog;
 
 impl AboutDialog {
@@ -19,7 +31,7 @@ impl AboutDialog {
     pub fn show() {
         let mut window = Default::default();
         nwg::Window::builder()
-            .size((400, 310))
+            .size((400, 324))
             .position((300, 200))
             .title(&t("about.title"))
             .flags(nwg::WindowFlags::WINDOW | nwg::WindowFlags::VISIBLE)
@@ -106,15 +118,16 @@ impl AboutDialog {
         // Crypto info
         let mut lbl_crypto = Default::default();
         nwg::Label::builder()
-            .text("AES-256-CBC + HMAC-SHA256 | PBKDF2 300k iterations")
+            .text(&crypto_summary())
             .parent(&window)
             .position((20, 130))
-            .size((360, 20))
+            // Two lines: the Argon2id parameters do not fit on one at 360 px.
+            .size((360, 34))
             .font(Some(&font_mono))
             .build(&mut lbl_crypto)
             .expect("Failed to build crypto label");
 
-        let y_offset: i32 = 160;
+        let y_offset: i32 = 174;
 
         // Separator 2
         let mut sep2 = Default::default();
@@ -221,5 +234,22 @@ mod tests {
     #[test]
     fn github_url_is_https() {
         assert!(GITHUB_URL.starts_with("https://"));
+    }
+
+    /// Issue #28: the About box said PBKDF2 while the key is derived with
+    /// Argon2id; the line must state the constants `encrypt` is called with.
+    #[test]
+    fn crypto_summary_states_the_argon2id_constants() {
+        let s = crypto_summary();
+        // The MiB figure is exact only for a whole number of MiB.
+        assert_eq!(crate::crypto::DEFAULT_M_COST % 1024, 0);
+        assert!(s.contains("Argon2id"), "{}", s);
+        assert!(!s.contains("PBKDF2"), "{}", s);
+        let m = format!("m={} MiB", crate::crypto::DEFAULT_M_COST / 1024);
+        let t = format!("t={}", crate::crypto::DEFAULT_T_COST);
+        let p = format!("p={}", crate::crypto::DEFAULT_P_LANES);
+        for part in [&m, &t, &p] {
+            assert!(s.contains(part.as_str()), "{} not in {}", part, s);
+        }
     }
 }

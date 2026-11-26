@@ -4,6 +4,14 @@ All notable changes to LockNote are documented in this file.
 Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
 `(Pro)`. From 2.0.0 there is one edition.
 
+## [Unreleased]
+
+### Fixed
+- **About box**: the crypto line said "PBKDF2 300k iterations"; it now
+  states the Argon2id parameters actually used (64 MiB, 3 iterations,
+  4 lanes), taken from the crypto constants so it cannot drift again
+  (#28).
+
 ## [2.0.0] - Unreleased
 
 LockNote is free and open source (GPL-3.0-or-later), in one edition that
