@@ -55,6 +55,7 @@ impl EditorForm {
         // WM_QUERYENDSESSION, which blocks it after a failed save.
         if self.curtain.get() == super::modal_guard::Curtain::SaveFailed {
             eprintln!("INFO close: refused, the note is hidden after a failed save (password needed)");
+            self.tell_quit_refused_under_curtain();
             return false;
         }
         // Closing now would stop that dialog's loop, not the application's:

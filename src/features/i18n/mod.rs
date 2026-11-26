@@ -313,6 +313,8 @@ fn build_en() -> Dict {
     m.insert("lock.curtain.waiting_for", "LockNote locks as soon as \"{window}\" has closed.");
     m.insert("lock.curtain.save_failed", "The save before the lock failed: nothing was lost, your changes are kept. Enter your password to show them.");
     m.insert("lock.curtain.show", "Show notes");
+    m.insert("lock.curtain.quit_waiting", "Quit asked: LockNote locks, then closes, as soon as \"{window}\" has closed.");
+    m.insert("lock.curtain.quit_refused", "LockNote cannot close now: your unsaved changes are behind this screen. Enter your password to show them, then save or close.");
     m.insert("lock.save_failed", "LockNote could not save before locking:\n{error}\n\nIt did not lock, so your unsaved changes are kept. They are still not saved: try again (Ctrl+S) or copy your text.");
     m.insert("lock.save_failed.manual", "LockNote could not save before locking:\n{error}\n\nKeep LockNote open to try again or copy your text, or lock without saving: the unsaved changes are then lost.");
     m.insert("lock.keep_open", "Keep open");
@@ -987,6 +989,8 @@ fn build_fr() -> Dict {
     m.insert("lock.curtain.waiting_for", "LockNote se verrouille d\u{00e8}s que \u{00ab} {window} \u{00bb} est ferm\u{00e9}.");
     m.insert("lock.curtain.save_failed", "L'enregistrement avant le verrouillage a \u{00e9}chou\u{00e9} : rien n'est perdu, vos modifications sont conserv\u{00e9}es. Saisissez votre mot de passe pour les afficher.");
     m.insert("lock.curtain.show", "Afficher les notes");
+    m.insert("lock.curtain.quit_waiting", "Fermeture demand\u{00e9}e : LockNote se verrouille puis se ferme d\u{00e8}s que \u{00ab} {window} \u{00bb} est ferm\u{00e9}.");
+    m.insert("lock.curtain.quit_refused", "LockNote ne peut pas se fermer maintenant : vos modifications non enregistr\u{00e9}es sont derri\u{00e8}re cet \u{00e9}cran. Saisissez votre mot de passe pour les afficher, puis enregistrez ou fermez.");
     m.insert("lock.save_failed", "LockNote n'a pas pu enregistrer avant de se verrouiller :\n{error}\n\nIl ne s'est pas verrouill\u{00e9}, vos modifications non enregistr\u{00e9}es sont conserv\u{00e9}es. Elles ne sont toujours pas enregistr\u{00e9}es : r\u{00e9}essayez (Ctrl+S) ou copiez votre texte.");
     m.insert("lock.save_failed.manual", "LockNote n'a pas pu enregistrer avant de se verrouiller :\n{error}\n\nGardez LockNote ouvert pour r\u{00e9}essayer ou copier votre texte, ou verrouillez sans enregistrer : les modifications non enregistr\u{00e9}es seront alors perdues.");
     m.insert("lock.keep_open", "Garder ouvert");
@@ -1644,6 +1648,8 @@ fn build_es() -> Dict {
     m.insert("lock.curtain.waiting_for", "LockNote se bloquea en cuanto se cierre \u{00ab}{window}\u{00bb}.");
     m.insert("lock.curtain.save_failed", "El guardado antes del bloqueo ha fallado: no se ha perdido nada, sus cambios se conservan. Introduzca su contrase\u{00f1}a para mostrarlos.");
     m.insert("lock.curtain.show", "Mostrar notas");
+    m.insert("lock.curtain.quit_waiting", "Cierre solicitado: LockNote se bloquea y se cierra en cuanto se cierre \u{00ab}{window}\u{00bb}.");
+    m.insert("lock.curtain.quit_refused", "LockNote no puede cerrarse ahora: sus cambios sin guardar est\u{00e1}n detr\u{00e1}s de esta pantalla. Introduzca su contrase\u{00f1}a para mostrarlos y luego guarde o cierre.");
     m.insert("lock.save_failed", "LockNote no pudo guardar antes de bloquearse:\n{error}\n\nNo se ha bloqueado, as\u{00ed} que sus cambios sin guardar se conservan. Siguen sin guardarse: vuelva a intentarlo (Ctrl+S) o copie su texto.");
     m.insert("lock.save_failed.manual", "LockNote no pudo guardar antes de bloquearse:\n{error}\n\nMantenga LockNote abierto para reintentar o copiar su texto, o bloquee sin guardar: entonces se perder\u{00e1}n los cambios sin guardar.");
     m.insert("lock.keep_open", "Mantener abierto");
@@ -2302,6 +2308,8 @@ fn build_de() -> Dict {
     m.insert("lock.curtain.waiting_for", "LockNote wird gesperrt, sobald \u{201e}{window}\u{201c} geschlossen ist.");
     m.insert("lock.curtain.save_failed", "Das Speichern vor dem Sperren ist fehlgeschlagen: nichts ging verloren, Ihre \u{00c4}nderungen bleiben erhalten. Geben Sie Ihr Passwort ein, um sie anzuzeigen.");
     m.insert("lock.curtain.show", "Notizen anzeigen");
+    m.insert("lock.curtain.quit_waiting", "Beenden angefordert: LockNote wird gesperrt und geschlossen, sobald \u{201e}{window}\u{201c} geschlossen ist.");
+    m.insert("lock.curtain.quit_refused", "LockNote kann jetzt nicht geschlossen werden: Ihre ungespeicherten \u{00c4}nderungen liegen hinter diesem Bildschirm. Geben Sie Ihr Passwort ein, um sie anzuzeigen, und speichern oder schlie\u{00df}en Sie dann.");
     m.insert("lock.save_failed", "LockNote konnte vor dem Sperren nicht speichern:\n{error}\n\nEs wurde nicht gesperrt, Ihre ungespeicherten \u{00c4}nderungen bleiben erhalten. Sie sind weiterhin nicht gespeichert: versuchen Sie es erneut (Strg+S) oder kopieren Sie Ihren Text.");
     m.insert("lock.save_failed.manual", "LockNote konnte vor dem Sperren nicht speichern:\n{error}\n\nLassen Sie LockNote ge\u{00f6}ffnet, um es erneut zu versuchen oder Ihren Text zu kopieren, oder sperren Sie ohne Speichern: die ungespeicherten \u{00c4}nderungen gehen dann verloren.");
     m.insert("lock.keep_open", "Ge\u{00f6}ffnet lassen");

@@ -529,7 +529,7 @@ impl EditorForm {
                 // cause of the "popup appears without focus on wake-up" bug).
                 if msg == 0x0006 {
                     let activate_state = w_param & 0xFFFF; // WA_ACTIVE=1, WA_CLICKACTIVATE=2
-                    if (activate_state == 1 || activate_state == 2) && *f2.is_locked.borrow() {
+                    if (activate_state == 1 || activate_state == 2) && focus_password_field(*f2.is_locked.borrow(), f2.curtain.get()) {
                         f2.focus_lock_input();
                     }
                 }
@@ -540,7 +540,7 @@ impl EditorForm {
                 // from the password input. Hand it back once the window really
                 // has the focus, so the caret is in the field as soon as the
                 // window is focused.
-                if msg == 0x0007 && *f2.is_locked.borrow() {
+                if msg == 0x0007 && focus_password_field(*f2.is_locked.borrow(), f2.curtain.get()) {
                     f2.focus_lock_input();
                 }
 

@@ -86,49 +86,10 @@ impl EditorForm {
     // Auto-lock
     // =====================================================================
 
-    pub(super) fn on_autolock(&self, manual: bool) {
-        // Serialize against unlock / autosave / manual save (fix #036).
-        // Take the global persistence lock for the whole lock sequence:
-        // save-if-dirty + clear editor + zeroize password.
-        let _persistence_guard = crate::features::persistence_lock::acquire();
-
-        // Save first. A failed save never wipes the unsaved changes (owner
-        // decision, pass 6): a manual lock asks, an automatic one hides the
-        // note until the password is typed.
-        let modified = self.is_modified.load(Ordering::Relaxed);
-        let saved = if modified { self.save_note() } else { Ok(()) };
-        let reason = saved.as_ref().err().map(|f| f.message().to_string()).unwrap_or_default();
-        match failed_lock_save_step(modified, saved.is_ok(), manual) {
-            FailedLockSave::Proceed => {}
-            FailedLockSave::AskManual => {
-                eprintln!("WARN lock: save before a manual lock failed, asking");
-                let msg = t("lock.save_failed.manual").replace("{error}", &reason);
-                let answer = {
-                    self.lock_in_progress.set(true);
-                    let _modal = self.modal();
-                    crate::ui::dialogs::close_confirm::SaveFailedDialog::show_with(
-                        Some(self.window.handle), &msg, &t("lock.keep_open"), &t("lock.lock_unsaved"),
-                    )
-                };
-                self.lock_in_progress.set(false);
-                let lock_anyway = crate::ui::dialogs::close_confirm::closes_without_saving(answer);
-                self.after_lock_box();
-                if !lock_anyway {
-                    eprintln!("INFO lock: kept open after the failed save");
-                    self.autolock.borrow_mut().reset();
-                    return;
-                }
-                eprintln!("WARN lock: locking without saving (user choice), unsaved changes lost");
-            }
-            FailedLockSave::HideUntilPassword => {
-                if self.curtain.get() != super::modal_guard::Curtain::SaveFailed {
-                    eprintln!("WARN lock: save before an automatic lock failed, note hidden until the password");
-                }
-                *self.lock_save_failed_reason.borrow_mut() = reason;
-                self.show_curtain(super::modal_guard::Curtain::SaveFailed);
-                return;
-            }
-        }
+    /// The lock itself once its save is done or not needed (lock_flow
+    /// decides before: pass 7): epoch, ssh-agent keys, wipe, lock screen.
+    /// The caller holds the persistence guard.
+    pub(super) fn do_lock(&self) {
         // Every dialog result from before this lock is now stale (pass 4).
         self.lock_epoch.set(self.lock_epoch.get() + 1);
 
@@ -138,8 +99,11 @@ impl EditorForm {
         // above, keys unloaded, then the shortened list saved by
         // unload_agent_keys; if that last save fails the note is modified
         // again, which the lock below would clear: say it (pass 6).
+        let had_keys = !self.ssh_agent_keys.borrow().is_empty();
+        let modified_before = self.is_modified.load(Ordering::Relaxed);
         self.unload_agent_keys(false);
-        if self.is_modified.load(Ordering::Relaxed) {
+        // Only when keys were involved and the note was saved (pass 7).
+        if had_keys && !modified_before && self.is_modified.load(Ordering::Relaxed) {
             eprintln!("WARN lock: the shortened ssh-agent list was not saved; the keys stay listed on disk and are removed again at the next unlock");
         }
         // Remember where the user was (tab + caret line) before the editor
@@ -456,10 +420,30 @@ impl EditorForm {
         self.lock_input.set_text("");
         let ok = curtain_password_ok(&typed, &self.password.borrow());
         if !ok {
-            eprintln!("INFO lock: wrong password on the save-failed curtain");
-            self.lock_status_msg.set(Tone::Error, &t("unlock.wrong"));
+            // Same attempt counter and backoff as the lock screen (pass 7:
+            // the curtain was a free password oracle); no exit at the end,
+            // the unsaved changes are behind it.
+            let attempts = {
+                let mut a = self.lock_attempts.borrow_mut();
+                *a += 1;
+                *a
+            };
+            let delay = curtain_wrong_password_delay(attempts);
+            eprintln!("INFO lock: wrong password on the save-failed curtain attempts={} delay_s={}", attempts, delay);
+            if delay == 0 {
+                self.lock_status_msg.set(Tone::Error, &t("unlock.wrong"));
+                self.focus_lock_input();
+            } else {
+                self.lock_btn.set_enabled(false);
+                self.lock_input.set_enabled(false);
+                self.lock_backoff_remaining.set(delay);
+                let retry = t("unlock.retryin").replace("{seconds}", &delay.to_string());
+                self.lock_status_msg.set(Tone::Error, &format!("{} \u{2014} {}", t("unlock.wrong"), retry));
+                self.lock_backoff_timer.start();
+            }
             return;
         }
+        *self.lock_attempts.borrow_mut() = 0;
         eprintln!("INFO lock: save-failed curtain lifted with the password");
         self.hide_curtain();
         self.autolock.borrow_mut().reset();
@@ -473,10 +457,25 @@ impl EditorForm {
     /// After the lock's own box: run a manual lock asked meanwhile; a close
     /// asked meanwhile runs from its pending request.
     pub(super) fn after_lock_box(&self) {
+        // Pending, run by the next tick: never replayed from here (pass 7).
         if self.lock_box_queue.take_manual() {
-            eprintln!("INFO lock: manual lock asked during the box, running it");
-            self.request_lock(true);
+            eprintln!("INFO lock: manual lock asked during the box, pending for the next tick");
+            self.lock_pending.set(Some(super::modal_guard::Pending::new(true)));
         }
+    }
+
+    /// Under the "waiting" curtain, a quit that waits says so (pass 7).
+    pub(super) fn set_curtain_quit_waiting(&self, window: &str) {
+        if self.curtain.get() == super::modal_guard::Curtain::Waiting {
+            let name = if window.trim().is_empty() { "?" } else { window.trim() };
+            self.lock_subtitle.set_text(&t("lock.curtain.quit_waiting").replace("{window}", name));
+        }
+    }
+
+    /// Quit refused under the "save failed" curtain: say so on it (pass 7).
+    pub(super) fn tell_quit_refused_under_curtain(&self) {
+        self.lock_status_msg.set(Tone::Error, &t("lock.curtain.quit_refused"));
+        self.focus_lock_input();
     }
 
     /// Lift the curtain (the note was not locked).

@@ -59,6 +59,8 @@ impl CloseConfirmDialog {
         let _owner_disabled = super::disable_owner(owner, false);
 
         super::apply_dialog_theme(&window);
+        // One of LockNote's own decision boxes (pass 7).
+        super::style::protect(&window);
 
         let mut font = Default::default();
         nwg::Font::builder()
@@ -213,6 +215,8 @@ impl SaveFailedDialog {
         let _owner_disabled = super::disable_owner(owner, false);
 
         super::apply_dialog_theme(&window);
+        // One of LockNote's own decision boxes (pass 7).
+        super::style::protect(&window);
 
         let mut font = Default::default();
         nwg::Font::builder()

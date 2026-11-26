@@ -768,6 +768,12 @@ pub(super) fn curtain_waiting_text(window: &str) -> String {
     }
 }
 
+/// Whether the window's activation gives the focus to the password field:
+/// locked, or the "save failed" curtain (pass 7), which has one.
+pub(super) fn focus_password_field(locked: bool, curtain: super::modal_guard::Curtain) -> bool {
+    locked || curtain == super::modal_guard::Curtain::SaveFailed
+}
+
 /// What `layout_controls` lays out.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum LayoutMode {
@@ -816,6 +822,12 @@ pub(super) fn failed_lock_save_step(modified: bool, save_ok: bool, manual: bool)
     } else {
         FailedLockSave::HideUntilPassword
     }
+}
+
+/// The wait after the `attempts`-th wrong password on the "save failed"
+/// curtain: the lock screen's backoff (pass 7), never an exit.
+pub(super) fn curtain_wrong_password_delay(attempts: u32) -> u32 {
+    super::lock_overlay::unlock_backoff_seconds(attempts)
 }
 
 /// Whether the password typed on the "save failed" curtain is the one in

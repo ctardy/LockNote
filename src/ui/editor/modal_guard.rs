@@ -192,21 +192,6 @@ impl Pending {
     }
 }
 
-/// A lock requested now: under dialogs it first cancels them.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) enum LockRequest {
-    LockNow,
-    CancelDialogsThenLock,
-}
-
-pub(super) fn lock_request(modal_open: bool) -> LockRequest {
-    if modal_open {
-        LockRequest::CancelDialogsThenLock
-    } else {
-        LockRequest::LockNow
-    }
-}
-
 impl EditorForm {
     /// Open a modal of the main window: auto-save waits until the guard is
     /// dropped, then its delay restarts (auto-lock never waits, see above).
@@ -221,26 +206,14 @@ impl EditorForm {
     /// `manual`: the Lock button / Ctrl+L (always locks); otherwise the
     /// auto-lock, whose decision (save first or not) is taken when it runs.
     pub(super) fn request_lock(&self, manual: bool) {
-        // The lock's own save-error box (on_autolock) must not be cancelled
-        // by a lock request made under it.
-        if self.lock_in_progress.get() {
-            // Kept for after the box when manual; logged once per box.
-            if self.lock_box_queue.request(manual) {
-                eprintln!("INFO lock: requests wait for the lock's box manual={}", manual);
-            }
-            return;
+        // The sequence lives in lock_flow (tested with a fake, pass 7).
+        if self.lock_in_progress.get() && self.lock_box_queue.request(manual) {
+            eprintln!("INFO lock: requests wait for the lock's box manual={}", manual);
         }
-        // The "save failed" curtain already hides the note; the next
-        // automatic tick retries the save (on_autolock).
-        match lock_request(self.modal_open()) {
-            LockRequest::LockNow => self.execute_lock(manual),
-            LockRequest::CancelDialogsThenLock => {
-                // One pending lock; a manual request wins (pass 5).
-                let mut p = self.lock_pending.get().unwrap_or_else(|| Pending::new(manual));
-                p.manual = merged_manual(p.manual, manual);
-                self.lock_pending.set(Some(p));
-                let n = cancel_open_dialogs();
-                eprintln!("INFO lock: due with dialogs open, cancelled={} manual={}", n, manual);
+        super::lock_flow::request(&mut FormLockSteps { form: self }, manual);
+        if let Some(p) = self.lock_pending.get() {
+            if p.last_cancel == p.since && !self.lock_in_progress.get() {
+                eprintln!("INFO lock: due with dialogs open manual={}", p.manual);
             }
         }
     }
@@ -265,54 +238,32 @@ impl EditorForm {
     /// (highlight tick, every 200 ms, from the application's own loop: the
     /// tick of a nested loop finds `modal_open()` true and only waits).
     pub(super) fn run_pending_requests(&self) {
-        if let Some(mut p) = self.lock_pending.get() {
-            match lock_step(self.modal_open(), p.last_cancel.elapsed(), p.since.elapsed(), p.curtain) {
-                LockStep::Wait => {
-                    if p.curtain {
-                        // A dialog opened meanwhile must not show over it.
-                        hide_registered_dialogs();
-                    }
-                }
-                LockStep::CancelAgain => {
-                    let n = if self.lock_in_progress.get() { 0 } else { cancel_open_dialogs() };
+        if let Some(p) = self.lock_pending.get() {
+            let asked_again = super::lock_flow::tick(&mut FormLockSteps { form: self }, p.since.elapsed(), p.last_cancel.elapsed());
+            if let Some(mut p) = self.lock_pending.get() {
+                if asked_again {
                     p.last_cancel = std::time::Instant::now();
-                    eprintln!("INFO lock: dialogs asked to close again count={}", n);
                     self.lock_pending.set(Some(p));
-                    if p.curtain {
-                        hide_registered_dialogs();
-                        self.set_curtain_waiting_for(&first_dialog_title());
-                    }
+                    eprintln!("INFO lock: dialogs asked to close again");
                 }
-                LockStep::ShowCurtain => {
-                    // On time, whatever stays open: the note is hidden now,
-                    // wiped as soon as the last dialog is gone. Committed: a
-                    // mouse move must not lift it (manual from now on).
-                    p.curtain = true;
-                    p.manual = true;
-                    if !p.error_logged {
-                        p.error_logged = true;
-                        eprintln!(
-                            "WARN lock: dialogs still open after {} ms, note hidden, lock when they close: {}",
-                            p.since.elapsed().as_millis(),
-                            describe_open_dialogs()
-                        );
-                    }
-                    self.lock_pending.set(Some(p));
-                    self.show_curtain(Curtain::Waiting);
-                    self.set_curtain_waiting_for(&first_dialog_title());
+                if p.curtain {
+                    // Dialogs opened meanwhile must not show over it; the
+                    // subtitle names the one it waits for.
                     hide_registered_dialogs();
-                }
-                LockStep::Run => {
-                    self.lock_pending.set(None);
-                    eprintln!("INFO lock: running after the dialogs closed delay_ms={}", p.since.elapsed().as_millis());
-                    self.execute_lock(p.manual);
+                    self.set_curtain_waiting_for(&first_dialog_title());
                 }
             }
         }
         if let Some(mut p) = self.close_pending.get() {
             let curtain = self.curtain.get() != Curtain::None;
-            match close_step(self.modal_open(), p.last_cancel.elapsed(), p.since.elapsed(), p.error_logged, curtain) {
-                CloseStep::Wait => {}
+            let own_box = self.lock_in_progress.get() || crate::ui::dialogs::style::protected_dialog_open();
+            match super::lock_flow::close_tick(self.modal_open(), own_box, p.last_cancel.elapsed(), p.since.elapsed(), p.error_logged, curtain) {
+                CloseStep::Wait => {
+                    // Under the curtain a quit waiting says so (pass 7).
+                    if self.curtain.get() == Curtain::Waiting && p.since.elapsed() >= CLOSE_WAIT {
+                        self.set_curtain_quit_waiting(&first_dialog_title());
+                    }
+                }
                 CloseStep::CancelAgain => {
                     if !self.lock_in_progress.get() {
                         cancel_open_dialogs();
@@ -364,21 +315,6 @@ impl EditorForm {
         std::process::exit(0);
     }
 
-    fn execute_lock(&self, manual: bool) {
-        if *self.is_locked.borrow() {
-            return;
-        }
-        use crate::features::autolock::LockDecision;
-        let still_due = !matches!(self.autolock.borrow().lock_decision(), LockDecision::Wait);
-        if !lock_goes_on(manual, still_due) {
-            eprintln!("INFO lock: pending auto lock dropped, the user is active again");
-            return;
-        }
-        // on_autolock saves first and, if that save fails, never wipes the
-        // unsaved changes (owner decision, pass 6).
-        self.on_autolock(manual);
-    }
-
     /// A message of the main window (pass 5: counted as a modal, owned by
     /// the main window), for every information box of the editor.
     pub(super) fn inform(&self, title: &str, content: &str) {
@@ -423,6 +359,98 @@ impl EditorForm {
             eprintln!("INFO confirm: Yes dropped, the note locked meanwhile");
         }
         applies
+    }
+}
+
+/// `LockSteps` on the real window (pass 7).
+pub(super) struct FormLockSteps<'a> {
+    pub(super) form: &'a EditorForm,
+}
+
+impl super::lock_flow::LockSteps for FormLockSteps<'_> {
+    fn modal_open(&self) -> bool {
+        self.form.modal_open()
+    }
+    fn own_box_open(&self) -> bool {
+        self.form.lock_in_progress.get() || crate::ui::dialogs::style::protected_dialog_open()
+    }
+    fn cancel_dialogs(&mut self) {
+        let n = cancel_open_dialogs();
+        eprintln!("INFO lock: dialogs asked to close count={}", n);
+    }
+    fn locked(&self) -> bool {
+        *self.form.is_locked.borrow()
+    }
+    fn curtain(&self) -> Curtain {
+        self.form.curtain.get()
+    }
+    fn show_curtain(&mut self, mode: Curtain) {
+        if mode == Curtain::Waiting && self.form.curtain.get() == Curtain::None {
+            eprintln!("WARN lock: dialogs still open, note hidden, lock when they close: {}", describe_open_dialogs());
+        }
+        self.form.show_curtain(mode);
+        if mode == Curtain::Waiting {
+            self.form.set_curtain_waiting_for(&first_dialog_title());
+            hide_registered_dialogs();
+        }
+    }
+    fn hide_curtain(&mut self) {
+        self.form.hide_curtain();
+    }
+    fn still_due(&self) -> bool {
+        !matches!(self.form.autolock.borrow().lock_decision(), crate::features::autolock::LockDecision::Wait)
+    }
+    fn modified(&self) -> bool {
+        self.form.is_modified.load(Ordering::Relaxed)
+    }
+    fn save(&mut self) -> Result<(), String> {
+        // Short: the guard is not held across the question that may follow.
+        let _persistence_guard = crate::features::persistence_lock::acquire();
+        self.form.save_note().map_err(|f| f.message().to_string())
+    }
+    fn ask_lock_without_saving(&mut self, reason: &str) -> bool {
+        let msg = t("lock.save_failed.manual").replace("{error}", reason);
+        let answer = {
+            let _modal = self.form.modal();
+            crate::ui::dialogs::close_confirm::SaveFailedDialog::show_with(
+                Some(self.form.window.handle), &msg, &t("lock.keep_open"), &t("lock.lock_unsaved"),
+            )
+        };
+        crate::ui::dialogs::close_confirm::closes_without_saving(answer)
+    }
+    fn set_save_failed_reason(&mut self, reason: String) {
+        *self.form.lock_save_failed_reason.borrow_mut() = reason;
+    }
+    fn lock_now(&mut self) {
+        let _persistence_guard = crate::features::persistence_lock::acquire();
+        self.form.do_lock();
+    }
+    fn reset_autolock(&mut self) {
+        self.form.autolock.borrow_mut().reset();
+    }
+    fn pending(&self) -> Option<super::lock_flow::PendingLock> {
+        self.form.lock_pending.get().map(|p| super::lock_flow::PendingLock { manual: p.manual, committed: p.curtain })
+    }
+    fn set_pending(&mut self, p: Option<super::lock_flow::PendingLock>) {
+        let merged = p.map(|pl| {
+            let mut q = self.form.lock_pending.get().unwrap_or_else(|| Pending::new(pl.manual));
+            q.manual = pl.manual;
+            q.curtain = pl.committed;
+            q
+        });
+        self.form.lock_pending.set(merged);
+    }
+    fn in_box(&self) -> bool {
+        self.form.lock_in_progress.get()
+    }
+    fn set_in_box(&mut self, v: bool) {
+        self.form.lock_in_progress.set(v);
+    }
+    fn queue_manual(&mut self) {
+        // Recorded by request_lock (LockBoxQueue logs once per box).
+    }
+    fn take_queued_manual(&mut self) -> bool {
+        self.form.lock_box_queue.take_manual()
     }
 }
 
@@ -482,8 +510,9 @@ fn describe_open_dialogs() -> String {
     out.join(", ")
 }
 
-/// Ask every open LockNote dialog, standard dialog and popup menu of this
-/// thread to close as No / Cancel: WM_CLOSE to LockNote's dialogs; IDCANCEL,
+/// Ask every open LockNote dialog (not the protected decision boxes, see
+/// `style::protect`), standard dialog and popup menu of this thread to
+/// close as No / Cancel: WM_CLOSE to LockNote's dialogs; IDCANCEL,
 /// IDNO and WM_CLOSE to standard dialogs (a Yes/No box only accepts IDNO, an
 /// overwrite prompt of a file dialog too); EndMenu for a popup menu. Returns
 /// how many windows were asked.
@@ -662,8 +691,6 @@ mod tests {
     #[test]
     fn a_due_lock_cancels_the_dialogs_then_locks() {
         use std::time::Duration;
-        assert_eq!(lock_request(false), LockRequest::LockNow);
-        assert_eq!(lock_request(true), LockRequest::CancelDialogsThenLock);
         // The dialogs close within a tick or two: then the lock runs, only
         // once no modal is left (the stack has unwound).
         assert_eq!(lock_step(true, Duration::from_millis(200), Duration::from_millis(200), false), LockStep::Wait);

@@ -17,11 +17,13 @@ fn t(key: &str) -> String {
 /// timing (a local attacker with repeated attempts could otherwise recover
 /// the password character-by-character).
 pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff: u8 = 0;
-    for (x, y) in a.iter().zip(b.iter()) {
+    // Over the longer length, with no early return on a length mismatch
+    // (pass 7): the time does not tell how long the password is either.
+    let n = a.len().max(b.len());
+    let mut diff: u8 = (a.len() != b.len()) as u8;
+    for i in 0..n {
+        let x = a.get(i).copied().unwrap_or(0);
+        let y = b.get(i).copied().unwrap_or(0);
         diff |= x ^ y;
     }
     diff == 0

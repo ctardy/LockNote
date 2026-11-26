@@ -885,6 +885,51 @@
         assert!(q.request(false), "a new box logs again");
     }
 
+    /// Pass 7: the activation focuses the password field of the "save
+    /// failed" curtain too; the "waiting" curtain has none.
+    #[test]
+    fn activation_focuses_the_curtain_password_field() {
+        use super::modal_guard::Curtain;
+        assert!(focus_password_field(true, Curtain::None));
+        assert!(focus_password_field(false, Curtain::SaveFailed));
+        assert!(!focus_password_field(false, Curtain::Waiting));
+        assert!(!focus_password_field(false, Curtain::None));
+        let ev = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor").join("events.rs")).unwrap();
+        assert_eq!(ev.matches("focus_password_field(*f2.is_locked.borrow(), f2.curtain.get())").count(), 2, "WM_ACTIVATE and WM_SETFOCUS");
+    }
+
+    /// Pass 7, finding 4: wrong passwords on the "save failed" curtain get
+    /// the lock screen's attempt counter and backoff (it was a free
+    /// password oracle), and never end the program (unsaved changes behind).
+    #[test]
+    fn wrong_curtain_passwords_are_slowed_down_like_the_lock_screen() {
+        let delays: Vec<u32> = (1..=8).map(curtain_wrong_password_delay).collect();
+        assert_eq!(delays, [0, 1, 2, 4, 8, 8, 8, 8]);
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
+        let lock = std::fs::read_to_string(dir.join("lock_ops.rs")).unwrap();
+        let start = lock.find("pub(super) fn lift_save_failed_curtain(").unwrap();
+        let body = &lock[start..start + lock[start..].find("\n    }\n").unwrap()];
+        assert!(body.contains("self.lock_attempts.borrow_mut()"), "no attempt counter");
+        assert!(body.contains("self.lock_backoff_timer.start()"), "no backoff");
+        assert!(!body.contains("stop_thread_dispatch"), "must not end the program");
+    }
+
+    /// Pass 7, finding 4: the comparison does not stop early on a length
+    /// mismatch.
+    #[test]
+    fn the_constant_time_comparison_has_no_early_return() {
+        use crate::ui::dialogs::confirm_password::constant_time_eq;
+        assert!(constant_time_eq(b"abc", b"abc"));
+        assert!(!constant_time_eq(b"abc", b"abcd"));
+        assert!(!constant_time_eq(b"abcd", b"abc"));
+        assert!(!constant_time_eq(b"", b"a"));
+        assert!(constant_time_eq(b"", b""));
+        let src = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("dialogs").join("confirm_password.rs")).unwrap();
+        let start = src.find("pub(crate) fn constant_time_eq(").unwrap();
+        let body = &src[start..start + src[start..].find("\n}\n").unwrap()];
+        assert!(!body.contains("return false") && !body.contains("return true"), "early return in constant_time_eq");
+    }
+
     /// Pass 6 (m6): the WM_MOUSEMOVE Windows sends after a dialog closes,
     /// cursor unchanged, is not user activity.
     #[test]
@@ -906,17 +951,32 @@
             src[start..end].to_string()
         };
         let lock = read("lock_ops.rs");
-        let auto = body(&lock, "pub(super) fn on_autolock(");
-        // The save decision comes before any wipe.
-        let decision = auto.find("failed_lock_save_step(").expect("on_autolock decides after its save");
-        let wipe = auto.find("self.wipe_plaintext_stores()").expect("on_autolock wipes");
-        assert!(decision < wipe, "decision after the wipe");
+        // Pass 7: the save decision is taken in lock_flow::run_lock before
+        // lock_now, which is the only path to do_lock (the wipe).
+        let flow = read("lock_flow.rs");
+        // lock_flow's functions are top-level: their body ends at a "}" in
+        // column 0.
+        let top = |src: &str, fun: &str| -> String {
+            let start = src.find(fun).unwrap_or_else(|| panic!("{}", fun));
+            let end = src[start..].find("\n}\n").map_or(src.len(), |e| start + e);
+            src[start..end].to_string()
+        };
+        let run = top(&flow, "pub(super) fn run_lock<");
+        let decision = run.find("failed_lock_save_step(").expect("run_lock decides after its save");
+        let lock_now = run.find("s.lock_now()").expect("run_lock locks");
+        assert!(decision < lock_now, "decision after the lock");
+        let do_lock = body(&lock, "pub(super) fn do_lock(");
+        assert!(do_lock.contains("self.wipe_plaintext_stores()"));
         // The ssh-agent list save failure at lock is reported, not erased.
-        assert!(auto.contains("WARN lock: the shortened ssh-agent list was not saved"));
+        assert!(do_lock.contains("WARN lock: the shortened ssh-agent list was not saved"));
+        assert!(!lock.contains("fn on_autolock("), "the old path is gone");
         let guard = read("modal_guard.rs");
-        assert!(body(&guard, "pub(super) fn run_pending_requests(").contains("lock_step("));
-        assert!(body(&guard, "pub(super) fn request_lock(").contains("merged_manual("));
+        assert!(body(&guard, "pub(super) fn run_pending_requests(").contains("lock_flow::tick("));
+        assert!(top(&flow, "pub(super) fn tick<").contains("lock_step("));
+        assert!(body(&guard, "pub(super) fn request_lock(").contains("lock_flow::request("));
+        assert!(top(&flow, "pub(super) fn request<").contains("merged_manual("));
         assert!(body(&guard, "pub(super) fn request_lock(").contains("lock_box_queue.request("));
+        assert!(body(&guard, "pub(super) fn run_pending_requests(").contains("lock_flow::close_tick("));
         let unlock = body(&lock, "pub(super) fn unlock_from_disk(");
         let m = unlock.find("let _modal = self.modal();").expect("unlock window under a modal guard");
         assert!(m < unlock.find("show_with_parent(").unwrap());

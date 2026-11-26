@@ -457,6 +457,7 @@ mod toolbar;
 mod panel_grip;
 mod modal_guard;
 mod end_session;
+mod lock_flow;
 
 #[allow(unused_imports)]
 use self::helpers::*;
