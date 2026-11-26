@@ -28,13 +28,13 @@ argon2 = "0.6"
 rand = "0.10"
 
 # Release integrity: the updater verifies the Ed25519-signed SHA256SUMS.txt.
-ed25519-dalek = { version = "3", features = ["rand_core"] }
+ed25519-dalek = "3"
 zeroize = { version = "1", features = ["derive"] }
 
 # Compression
 flate2 = "1"
-base64 = "0.23"
-data-encoding = "2"
+# No "simd-unsafe" (a default feature): plain safe code is enough here.
+base64 = { version = "0.23", default-features = false, features = ["std"] }
 
 # GUI (native Windows)
 native-windows-gui = "1.0"
@@ -47,7 +47,6 @@ encoding_rs = "0.8"
 clipboard-win = "5"
 ureq = { version = "3", features = ["platform-verifier"] }
 serde_json = "1"
-winreg = "0.56"
 # Reading the release zip only. Not "deflate": since zip 9 it enables
 # flate2/zlib-rs, which would switch the gzip of every save
 # (features/compression) from miniz_oxide and change the bytes written
