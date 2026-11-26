@@ -21,12 +21,13 @@ impl EditorForm {
     pub(super) fn on_ssh_generate(&self) {
         use crate::features::ssh_keys::VAULT_CATEGORY;
         let existing = self.vault_panel.get_secrets();
+        let epoch = self.lock_epoch();
         let Some(mut entries) = crate::ui::dialogs::ssh_keygen::SshKeygenDialog::show(&existing) else {
             return;
         };
         drop(existing);
-        if *self.is_locked.borrow() {
-            return; // locked while the dialog was open (issue 049)
+        if !self.still_valid(epoch) {
+            return; // locked or curtain while the dialog was open (issue 049, #30)
         }
         // Reuse a category that already matches "SSH Keys" for the user's
         // locale (same rule as the category dialogs), else add it.

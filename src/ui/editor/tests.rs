@@ -952,6 +952,10 @@
         assert!(top(&guard, "fn cancel_open_dialogs(").contains(".chain(crate::ui::dialogs::unlock::open_window())"));
         assert!(top(&guard, "pub(super) fn first_dialog_title(").contains("crate::ui::dialogs::unlock::open_window()"));
         assert!(body(&guard, "pub(super) fn run_pending_requests(").contains("lock_flow::tick("));
+        // Final fixes, 4: the steps the fakes stand for are wired.
+        assert!(body(&guard, "pub(super) fn run_pending_requests(").contains("close_tick(&mut FormCloseWaitSteps"));
+        assert!(body(&guard, "    fn mark_tried(&mut self) {").contains("p.last_try = Some("));
+        assert!(body(&lock, "pub(super) fn update_curtain_subtitle(").contains("curtain_subtitle("));
         assert!(body(&guard, "pub(super) fn request_lock(").contains("lock_flow::request("));
         let req = top(&flow, "pub(super) fn request<");
         let curtain = req.find("s.show_curtain()").expect("curtain at once");
@@ -1061,10 +1065,20 @@
             ("prefs_ops.rs", "fn on_security"),
             ("attach_ops.rs", "fn on_attach_open"),
             ("file_ops.rs", "fn on_export"),
-            // Pass 9: the remaining dialog-result call sites.
+            // Pass 9 and final fixes: dialog results that write the note or
+            // a file, or close LockNote. Not listed: the Yes/No questions
+            // (confirm() checks still_valid itself), and the other dialogs
+            // whose result only changes the note in memory after a check of
+            // is_locked (ssh load / remove, prompt delete after confirm):
+            // under the curtain the input is blocked and nothing is written.
             ("backup_ops.rs", "pub(super) fn on_backups("),
+            ("backup_ops.rs", "pub(super) fn on_export_backup("),
             ("prefs_ops.rs", "pub(super) fn on_temp_files("),
             ("print_ops.rs", "pub(super) fn on_print("),
+            ("prompts_ops.rs", "pub(super) fn on_prompts_add("),
+            ("prompts_ops.rs", "pub(super) fn on_prompts_edit("),
+            ("vault_ops.rs", "pub(super) fn on_vault_category_rename("),
+            ("ssh_ops.rs", "pub(super) fn on_ssh_generate("),
         ] {
             let src = std::fs::read_to_string(dir.join(file)).unwrap();
             let start = src.find(fun).unwrap_or_else(|| panic!("{}", fun));

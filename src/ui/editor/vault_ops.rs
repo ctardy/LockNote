@@ -426,6 +426,7 @@ impl EditorForm {
     }
 
     pub(super) fn on_vault_category_rename(&self, old: &str) {
+        let epoch = self.lock_epoch();
         let Some(new) = crate::ui::dialogs::rename_tab::RenameTabDialog::show_with_labels(
             old,
             &t("vault.cat.rename.title"),
@@ -433,8 +434,8 @@ impl EditorForm {
         ) else {
             return;
         };
-        if *self.is_locked.borrow() {
-            return;
+        if !self.still_valid(epoch) {
+            return; // locked or curtain while the dialog was open (#30)
         }
         let mut list = self.vault_categories();
         let mut secrets = self.vault_panel.get_secrets();

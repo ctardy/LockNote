@@ -129,9 +129,10 @@ impl EditorForm {
 
     pub(super) fn on_prompts_add(&self) {
         let Some(categories) = self.prompt_category_choices() else { return };
+        let epoch = self.lock_epoch();
         let Some(entry) = crate::ui::dialogs::prompt_edit::PromptEditDialog::show(None, &categories) else { return };
-        if *self.is_locked.borrow() {
-            return; // locked while the dialog was open (issue 049)
+        if !self.still_valid(epoch) {
+            return; // locked or curtain while the dialog was open (issue 049, #30)
         }
         let index = self.prompts_panel.add(entry);
         eprintln!("INFO prompts: add count={}", self.prompts_panel.count());
@@ -144,11 +145,12 @@ impl EditorForm {
         let Some(index) = self.selected_prompt() else { return };
         let Some(current) = self.prompts_panel.get(index) else { return };
         let Some(categories) = self.prompt_category_choices() else { return };
+        let epoch = self.lock_epoch();
         let Some(entry) = crate::ui::dialogs::prompt_edit::PromptEditDialog::show(Some(&current), &categories) else {
             return;
         };
-        if *self.is_locked.borrow() {
-            return; // locked while the dialog was open (issue 049)
+        if !self.still_valid(epoch) {
+            return; // locked or curtain while the dialog was open (issue 049, #30)
         }
         // Only the prompt the dialog was opened on: the list may have been
         // replaced while it was open (import).

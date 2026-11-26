@@ -15,6 +15,7 @@ impl EditorForm {
         if *self.is_locked.borrow() {
             return;
         }
+        let epoch = self.lock_epoch();
         // Require password confirmation before export
         if !ConfirmPasswordDialog::show(&self.password_copy(), &t("confirmpwd.export")) {
             return;
@@ -55,7 +56,8 @@ impl EditorForm {
         // Every dialog above is modal while the auto-lock timer keeps ticking.
         // If it fired, the password and the contents are already wiped: a
         // backup built now would be empty and encrypted with "".
-        if *self.is_locked.borrow() || save_precondition(&self.password.borrow()).is_err() {
+        // Under the curtain (not wiped yet) the answers are stale too (#30).
+        if !self.still_valid(epoch) || save_precondition(&self.password.borrow()).is_err() {
             eprintln!("backup: export refused reason=locked");
             return;
         }
