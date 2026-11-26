@@ -688,6 +688,12 @@ Base64 encoding adds ~33% overhead, partially compensated by GZip compression.
 | `lock_ops.rs`, `lock_overlay.rs` | auto-lock, lock overlay methods and its window procedure (the look is `ui/lock_card.rs`, shared with `dialogs/unlock.rs`) |
 | `runtime_ops.rs` | auto-save, clipboard guard, global hotkey |
 | `helpers.rs` | free helpers: fonts, dates, placement, UTF-16 offsets, search, file sniffing |
+| `indent.rs`, `lists.rs` | block indent / outdent (Tab, Shift+Tab), numbered lists and checkboxes (Enter, Ctrl+Enter) |
+| `line_ops.rs`, `case_ops.rs` | Alt+Up/Down and Edit > Lines, Edit > Convert Case |
+| `palette_ops.rs`, `search_all_ops.rs` | command palette, Search All Tabs |
+| `heading_flow.rs`, `compare_flow.rs` | Go to Heading, Compare with Last Save |
+| `zoom.rs` | zoom and live editor font |
+| `tom.rs` | RichEdit Text Object Model (`EM_GETOLEINTERFACE` -> `ITextDocument`): `without_undo`, `selection_ends` |
 | `tests.rs` | unit tests; `all_source()` (test only) joins the module's files for tests that check the code as text |
 
 ### Feature Flag
@@ -1081,7 +1087,7 @@ Tests: `cargo test features::auto_backup`: exact name matching (foreign names, s
 6. **VaultPanel** (open at launch, closable) — secrets management, right side
 7. **AttachmentsPanel** (hidden by default) — file attachments, right side (left of Vault)
    - **Side panel width** (Vault / TOTP / Attach / Prompts): one panel is open at a time. A 5 px grip (`chrome` colour, `IDC_SIZEWE` cursor, `ui/editor/panel_grip.rs`) sits between the editor and the open panel; dragging it with the left button resizes the panel live, and the width is written to the panel's setting (`vault_panel_width`, `totp_panel_width`, `attach_panel_width`, `prompts_panel_width`) in memory on release, only when the width shown changed (a click, or a window too narrow to let the panel move, keeps the setting). Persistence: the width is kept for the session, lock/unlock and imports included (`side_panel::keep_machine_panel_widths`, used by both unlock paths and `apply_backup`); it reaches the disk with the next save of the note (Ctrl+S, auto-save, save on close). Resizing alone does not mark the note modified, and closing without saving (Ask → No, or `save_on_close=never`) does not write it: the next launch shows the last saved width. Defaults 300 / 280 / 280 / 320 px. Bounds (`ui/side_panel.rs`, pure tests): at least 220 px, and the editor always keeps 200 px (gutter and grip not counted), so a small window shrinks the panel below 220 px, down to 0, and it regrows with the window; the stored value stays in 220–8000. The tree, lists, reveal field and status labels follow the width (20 px of margins); buttons stay anchored on the left. A click without a move stores nothing. A drag is ignored while the note is locked, dropped if the note locks during it, the mouse capture is lost (Alt+Tab, a dialog) or another panel is opened meanwhile (shortcut): the panel goes back to its stored width. The grip is hidden while locked. Widths are machine state: not in a full backup, not taken from an imported one
-8. **StatusStrip** — word count, character count, line count
+8. **StatusStrip** — word count, character count, line count, caret position (§11.3a)
 
 **Window Title**: `"LockNote"` or `"LockNote *"` (if modified)
 
@@ -1112,7 +1118,7 @@ Tests: `cargo test features::auto_backup`: exact name matching (foreign names, s
 
 **Status bar** (`content.rs`):
 - 28px high (`STATUS_BAR_HEIGHT`), positioned by `layout_controls` (the control has CCS_NORESIZE | CCS_NOPARENTALIGN); fully custom-painted by a subclass handler (`bind_status_bar_paint`): `chrome` background, 1px `chrome_border` top line, `text_secondary` text; the "saved" dot is `theme::status_saved_color` (green tab colour, darkened to 3:1 on the chrome)
-- Left: words / characters / lines (the part texts set by `update_status_bar`). Right, in order: save indicator (7px dot, green = saved, `accent` = modified, text `status.saved` / `status.modified`), padlock in `accent` + `status.encrypted`, then the detected encoding (Pro)
+- Left: words / characters / lines (the part texts set by `update_status_bar`). Right, in order: caret position (`status.caret`, §11.3a; hidden when it does not fit), save indicator (7px dot, green = saved, `accent` = modified, text `status.saved` / `status.modified`), padlock in `accent` + `status.encrypted`, then the detected encoding (Pro)
 - Middle (issue 057): the full path of the LockNote file of the session (`EditorForm::exe_path`), from one gap after the counters to one gap before the save dot (`PathSlot`); `DT_PATH_ELLIPSIS` shortens it in the middle, keeping the file name, when it does not fit; not drawn when that room is under `STATUS_PATH_MIN_WIDTH` (60 px). Nothing else moves for it. The slot is always sized on the path, also while the click feedback is shown in it. Hand cursor over it (client area only); a left click (button pressed and released on it, mouse captured meanwhile; a drag that only ends there does nothing) copies the full path to the clipboard (Unicode text; the clipboard guard is not armed: a path is not a secret) and shows `status.path_copied` (or `status.path_copy_failed`, with `WARN status_bar: clipboard ...` on stderr) in its place for 2 s (timer on the status bar window)
 - Pure layout in `status_layout`, covered by unit tests (`status_path_*` for the path)
 
@@ -1162,6 +1168,50 @@ Tests: `cargo test features::auto_backup`: exact name matching (foreign names, s
 
 **Keyboard**: Enter = Find Next / Replace, Escape = hide and refocus editor
 
+**Regular expression** (Rust Find / Find & Replace windows, `ui/dialogs/find_replace.rs`, `ui/dialogs/regex_search.rs`): a `search.regex` check box, not saved, unchecked at each opening; no shortcut. Crate `regex` 1.x without default features (`std`, `unicode-case`, `unicode-perl`): `\w`, `\d`, `\s`, `\b` and case folding are Unicode-aware, `\p{..}` classes are not available and count as invalid. Multi-line mode (`^`/`$` at each line); Match case off = case-insensitive (accented letters included); Whole word = `\b(?:pattern)\b`; `\n` matches a line break. Counter `n / total`; an invalid pattern, or one over `REGEX_SIZE_LIMIT` (1 MiB of compiled program), shows `search.regex.invalid` and matches nothing; an empty pattern does nothing. Replacement: `$1`, `${2}`, `${name}`, `$$` (write `${1}x` before a letter). Replace acts only when the selection is exactly a match, else moves to the next; Replace All is one undo step per match. Zero-length matches always advance (Next, Previous, Replace All terminate).
+
+### 11.3a Editor commands (Unreleased)
+
+None of these commands adds a setting or changes the note, settings or `.lnbak` format: lists, headings, diffs, zoom and caret position are computed from the text or kept in memory. Every command that edits the text is refused while the note is locked or under the lock curtain, and is one undo step.
+
+**Undo across tabs** (`tab_ops.rs`): all tabs share one RichEdit, so its undo/redo history is emptied (`EM_EMPTYUNDOBUFFER`) every time the editor shows another tab: tab click, overflow menu, Ctrl+Tab / Ctrl+Shift+Tab, new tab, closed tab, steganography extraction opened in a new tab, and the tab rows of the command palette and Search All Tabs (`tab_ops::switch_editor_tab` loads the tab's text, then empties the history). Undo can never bring one tab's text into another; the history of the tab left is not kept (known limit, not per-tab history). Presentation-only format passes (occurrence highlights) run inside `tom::without_undo` (TOM `ITextDocument::Undo(tomSuspend/tomResume)`, `src/ui/editor/tom.rs`), since in rich-text mode `EM_SETCHARFORMAT` is an undo action: they never become an undo step. `tom::selection_ends` returns (anchor, active end), as `EM_GETSEL` always gives start <= end. The `windows` crate gains the features `Win32_UI_Controls_RichEdit` and `Win32_System_Com` (no new crate).
+
+**Block indent / outdent** (`indent.rs`, keyboard only):
+- Tab with a selection over 2 lines or more inserts one `\t` at the start of every touched line (empty lines included); Shift+Tab removes one leading `\t` per line, else up to 4 leading spaces. A line where the selection ends at column 0 is not touched, so a whole line selected with its break (Home, Shift+Down) is indented, not replaced. Afterwards the selection covers the touched lines; when it ended at column 0 it still ends at column 0 of the next line, so Tab again acts on the same lines.
+- Tab with no selection or a one-line selection inserts `\t` in place of the selection (unchanged). Shift+Tab with no selection or a one-line selection removes one level from the current line, the caret moving left with the text; nothing to remove = no change, selection kept.
+- Ctrl+Tab / Ctrl+Shift+Tab still switch tabs. Known limits: an indented bullet (`\t• a`) is no longer a bullet for Enter and Ctrl+.; after an outdent a backward selection becomes forward.
+
+**Lists** (`lists.rs`): Enter on a line starting with `N. ` or `N) ` (N = 1 to 9 digits, optional leading spaces/tabs) inserts a line break plus the same indentation, N+1 (no leading zeros: `007. ` -> `8. `) and the same punctuation. Checkboxes: `[ ] `, `[x] `, `[X] ` at line start, optionally after indentation and/or a `• ` or `- ` bullet; Enter continues with `[ ] ` and the same indentation and bullet. Enter on an empty numbered or checkbox item clears the line and adds none. Ctrl+Enter toggles `[ ]` <-> `[x]` on the current line, or inserts `[ ] ` after the indentation and bullet (`1. task` -> `[ ] 1. task`). With a selection, Enter is the plain RichEdit Enter. Bullets unchanged: Ctrl+. toggles `• `; Enter continues a `• ` list only when the bullet starts the line.
+
+**Line operations** (`line_ops.rs`, pure part `features/line_ops`):
+- Alt+Up / Alt+Down move the current line or every line touched by the selection by one line; the selection keeps its direction (anchor and active end both move), the caret its column. Nothing at the first/last line. One undo step per move (auto-repeat included). No menu entry.
+- Edit > Lines (after Delete Line): Sort Lines Ascending / Descending (`CompareStringEx` with the user locale, `LINGUISTIC_IGNORECASE | LINGUISTIC_IGNOREDIACRITIC` as the vault tree; stable insertion sort; empty lines first ascending; a comparison failure leaves the text unchanged and shows `lines.error.title` / `lines.error.sort`), Remove Duplicate Lines (exact, first kept), Join Lines (one space, leading whitespace of joined lines removed, first line keeps its indentation), Trim Trailing Whitespace (`char::is_whitespace`).
+- Scope: lines touched by a selection spanning 2 lines or more (a selection ending at column 0 excludes that line), else the whole tab minus the empty line after a final break (as Ctrl+A). The result lines are selected. A no-op adds no undo step and does not mark the note modified.
+
+**Convert case** (`case_ops.rs`, pure part `features/case_convert`): Edit > Convert Case > UPPERCASE (Ctrl+Shift+U), lowercase (Ctrl+U), Title Case (menu only). Target: the selection, else the whitespace-delimited word under the caret (the double-click rule); on whitespace or an empty tab nothing happens. Full Unicode mappings (length may change: `straße` -> `STRASSE`); Title Case splits on whitespace only and uses the title forms of Dž/Lj/Nj/Dz. The converted text is selected; already in that case = no undo step. A selection that cannot be mapped onto the text shows an information box (`case.error.title` / `case.error.mapping`). The save shortcut is checked first (Ctrl+U as save shortcut saves). Select All (`EM_SETSEL(0,-1)`) now covers text with characters outside the BMP.
+
+**Command palette** (`ui/command_palette.rs` pure, `ui/dialogs/command_palette.rs`, `ui/editor/palette_ops.rs`): Ctrl+Shift+P, no menu item, refused while locked or under the curtain. Rows: every menu command (File, Edit, View, Tab, Tools, Help; label without `&`, shortcut in a right column; Save shows `save_shortcut_text` of the settings, the same text as the File menu and Preferences), then `palette.tab`, `palette.vault` (category added in parentheses when two secrets share a name), `palette.prompt` rows. Fuzzy subsequence filter, case-insensitive, spaces ignored, prefix matches first, then word starts and consecutive runs; no accent folding. Up/Down move the selection, Enter runs, Esc closes and refocuses the editor. A command row runs its menu handler; a tab row switches tab; a vault row runs the vault panel's copy (panel shown, secret selected, "Copied: <name>" 2 s, clipboard guard armed; the value is never shown); a prompt row inserts the prompt (below). The choice is dropped if the note locked (`still_valid(epoch)`) or the tab/secret/prompt list changed while open; commands still run.
+
+**Prompt variables and Insert** (`ui/prompts_panel.rs`, `prompts_ops.rs`): `{date}` (YYYY-MM-DD), `{time}` (HH:MM:SS), `{datetime}`, UTC as Insert Timestamp; `{clipboard}` (current text, empty if none); `{tab}` (active tab name); `{{` / `}}` literal braces; unknown names, other case and lone braces stay as written. Expanded on copy (Copy button, row click) and insert; the stored text keeps the variables. Fifth panel button **Insert** (`prompts.btn.insert`): replaces the selection or inserts at the caret, one undo step, status `prompts.inserted.named`; nothing while locked. The five buttons share the row width (56 px each at the default width, at most 58, at least 30).
+
+**Search All Tabs** (`ui/search_all.rs` pure, `ui/dialogs/search_all.rs`, `search_all_ops.rs`): Edit > Search All Tabs... (Ctrl+Shift+F), refused while locked or under the curtain; modal (main window disabled). Query pre-filled with a one-line selection (searched at once). Case-insensitive unless Match case (no accent folding); non-overlapping matches. Results in order: one row per match per tab (`<tab> : <line> : <excerpt>`, the active tab read from the editor with unsaved changes, excerpt cut around the match), vault secrets whose name or category matches (`searchall.vault`, values never searched), prompts whose name or text matches (`searchall.prompt`). Refresh on Enter, Match case toggle, or 300 ms after the last key. `MAX_RESULTS` = 1000, the search stops there and adds `searchall.more`. Go to / Enter / double-click: tab -> switch, select and scroll to the match; vault -> panel with the secret selected, or its name in the panel search if the vault changed; prompt -> panel with the prompt selected (its search kept unless it hides the prompt). A lock closes the dialog and opens nothing.
+
+**Go to Heading** (`features/outline.rs`, `ui/dialogs/goto_heading.rs`, `heading_flow.rs`): Edit > Go to Heading... (Ctrl+Shift+O). ATX `#`..`######` + space, up to 3 leading spaces, closing `#` run dropped, empty title skipped; setext: a non-empty line followed by 3+ `=` (level 1) or `-` (level 2); lines inside ``` fences ignored (an unclosed fence runs to the end). List indented by level; filter (case-insensitive substring), first match preselected; Enter, OK or double-click moves the caret to the heading's line start, scrolls it into view and closes; Esc/Cancel closes. `heading.none` / `heading.no_match` hints. Modal; a lock drops the choice. A save shortcut set to Ctrl+Shift+O wins.
+
+**Compare with Last Save** (`features/line_diff.rs`, `compare_flow.rs`, `ui/dialogs/compare_dialog.rs`): Tab > Compare with Last Save... (no shortcut). Each tab's text as of the last save (or load / unlock) is kept in memory only (wiped at lock); a new or imported tab has none (all lines added). Unified line diff: `@@ -a,b +c,d @@` (an empty side names the line before it, e.g. `-0,0`), `- ` / `+ ` / two-space lines, `CONTEXT` = 3, hunks closer than 6 lines merged. Line endings (CRLF/CR/LF) and a final break are ignored; identical -> `compare.identical` box. More than `MAX_LINES` = 20000 on a side -> `compare.too_large`, no diff. Read-only window, editor font, no wrap, both scroll bars; Close, Enter, Esc close it; a lock closes it like any dialog.
+
+**Caret position** (`content.rs`, `status_layout`): status bar text `status.caret` ("Ln {line}, Col {col}") plus `status.selected.*` when the selection is not empty. Hard lines (as the gutter), 1-based; a column is one character (tab = 1, surrogate pair = 1); a line break in the selection counts 1. Shows the active end (the start for a backward selection); while another window has the focus, the end. Refreshed on the 200 ms tick (typing, caret move, selection change, tab switch). Right-aligned left of the save dot; hidden when it does not fit after the counters; the path slot shrinks first and never overlaps it.
+
+**Zoom and live font** (`zoom.rs`): Ctrl+wheel over the editor or the gutter, Ctrl+= / Ctrl+Numpad+ in, Ctrl+- / Ctrl+Numpad- out, Ctrl+0 (main row) back to `font_size`. Keys are found by the character they type (layout-aware: Ctrl+- is the 6 key on AZERTY); AltGr combinations are not taken (AltGr+0 = @, AltGr+= = }). 1 pt per `WHEEL_DELTA` (fine wheels accumulate), clamped to `ZOOM_MIN_PT` 6 / `ZOOM_MAX_PT` 48; a settings size above 48 (up to 72) is kept by zoom-in, brought to 48 by zoom-out. Gutter, 1.5 line spacing and current-line band follow; the gutter measures its font's digit width. The top line, horizontal scroll (no wrap), selection and direction, theme colour, undo and redo are kept; not an edit, not saved, refused while locked. RichEdit's own Ctrl+wheel zoom and its Ctrl+= subscript are disabled. A font family/size from Preferences or an imported backup applies at once and ends the zoom; a failure shows `settings.font.failed` and keeps the current font.
+
+### 11.3b Printing (`print_ops.rs`)
+
+File > Print (Ctrl+P): password confirmation (`confirmpwd.print`), then the Windows print dialog (`PD_RETURNDC | PD_NOPAGENUMS | PD_NOSELECTION`: no range choice). The epoch is re-checked after each dialog: a lock meanwhile prints nothing, silently.
+- Text: the selection when there is one, else the whole active tab; held in `Zeroizing` buffers.
+- Font: the editor `font_family` / `font_size` (not the zoom). Margins about 1 inch (printer DPI); tab stops every half inch (RichEdit default). Lines wrap to the printable width at a space or tab; a word wider than the line is cut; spaces at a wrap point are dropped, leading indentation kept.
+- Each page: the tab name at the top (ellipsis when too long), `print.footer` ("Page {n} / {m}") centred at the bottom. An empty text prints one page.
+- Errors in a box titled `print.error.title`: `print.error.failed` (print dialog or driver failure), `print.error.too_small` (not one body line fits with the editor font).
+
 ### 11.4 Dialogs
 
 #### CreatePasswordDialog
@@ -1203,6 +1253,7 @@ Tests: `cargo test features::auto_backup`: exact name matching (foreign names, s
 - Minimize to tray (checkbox)
 - Font family (Consolas, Courier New, Lucida Console, Cascadia Mono, Segoe UI)
 - Font size (8, 9, 10, 11, 12, 14, 16, 18, 20, 24)
+- A new font family or size applies on OK, without restart, and ends the zoom (§11.3a); a font that cannot be applied shows `settings.font.failed` (after the other changes are applied) and the editor keeps its font
 
 **Also** (~380×720px; up to 1.2.x, the Pro edition only):
 - Language (English, Français, Español, Deutsch)
@@ -1798,9 +1849,19 @@ It never removes a `.tmp`, whichever exe it belongs to. The only way a `.tmp` of
 | Ctrl+Q | Quit |
 | Ctrl+F | Find |
 | Ctrl+H | Find & Replace |
+| Ctrl+Shift+F | Search All Tabs (§11.3a) |
 | Ctrl+G | Go to line |
+| Ctrl+Shift+O | Go to Heading (§11.3a) |
+| Ctrl+Shift+P | Command palette (§11.3a; no menu item) |
 | Ctrl+D | Duplicate line |
 | Ctrl+Shift+K | Delete line |
+| Alt+Up / Alt+Down | Move the line(s) up / down (no menu item) |
+| Ctrl+Shift+U / Ctrl+U | UPPERCASE / lowercase (Edit > Convert Case) |
+| Tab / Shift+Tab | Indent / outdent the touched lines (selection over 2+ lines); Shift+Tab alone outdents the current line |
+| Ctrl+. | Toggle a `• ` bullet |
+| Ctrl+Enter | Toggle the line's checkbox, or add `[ ] ` |
+| Ctrl+wheel, Ctrl+= / Ctrl+-, Ctrl+Numpad+ / Ctrl+Numpad- | Zoom in / out (session only) |
+| Ctrl+0 | Back to the font size of Preferences |
 | Ctrl+Shift+V | Paste plain text |
 | Ctrl+A | Select all |
 | F5 | Insert timestamp (`yyyy-MM-dd HH:mm`) |

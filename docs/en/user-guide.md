@@ -186,9 +186,9 @@ come back to the same tab and line.
 | Menu | Items |
 |---|---|
 | File | Save, Print..., Export..., Export full backup..., Import full backup..., Import from another LockNote..., Safety backups..., Settings... (Preferences..., Security..., Temporary files...), Quit |
-| Edit | Cut, Copy, Paste, Paste as Plain Text, Find..., Replace..., Go to Line..., Duplicate Line, Delete Line, Select All, Insert Timestamp |
+| Edit | Cut, Copy, Paste, Paste as Plain Text, Find..., Replace..., Search All Tabs..., Go to Line..., Go to Heading..., Duplicate Line, Delete Line, Lines (Sort Lines Ascending, Sort Lines Descending, Remove Duplicate Lines, Join Lines, Trim Trailing Whitespace), Convert Case (UPPERCASE, lowercase, Title Case), Select All, Insert Timestamp |
 | View | Always on Top, Word Wrap, Line Numbers |
-| Tab | New Tab, Close Tab, Rename Tab..., Next Tab, Previous Tab |
+| Tab | New Tab, Close Tab, Rename Tab..., Next Tab, Previous Tab, Compare with Last Save... |
 | Tools | Vault Manager..., Prompts, TOTP Manager, Attachments, Password Generator..., Steganography (Hide in Image..., Extract from Image...), SSH Keys (Generate SSH Key..., Load into ssh-agent...) |
 | Help | Check for Updates..., About LockNote... |
 
@@ -206,8 +206,8 @@ the session and saved with the note; it is not part of a full backup.
 - Left: words, characters and lines of the active tab.
 - Middle: the full path of the LockNote file. Click it to copy the path to the
   clipboard ("Path copied").
-- Right: a dot with **Saved** or **Modified**, then **Encrypted**, then the
-  encoding (UTF-8).
+- Right: the caret position ("Ln 3, Col 5", see section 8), then a dot with
+  **Saved** or **Modified**, then **Encrypted**, then the encoding (UTF-8).
 
 **Window title.** "LockNote", or "LockNote *" when there are unsaved changes.
 
@@ -224,7 +224,7 @@ the address of the project.
 File > Settings > Preferences > **Save shortcut:** (click the field, then press
 the new combination: Ctrl, Shift and/or Alt with a letter A-Z or F1-F24; at
 least one modifier is required). The new shortcut works at once; the menu shows
-it from the next start.
+it from the next start (the command palette shows it at once).
 
 **On close.** File > Quit, Ctrl+Q, Alt+F4 or the window's close button.
 What happens with unsaved changes depends on File > Settings > Preferences >
@@ -307,23 +307,156 @@ start.
 | Undo, Redo | keyboard only | Ctrl+Z, Ctrl+Y |
 | Duplicate Line | Edit menu | Ctrl+D |
 | Delete Line | Edit menu | Ctrl+Shift+K |
+| Move lines up / down | keyboard only | Alt+Up, Alt+Down |
+| Sort, remove duplicates, join, trim | Edit > Lines | none |
+| UPPERCASE, lowercase | Edit > Convert Case | Ctrl+Shift+U, Ctrl+U |
+| Title Case | Edit > Convert Case | none |
+| Indent / outdent lines | keyboard only | Tab, Shift+Tab |
 | Insert Timestamp | Edit menu | F5 |
 | Bullet on the current line | keyboard only | Ctrl+. (period) |
+| Checkbox on the current line | keyboard only | Ctrl+Enter |
+| Command palette | keyboard only | Ctrl+Shift+P |
+| Zoom in, zoom out, reset | keyboard and mouse | Ctrl+wheel, Ctrl+=, Ctrl+-, Ctrl+0 |
 
 - **Insert Timestamp** inserts the date and time as `YYYY-MM-DD HH:MM:SS`, in
   UTC.
 - **Bullets**: Ctrl+. adds "• " at the start of the line, or removes it. On a
   bullet line, Enter starts a new bullet line; Enter on an empty bullet line
-  ends the list.
-- **Tab key** inserts a tab character in the text.
+  ends the list. This works only when the bullet starts the line (no
+  indentation before it).
 - **Double-click** selects the whole run of text between two spaces, so a
   password such as `Pass@word1!` is selected whole. Nothing is copied: copy is
   always Ctrl+C.
+- **Select All** (Ctrl+A) selects the whole text, emoji included.
 - **Occurrence highlighting**: when you select a word (2 to 256 characters, on
   one line), its other occurrences in the tab are highlighted.
 - **Links**: text starting with `http://` or `https://` is shown as a link; a
   click opens it in your browser.
 - **Line numbers** are shown in a margin on the left of the text.
+
+### Undo and tabs
+
+All tabs share one editor, so there is a single undo history, and it is
+emptied every time the editor shows another tab (a click on a tab, the tab
+overflow menu, Ctrl+Tab / Ctrl+Shift+Tab, a new tab, a closed tab, a
+steganography extraction opened in a new tab). Ctrl+Z / Ctrl+Y therefore never
+bring one tab's text into another. Right after a switch there is nothing to
+undo or redo in that tab; later edits undo normally, back to the text the tab
+was shown with. Going back to a tab shows its latest text, but its earlier
+edits can no longer be undone.
+
+### Indent and outdent (Tab, Shift+Tab)
+
+- **Tab with a selection over two lines or more** inserts one tab at the start
+  of every touched line, empty lines included. **Shift+Tab** removes one
+  leading tab from each touched line or, when there is no tab, up to 4 leading
+  spaces. Afterwards the selection covers the touched lines entirely, so you
+  can press Tab or Shift+Tab again on the same lines.
+- A line where the selection ends at column 0 is not touched. A whole line
+  selected with its line break (for example Home then Shift+Down) is indented
+  instead of being replaced by a tab; afterwards the selection still ends at
+  column 0 of the next line.
+- **Tab with no selection or a selection on one line** inserts a tab character,
+  replacing the selection, as before.
+- **Shift+Tab with no selection or a selection on one line** removes one level
+  (one tab, else up to 4 spaces) from the current line; the caret moves left
+  with the text. With nothing to remove, nothing happens and the selection
+  stays as it was.
+- Each indent or outdent is one Ctrl+Z step. Ctrl+Tab and Ctrl+Shift+Tab still
+  switch tabs.
+- Limits: an indented bullet line (a tab, then "• a") is no longer seen as a
+  bullet: Enter does not continue the list and Ctrl+. adds a second bullet.
+  After a Shift+Tab that removed indentation, a selection made backwards
+  becomes a forward selection.
+
+### Numbered lists and checkboxes
+
+- **Numbered lists**: press Enter on a line starting with "N. " or "N) " (N = 1
+  to 9 digits, optionally indented with spaces or tabs): the next line starts
+  with N+1, the same punctuation and the same indentation ("007. " continues
+  as "8. "). Enter on an empty item ("3. " with nothing after it) ends the
+  list: the line is cleared and no new line is added.
+- **Checkboxes**: "[ ] " (unchecked), "[x] " or "[X] " (checked) at the start
+  of a line, optionally after indentation and/or a "• " or "- " bullet. Enter
+  on a checkbox line continues with an unchecked "[ ] " item with the same
+  indentation and bullet; Enter on an empty item ends the list.
+- **Ctrl+Enter** toggles the checkbox of the current line ("[ ] " and "[x] ").
+  On a line without a checkbox it inserts "[ ] " after the indentation and
+  bullet (on "1. task" it gives "[ ] 1. task").
+- With a selection, Enter behaves normally. Enter in the middle of a list line
+  moves the rest of the line onto the new item. Lists are plain text: nothing
+  else is stored.
+
+### Line operations
+
+- **Alt+Up / Alt+Down** move the current line, or every line touched by the
+  selection, up or down by one line. The selection moves with the lines and
+  keeps its direction; the caret keeps its column. Nothing happens at the
+  first line (Alt+Up) or the last line (Alt+Down). Holding the keys repeats
+  the move, one undo step per move. These shortcuts are not shown in a menu.
+- **Edit > Lines**:
+  - **Sort Lines Ascending / Sort Lines Descending**: Windows user locale,
+    case and accents ignored (as in the vault tree); equal lines keep their
+    order; empty lines come first in ascending order. If the system comparison
+    fails, the text is left unchanged and a message gives the reason.
+  - **Remove Duplicate Lines**: exact match (case and spaces count), the first
+    occurrence is kept.
+  - **Join Lines**: one line, one space between the joined lines, their leading
+    whitespace removed; the first line keeps its indentation.
+  - **Trim Trailing Whitespace**: removes spaces, tabs and other whitespace at
+    the end of each line.
+- Scope: the lines touched by the selection when it spans two lines or more,
+  otherwise the whole tab (without the empty line after a final line break, so
+  a note that ends with a line break keeps it). A selection that ends at the
+  very start of a line does not include that line.
+- Afterwards the resulting lines are selected, so you can chain operations
+  (sort, then remove duplicates). Each operation is one Ctrl+Z step; an
+  operation that changes nothing adds no undo step and does not mark the note
+  modified.
+
+### Convert case
+
+Edit > Convert Case: **UPPERCASE** (Ctrl+Shift+U), **lowercase** (Ctrl+U),
+**Title Case** (menu only: in each word the first letter becomes a capital and
+the rest lowercase).
+
+- It converts the selection or, with no selection, the word under the caret
+  (the run of text a double-click selects, punctuation included:
+  `user@mail.com` is one word). On whitespace or in an empty tab, nothing
+  happens.
+- Title Case splits words on whitespace only: "don't" -> "Don't",
+  "jean-PIERRE" -> "Jean-pierre", "(hello)" -> "(Hello)", "42abc" -> "42Abc".
+- Accents and other scripts are handled, and the length can change
+  ("straße" -> "STRASSE"). The converted text is then selected, so you can
+  chain conversions.
+- One conversion is one Ctrl+Z step and marks the tab modified; text already
+  in the requested case is left alone (no undo step). If the save shortcut is
+  set to Ctrl+U, Ctrl+U saves.
+
+### Command palette
+
+Ctrl+Shift+P opens the command palette (no menu item; not while LockNote is
+locked).
+
+- A filter field above a list. With an empty filter the list shows every menu
+  command (File, Edit, View, Tab, Tools, Help) with its shortcut on the right,
+  then "Tab: <name>" for each tab, "Vault: <name>" for each secret and
+  "Prompt: <name>" for each prompt. Two secrets with the same name show their
+  category: "Vault: admin (Work)".
+- Filtering ignores case and spaces; the letters you type must appear in
+  order, not necessarily side by side ("dl" finds "Delete Line"). Labels that
+  start with the typed text come first. Accented letters must be typed as they
+  are ("e" does not find "é").
+- Up/Down move the selection, Enter runs the selected row, Esc closes the
+  palette and returns to the editor.
+- A command row does what its menu item does. A tab row switches to that tab.
+  A vault row copies the secret as a click in the vault panel does (the panel
+  opens, "Copied: <name>", clipboard cleared after the configured delay); the
+  value is never shown. A prompt row inserts the prompt into the note (see
+  section 10), even when the prompts panel is closed.
+- If the note locks while the palette is open, or a tab, secret or prompt is
+  added, removed, moved or renamed meanwhile, a tab, secret or prompt row does
+  nothing. Commands still run.
 
 ### Find and replace
 
@@ -332,16 +465,121 @@ start.
   search.
 - **Find:** the text to look for. **Previous** and **Next** move between
   matches. The counter shows "3 / 12", "12 matches" or "No matches".
-- Options: **Match case**, **Whole word**.
+- Options: **Match case**, **Whole word**, **Regular expression**.
 - In Find & Replace: **Replace:** the new text, **Replace** (the current
   match), **Replace All** ("N occurrences replaced.").
 - **Close** closes the window.
+
+**Regular expression.** The box is not saved: it is unchecked each time the
+window opens.
+
+- `^` and `$` match at the start and end of every line; `\n` matches a line
+  break.
+- **Match case** still applies (unchecked: case ignored, accented letters
+  included). **Whole word** wraps the pattern as `\b(?:pattern)\b`.
+- An invalid pattern, or one too big (over 1 MiB once compiled), shows
+  "Invalid regular expression" and matches nothing. `\p{L}` and other Unicode
+  property classes are not available and count as invalid; `\w`, `\d`, `\s`
+  and `\b` do handle Unicode. An empty pattern does nothing.
+- In the replacement, `$1`, `${2}` and `${name}` insert a group and `$$` a
+  `$`. Write `${1}x` when a letter follows a group number.
+- **Replace** replaces only when the selection is exactly a match; otherwise
+  it moves to the next match. **Replace All** makes one undoable change per
+  match.
+- Empty matches (`^`, `x*`) work: Next and Previous always move on, and
+  replacing `^` with "> " prefixes every line.
+
+### Search all tabs
+
+Edit > Search All Tabs... (Ctrl+Shift+F). Not available while LockNote is
+locked. The main window cannot be used while this window is open.
+
+- **Search:** is filled with the selection when it is on one line, and the
+  search runs at once (a selection over several lines opens an empty field).
+  **Match case**: without it, case is ignored but accents are not.
+- The list refreshes on Enter in the field, when Match case changes, or 0.3 s
+  after the last key typed. The status line shows "N matches" or "No matches".
+- What is searched, in this order:
+  - every tab, the active one with its unsaved changes: one line per match,
+    "<tab name> : <line number> : <excerpt>";
+  - vault secrets whose name or category matches: "Vault: <category> /
+    <name>". Secret values are never searched or shown;
+  - prompts whose name or text matches: "Prompt: <name>".
+- At most 1000 results; a last line then says "More results not shown (limit:
+  1000)".
+- **Go to**, Enter in the list or a double click opens the result: a tab
+  result switches to the tab and selects the match; a vault result opens the
+  vault panel on that secret (or puts its name in the panel's search field if
+  the vault changed); a prompt result opens the prompts panel on that prompt
+  (its search is kept unless it would hide the prompt).
+- If LockNote locks, the window closes and nothing is opened.
 
 ### Go to line
 
 Edit > Go to Line... (Ctrl+G). The field shows the current line; type a number
 between 1 and the number of lines shown ("Line number (1 - N):"), then OK.
 Otherwise: "Invalid line number."
+
+### Go to heading
+
+Edit > Go to Heading... (Ctrl+Shift+O) lists the Markdown headings of the
+active tab, indented by level:
+
+- `#` to `######` followed by a space (up to 3 leading spaces); a closing `#`
+  run is dropped and an empty title is not listed;
+- a non-empty line followed by a line of 3 or more `=` (level 1) or `-`
+  (level 2);
+- lines inside a code block fenced with three backticks are ignored (a block
+  that is never closed runs to the end of the tab).
+
+The **Filter:** field narrows the list as you type (case ignored, anywhere in
+the title); the first match is selected. Enter, OK or a double click moves the
+caret to the start of that heading's line and closes the window; Esc or Cancel
+closes it without moving. A hint says when the tab has no heading or nothing
+matches. If the save shortcut is set to Ctrl+Shift+O, it saves instead.
+
+### Compare with last save
+
+Tab > Compare with Last Save... compares the active tab as of the last save (or
+as loaded at start or unlock) with its current text, in a read-only window:
+
+- hunk headers `@@ -a,b +c,d @@` (start line and line count in the saved
+  text, then in the current text), then lines starting with `- ` (removed),
+  `+ ` (added) or two spaces (unchanged), with 3 unchanged lines around each
+  change;
+- the text uses the editor font, does not wrap and scrolls both ways; Close,
+  Enter or Esc closes the window.
+
+Identical text shows "No changes since the last save." instead. Line endings
+alone and a final line break do not count. Over 20000 lines on either side, a
+message says the tab is too long to compare. A new tab, or one imported from a
+backup, counts as never saved: all its lines show as added until the next
+save. The saved copy is kept in memory only and wiped when LockNote locks.
+
+### Caret position
+
+The status bar shows "Ln X, Col Y" (from 1; hard lines, as in the line-number
+margin, so word wrap does not change them; a tab or an emoji counts as one
+column), and "(N selected)" when text is selected, a line break counting as 1.
+For a selection made backwards, the position is the caret's, at the start of
+the selection. It updates within about 200 ms. In a narrow window it is hidden
+when it does not fit.
+
+### Zoom
+
+- Ctrl+mouse wheel over the editor or the line numbers, Ctrl+= or Ctrl+Numpad+
+  zoom in; Ctrl+- or Ctrl+Numpad- zoom out; Ctrl+0 returns to the size set in
+  Preferences. The keys follow the keyboard layout (on a French keyboard,
+  Ctrl+- is the 6 key).
+- 1 pt per step, between 6 and 48 pt. A size from the settings above 48 pt (up
+  to 72) is kept by zoom in, brought back to 48 by zoom out, restored by
+  Ctrl+0.
+- The line numbers, line spacing and current-line band follow the zoom. The
+  view, the selection and its direction are kept.
+- The zoom is for the session only: it is never saved, does not mark the note
+  modified and is not an undo step. No zoom while LockNote is locked.
+- AltGr combinations still type their characters (AltGr+0 = @ on a French
+  keyboard). Ctrl+= no longer switches to subscript.
 
 ### Word wrap
 
@@ -363,7 +601,9 @@ it is off at each start.
 
 File > Settings > Preferences: **Editor font:** (Consolas, Courier New, Lucida
 Console, Cascadia Mono, Segoe UI; default Consolas) and **Font size:** (8 to 24;
-default 11). The editor uses the new font from the next start of LockNote.
+default 11). The new font applies on OK, without restarting, and ends any zoom.
+A font from an imported backup also applies at once. If the font cannot be
+applied, a message says the editor keeps its current font.
 
 ### Print
 
@@ -372,8 +612,16 @@ File > Print... (Ctrl+P).
 1. Confirm your password ("Enter your password to print:").
 2. Choose the printer in the Windows print dialog.
 
-Only the active tab is printed, in Consolas 10 pt with 1-inch margins. Long
-lines are not wrapped on paper.
+- If text is selected, only the selection is printed; otherwise the whole
+  active tab.
+- The editor font and size are used, with margins of about 1 inch. Long lines
+  wrap at a space or tab (a word wider than the line is cut); indentation is
+  kept. Tabs line up every half inch, as in the editor.
+- Each page shows the tab name at the top and "Page N / M" at the bottom. An
+  empty note prints one page.
+- An error (print dialog, printer driver, page too small for the font) is
+  shown in a "Print" message. If LockNote locks while the password or print
+  window is open, nothing is printed.
 
 ### Export as a text file
 
@@ -473,11 +721,24 @@ and copies them in one click.
   prompt shows its text in the preview below.
 - **A click on a prompt copies its text** ("Copied: name"). The **Copy** button
   does the same.
+- **Insert** puts the selected prompt into the note: it replaces the editor
+  selection, or is inserted at the caret. One Ctrl+Z undoes it; the status
+  line shows "Inserted: name". Nothing is inserted while LockNote is locked.
+  The command palette (Ctrl+Shift+P) has a "Prompt: name" row per prompt that
+  does the same, even with the panel closed.
 - **Add** / **Edit**: **Name:**, **Category:** (free text, with a list of the
   categories already used, "General" first) and **Text:** (several lines; Enter
   adds a line, Tab adds a tab, Ctrl+Tab leaves the field). All three are
   required.
 - **Del** deletes the selected prompt after confirmation.
+
+**Variables.** A prompt text may contain `{date}` (YYYY-MM-DD), `{time}`
+(HH:MM:SS), `{datetime}` (YYYY-MM-DD HH:MM:SS), `{clipboard}` (the current
+clipboard text, empty if there is none) and `{tab}` (the name of the active
+tab). Date and time are UTC, like Insert Timestamp (F5). Write `{{` and `}}`
+for literal braces. Unknown names (`{xyz}`), another case (`{Date}`) and lone
+braces stay as written. Variables are expanded when the prompt is copied or
+inserted; the stored prompt keeps them.
 
 **Limits.** A text is at most 1 MiB. A category cannot contain `:`.
 
@@ -863,8 +1124,8 @@ File > Import full backup...
 **Warnings.**
 
 - Everything is replaced, settings and two-factor authentication included.
-- The imported theme applies at once; the language applies after saving and
-  restarting.
+- The imported theme and editor font apply at once; the language applies
+  after saving and restarting.
 - A backup made by a newer LockNote is refused before any password: update
   LockNote. Files over 512 MiB are refused.
 
@@ -984,8 +1245,8 @@ The settings are stored inside the encrypted note and travel in a full backup
 |---|---|---|---|---|
 | Appearance | Theme: | Dark, Light | Dark | at once |
 | Appearance | Language: | English, Français, Español, Deutsch | English | after restart |
-| Appearance | Editor font: | Consolas, Courier New, Lucida Console, Cascadia Mono, Segoe UI | Consolas | next start |
-| Appearance | Font size: | 8, 9, 10, 11, 12, 14, 16, 18, 20, 24 | 11 | next start |
+| Appearance | Editor font: | Consolas, Courier New, Lucida Console, Cascadia Mono, Segoe UI | Consolas | at once |
+| Appearance | Font size: | 8, 9, 10, 11, 12, 14, 16, 18, 20, 24 | 11 | at once |
 | Behavior | On close: | Ask, Always save, Never save | Ask | at once |
 | Behavior | Save shortcut: | modifier(s) + A-Z or F1-F24 | Ctrl+S | at once |
 | Behavior | Auto-save: | Off, 10, 30, 60, 120, 300 sec | 30 sec | next start |
@@ -1018,10 +1279,20 @@ See [section 23](#23-temporary-files).
 | Ctrl+Q, Alt+F4 | Quit |
 | Ctrl+F | Find |
 | Ctrl+H | Find & Replace |
+| Ctrl+Shift+F | Search all tabs |
 | Ctrl+G | Go to line |
+| Ctrl+Shift+O | Go to heading |
+| Ctrl+Shift+P | Command palette |
 | Ctrl+D | Duplicate line |
 | Ctrl+Shift+K | Delete line |
+| Alt+Up, Alt+Down | Move the line(s) up, down |
+| Ctrl+Shift+U, Ctrl+U | UPPERCASE, lowercase |
+| Tab, Shift+Tab (on a selection of several lines) | Indent, outdent the lines |
+| Shift+Tab | Outdent the current line |
 | Ctrl+. | Add or remove a bullet on the line |
+| Ctrl+Enter | Check or uncheck the line's checkbox, or add one |
+| Ctrl+wheel, Ctrl+=, Ctrl+- | Zoom in, zoom out |
+| Ctrl+0 | Font size from Preferences |
 | Ctrl+A | Select all |
 | Ctrl+Z, Ctrl+Y | Undo, redo |
 | Ctrl+X, Ctrl+C, Ctrl+V | Cut, copy, paste |

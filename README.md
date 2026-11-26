@@ -17,7 +17,7 @@ one `.exe`. Nothing to install, no account, no cloud. Free and open source
 | Encryption | AES-256-CBC + HMAC-SHA256 (encrypt-then-MAC), key derived with Argon2id (64 MiB, 3 iterations, 4 lanes); every plaintext buffer is wiped after use |
 | Multi-tab notes | Organize notes in separate tabs within a single encrypted file; drag & drop to reorder them, the active tab is highlighted, overflowing tabs go into a "…" menu, the active tab and caret line are restored after lock/unlock |
 | Encrypted vault | Secret manager shown as a category tree, open at launch: click a secret to copy it ("Copied: name" indicator), search by name, create/rename/delete categories, drag & drop secrets between them, reveal (5 s, dedicated field), multi-line secrets with a Copy button in the edit dialog |
-| Prompts | Stored prompts, searched by name and text, copied in one click |
+| Prompts | Stored prompts, searched by name and text, copied in one click or inserted into the note; `{date}`, `{time}`, `{datetime}`, `{clipboard}` and `{tab}` variables |
 | TOTP two-factor auth | Time-based one-time passwords (RFC 6238), and an optional 2FA code at unlock |
 | Attachments | Files stored encrypted inside the note |
 | Safety backups | An encrypted backup of the whole note is written before every import and update, and on demand; File > Safety backups lists them, restores one or creates a new one |
@@ -28,7 +28,8 @@ one `.exe`. Nothing to install, no account, no cloud. Free and open source
 | Auto-lock, auto-save, clipboard auto-clear | Each with its own delay |
 | Global hotkey | `Ctrl+Shift+L` to show/hide from anywhere |
 | Multi-language | English, French, Spanish, German |
-| Find & Replace | Previous/Next, live match counter, match case, whole word |
+| Find & Replace | Previous/Next, live match counter, match case, whole word, regular expressions; Search All Tabs (Ctrl+Shift+F) across tabs, vault names and prompts |
+| Editor | Command palette (Ctrl+Shift+P), go to Markdown heading, compare with last save, move / sort / deduplicate / join / trim lines, convert case, block indent, numbered lists and checkboxes, zoom, caret position in the status bar, printing with the editor font and page numbers |
 | Updates | Checked against the signed releases of this repository: `SHA256SUMS.txt` is verified with an Ed25519 signature before any hash is trusted |
 
 Window size and position are restored between sessions. A double-click

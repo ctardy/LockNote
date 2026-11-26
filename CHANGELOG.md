@@ -6,6 +6,86 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
 
 ## [Unreleased]
 
+### Added
+- **Command palette** (Ctrl+Shift+P, no menu item): a filter field above a
+  list of every menu command (with its shortcut), one "Tab: <name>" row per
+  tab, one "Vault: <name>" row per secret and one "Prompt: <name>" row per
+  prompt. Fuzzy, case-insensitive filtering ("dl" finds "Delete Line").
+  Up/Down move, Enter runs, Esc closes. A command row does what its menu item
+  does, a tab row switches to it, a vault row copies the secret as a click in
+  the vault panel does (the value is never shown), a prompt row inserts the
+  prompt into the note. Two secrets with the same name show their category.
+  If the note locks, or the chosen tab, secret or prompt changes while the
+  palette is open, nothing happens. Not available while locked.
+- **Search All Tabs** (Edit > Search All Tabs..., Ctrl+Shift+F): searches
+  every tab (the active one with its unsaved changes), the names and
+  categories of the vault secrets (never their values) and the prompts.
+  Results "<tab> : <line> : <excerpt>", "Vault: <category> / <name>",
+  "Prompt: <name>"; Match case; at most 1000 results. Go to, Enter or a
+  double click opens the tab at the match, or the vault or prompts panel on
+  the item.
+- **Regular expressions in Find and Find & Replace**: a "Regular expression"
+  box (not saved, unchecked at each opening). Multi-line `^`/`$`, `\n` for a
+  line break, Match case and Whole word still apply, replacement groups `$1`,
+  `${2}`, `${name}`, `$$`. An invalid pattern shows "Invalid regular
+  expression". Unicode property classes (`\p{L}`) are not available.
+- **Edit > Go to Heading...** (Ctrl+Shift+O): lists the Markdown headings
+  of the active tab (`#` to `######`, setext `===`/`---`, fenced code blocks
+  ignored) with a filter field; Enter or a double click moves to the heading.
+- **Tab > Compare with Last Save...**: a read-only unified line diff of the
+  active tab against its text as of the last save (or as loaded), with 3
+  lines of context. "No changes since the last save." when identical; tabs
+  over 20000 lines are not compared. Nothing is written to disk.
+- **Line operations**: Alt+Up / Alt+Down move the current or selected lines;
+  new Edit > Lines submenu: Sort Lines Ascending / Descending (Windows locale,
+  case and accents ignored, stable), Remove Duplicate Lines, Join Lines, Trim
+  Trailing Whitespace. They act on the selected lines, or on the whole tab
+  without a multi-line selection. One Ctrl+Z per operation.
+- **Edit > Convert Case**: UPPERCASE (Ctrl+Shift+U), lowercase (Ctrl+U),
+  Title Case (menu only), on the selection or the word under the caret. One
+  Ctrl+Z per conversion. If the save shortcut is Ctrl+U, Ctrl+U saves.
+- **Block indent / outdent**: Tab on a selection of two lines or more adds a
+  tab at the start of each line; Shift+Tab removes one tab (or up to 4
+  spaces) from each line, or from the current line without a multi-line
+  selection. One Ctrl+Z per indent or outdent.
+- **Numbered lists and checkboxes**: Enter on a "N. " or "N) " line starts
+  the next number; Enter on a "[ ] " / "[x] " line starts an unchecked
+  "[ ] " item; Enter on an empty item ends the list. Ctrl+Enter toggles the
+  checkbox of the line, or adds "[ ] ". Lists stay plain text.
+- **Zoom**: Ctrl+mouse wheel, Ctrl+= / Ctrl+- (and numpad + / -), 1 pt per
+  step between 6 and 48 pt; Ctrl+0 returns to the size set in Preferences.
+  Session only: never saved, not an edit, not an undo step.
+- **Caret position in the status bar**: "Ln X, Col Y", plus "(N selected)"
+  when text is selected.
+- **Prompt variables and Insert**: `{date}`, `{time}`, `{datetime}` (UTC),
+  `{clipboard}` and `{tab}` are expanded when a prompt is copied or inserted;
+  `{{` and `}}` write a brace. The prompts panel has a new **Insert** button
+  that puts the expanded prompt into the note at the caret (one Ctrl+Z).
+
+### Changed
+- **Printing** uses the editor font and size, wraps long lines to the page,
+  prints only the selection when there is one, and shows the tab name at the
+  top and "Page N / M" at the bottom of each page. A print error (dialog,
+  printer driver, page too small for the font) is now shown in a message
+  instead of printing nothing.
+- **Editor font applied at once**: a font family or size chosen in
+  Preferences, or taken from an imported backup, applies on OK, without
+  restarting. If it cannot be applied, a message says the editor keeps its
+  current font.
+- **Undo and tab switches**: the undo history is emptied each time the
+  editor shows another tab, so Ctrl+Z / Ctrl+Y can never bring one tab's
+  text into another. The history of the tab you left is not kept.
+- **Ctrl+= no longer toggles subscript** and RichEdit's own Ctrl+wheel zoom
+  is replaced by LockNote's zoom. AltGr combinations (AltGr+0, AltGr+=) still
+  type their characters.
+- **File > Save shortcut text** is the same in the File menu, the command
+  palette and Preferences (a function key reads "Ctrl+F5").
+
+### Fixed
+- **Select All with emoji**: Edit > Select All / Ctrl+A now selects the whole
+  text when it contains emoji or other characters outside the BMP (the end
+  was cut short by one position per such character).
+
 ## [2.1.1] - 2026-11-26
 
 ### Changed

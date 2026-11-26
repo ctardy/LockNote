@@ -17,7 +17,7 @@ seul `.exe`. Rien à installer, aucun compte, pas de cloud. Libre et open source
 | Chiffrement | AES-256-CBC + HMAC-SHA256 (encrypt-then-MAC), clé dérivée par Argon2id (64 Mio, 3 itérations, 4 voies) ; chaque tampon en clair est effacé après usage |
 | Notes en onglets | Rangez vos notes dans des onglets séparés d'un même fichier chiffré ; glisser-déposer pour les réordonner, l'onglet actif est mis en évidence, les onglets qui ne tiennent pas vont dans un menu « … », l'onglet actif et la ligne du curseur sont rétablis après verrouillage/déverrouillage |
 | Coffre chiffré | Gestionnaire de secrets en arborescence par catégorie, ouvert au démarrage : un clic sur un secret le copie (indicateur « Copié : nom »), recherche par nom, création/renommage/suppression de catégories, glisser-déposer des secrets entre catégories, affichage (5 s, champ dédié), secrets sur plusieurs lignes avec un bouton Copier dans la fenêtre d'édition |
-| Prompts | Prompts enregistrés, recherchés par nom et par texte, copiés en un clic |
+| Prompts | Prompts enregistrés, recherchés par nom et par texte, copiés en un clic ou insérés dans la note ; variables `{date}`, `{time}`, `{datetime}`, `{clipboard}` et `{tab}` |
 | TOTP à deux facteurs | Mots de passe à usage unique basés sur le temps (RFC 6238), et code 2FA facultatif au déverrouillage |
 | Pièces jointes | Fichiers stockés chiffrés dans la note |
 | Sauvegardes de sécurité | Une sauvegarde chiffrée de toute la note est écrite avant chaque import et chaque mise à jour, et à la demande ; Fichier > Sauvegardes de sécurité les liste, en restaure une ou en crée une nouvelle |
@@ -28,7 +28,8 @@ seul `.exe`. Rien à installer, aucun compte, pas de cloud. Libre et open source
 | Verrouillage auto, sauvegarde auto, effacement du presse-papiers | Chacun avec son délai |
 | Raccourci global | `Ctrl+Shift+L` pour afficher/masquer depuis n'importe où |
 | Multilingue | Anglais, français, espagnol, allemand |
-| Rechercher et remplacer | Précédent/Suivant, compteur d'occurrences en direct, respect de la casse, mot entier |
+| Rechercher et remplacer | Précédent/Suivant, compteur d'occurrences en direct, respect de la casse, mot entier, expressions régulières ; Rechercher dans tous les onglets (Ctrl+Shift+F) : onglets, noms du coffre et prompts |
+| Éditeur | Palette de commandes (Ctrl+Shift+P), aller à un titre Markdown, comparaison avec le dernier enregistrement, déplacer / trier / dédoublonner / joindre / nettoyer les lignes, conversion de casse, indentation par bloc, listes numérotées et cases à cocher, zoom, position du curseur dans la barre d'état, impression avec la police de l'éditeur et numéros de page |
 | Mises à jour | Vérifiées sur les versions signées de ce dépôt : `SHA256SUMS.txt` est vérifié par une signature Ed25519 avant que toute empreinte soit acceptée |
 
 La taille et la position de la fenêtre sont rétablies d'une session à l'autre.

@@ -200,9 +200,9 @@ passe.
 | Menu | Commandes |
 |---|---|
 | Fichier | Enregistrer, Imprimer..., Exporter..., Exporter une sauvegarde complète..., Importer une sauvegarde complète..., Importer depuis un autre LockNote..., Sauvegardes de sécurité..., Paramètres... (Préférences..., Sécurité..., Fichiers temporaires...), Quitter |
-| Édition | Couper, Copier, Coller, Coller en texte brut, Rechercher..., Remplacer..., Aller à la ligne..., Dupliquer la ligne, Supprimer la ligne, Tout sélectionner, Insérer un horodatage |
+| Édition | Couper, Copier, Coller, Coller en texte brut, Rechercher..., Remplacer..., Rechercher dans tous les onglets..., Aller à la ligne..., Aller au titre..., Dupliquer la ligne, Supprimer la ligne, Lignes (Trier par ordre croissant, Trier par ordre décroissant, Supprimer les lignes en double, Joindre les lignes, Supprimer les espaces de fin), Convertir la casse (MAJUSCULES, minuscules, Première lettre des mots en majuscule), Tout sélectionner, Insérer un horodatage |
 | Affichage | Toujours au premier plan, Retour à la ligne, Numéros de ligne |
-| Onglet | Nouvel onglet, Fermer l'onglet, Renommer l'onglet..., Onglet suivant, Onglet précédent |
+| Onglet | Nouvel onglet, Fermer l'onglet, Renommer l'onglet..., Onglet suivant, Onglet précédent, Comparer avec le dernier enregistrement... |
 | Outils | Gestionnaire de coffre..., Prompts, Gestionnaire TOTP, Pièces jointes, Générateur de mots de passe..., Stéganographie (Cacher dans une image..., Extraire depuis une image...), Clés SSH (Générer une clé SSH..., Charger dans ssh-agent...) |
 | Aide | Vérifier les mises à jour..., À propos de LockNote... |
 
@@ -222,8 +222,9 @@ la note ; elle ne fait pas partie d'une sauvegarde complète.
 - À gauche : mots, caractères et lignes de l'onglet actif.
 - Au milieu : le chemin complet du fichier LockNote. Un clic le copie dans le
   presse-papiers (« Chemin copié »).
-- À droite : un point avec **Enregistré** ou **Modifié**, puis **Chiffré**,
-  puis l'encodage (UTF-8).
+- À droite : la position du curseur (« Ligne 3, col. 5 », voir section 8),
+  puis un point avec **Enregistré** ou **Modifié**, puis **Chiffré**, puis
+  l'encodage (UTF-8).
 
 **Titre de la fenêtre.** « LockNote », ou « LockNote * » quand des
 modifications ne sont pas enregistrées.
@@ -243,7 +244,7 @@ dans Fichier > Paramètres... > Préférences... > **Raccourci de sauvegarde :**
 (cliquez dans le champ puis appuyez sur la nouvelle combinaison : Ctrl, Maj
 et/ou Alt avec une lettre A-Z ou F1-F24 ; au moins un modificateur est
 obligatoire). Le nouveau raccourci marche tout de suite ; le menu l'affiche à
-partir du démarrage suivant.
+partir du démarrage suivant (la palette de commandes l'affiche tout de suite).
 
 **À la fermeture.** Fichier > Quitter, Ctrl+Q, Alt+F4 ou le bouton de fermeture
 de la fenêtre. Ce qui arrive aux modifications non enregistrées dépend de
@@ -335,24 +336,169 @@ démarrage suivant.
 | Annuler, Rétablir | clavier seulement | Ctrl+Z, Ctrl+Y |
 | Dupliquer la ligne | menu Édition | Ctrl+D |
 | Supprimer la ligne | menu Édition | Ctrl+Maj+K |
+| Déplacer les lignes vers le haut / le bas | clavier seulement | Alt+Haut, Alt+Bas |
+| Trier, supprimer les doublons, joindre, supprimer les espaces de fin | Édition > Lignes | aucun |
+| MAJUSCULES, minuscules | Édition > Convertir la casse | Ctrl+Maj+U, Ctrl+U |
+| Première lettre des mots en majuscule | Édition > Convertir la casse | aucun |
+| Indenter / désindenter des lignes | clavier seulement | Tab, Maj+Tab |
 | Insérer un horodatage | menu Édition | F5 |
 | Puce sur la ligne courante | clavier seulement | Ctrl+. (point) |
+| Case à cocher sur la ligne courante | clavier seulement | Ctrl+Entrée |
+| Palette de commandes | clavier seulement | Ctrl+Maj+P |
+| Zoom avant, zoom arrière, taille d'origine | clavier et souris | Ctrl+molette, Ctrl+=, Ctrl+-, Ctrl+0 |
 
 - **Insérer un horodatage** insère la date et l'heure au format
   `AAAA-MM-JJ HH:MM:SS`, en UTC.
 - **Puces** : Ctrl+. ajoute « • » en début de ligne, ou l'enlève. Sur une ligne
   à puce, Entrée commence une nouvelle ligne à puce ; Entrée sur une ligne à
-  puce vide termine la liste.
-- **La touche Tab** insère une tabulation dans le texte.
+  puce vide termine la liste. Cela ne marche que si la puce commence la ligne
+  (sans indentation devant).
 - **Double-clic** : sélectionne tout le texte compris entre deux espaces ; un
   mot de passe comme `Pass@word1!` est donc sélectionné en entier. Rien n'est
   copié : la copie se fait toujours par Ctrl+C.
+- **Tout sélectionner** (Ctrl+A) sélectionne tout le texte, émojis compris.
 - **Surlignage des occurrences** : quand vous sélectionnez un mot (2 à 256
   caractères, sur une ligne), ses autres occurrences dans l'onglet sont
   surlignées.
 - **Liens** : un texte qui commence par `http://` ou `https://` s'affiche comme
   un lien ; un clic l'ouvre dans le navigateur.
 - **Numéros de ligne** : affichés dans une marge à gauche du texte.
+
+### Annulation et onglets
+
+Tous les onglets partagent un seul éditeur, donc un seul historique
+d'annulation, et il est vidé chaque fois que l'éditeur affiche un autre onglet
+(clic sur un onglet, menu des onglets en surnombre, Ctrl+Tab / Ctrl+Maj+Tab,
+nouvel onglet, onglet fermé, extraction de stéganographie ouverte dans un
+nouvel onglet). Ctrl+Z / Ctrl+Y ne peuvent donc jamais amener le texte d'un
+onglet dans un autre. Juste après un changement d'onglet, il n'y a rien à
+annuler ni à rétablir dans cet onglet ; les modifications suivantes
+s'annulent normalement, jusqu'au texte affiché à l'arrivée. En revenant sur un
+onglet, vous retrouvez son dernier texte, mais ses modifications antérieures ne
+peuvent plus être annulées.
+
+### Indenter et désindenter (Tab, Maj+Tab)
+
+- **Tab avec une sélection sur deux lignes ou plus** insère une tabulation au
+  début de chaque ligne touchée, lignes vides comprises. **Maj+Tab** enlève
+  une tabulation en début de chaque ligne touchée ou, s'il n'y en a pas,
+  jusqu'à 4 espaces. Ensuite, la sélection couvre entièrement les lignes
+  touchées : un nouvel appui sur Tab ou Maj+Tab agit sur les mêmes lignes.
+- Une ligne où la sélection se termine en colonne 0 n'est pas touchée. Une
+  ligne entière sélectionnée avec son saut de ligne (par exemple Début puis
+  Maj+Bas) est indentée au lieu d'être remplacée par une tabulation ; ensuite
+  la sélection se termine toujours en colonne 0 de la ligne suivante.
+- **Tab sans sélection ou avec une sélection sur une seule ligne** insère une
+  tabulation à la place de la sélection, comme avant.
+- **Maj+Tab sans sélection ou avec une sélection sur une seule ligne** enlève
+  un niveau (une tabulation, sinon jusqu'à 4 espaces) à la ligne courante ; le
+  curseur recule avec le texte. S'il n'y a rien à enlever, rien ne se passe et
+  la sélection reste telle quelle.
+- Chaque indentation ou désindentation s'annule en un seul Ctrl+Z. Ctrl+Tab et
+  Ctrl+Maj+Tab changent toujours d'onglet.
+- Limites : une ligne à puce indentée (une tabulation puis « • a ») n'est plus
+  vue comme une puce : Entrée ne continue pas la liste et Ctrl+. ajoute une
+  deuxième puce. Après un Maj+Tab qui a enlevé de l'indentation, une sélection
+  faite à l'envers devient une sélection à l'endroit.
+
+### Listes numérotées et cases à cocher
+
+- **Listes numérotées** : Entrée sur une ligne qui commence par « N. » ou
+  « N) » (N = 1 à 9 chiffres, éventuellement indenté par des espaces ou des
+  tabulations) commence la ligne suivante par N+1, avec la même ponctuation et
+  la même indentation (« 007. » continue par « 8. »). Entrée sur un élément
+  vide (« 3. » sans rien après) termine la liste : la ligne est vidée et
+  aucune ligne n'est ajoutée.
+- **Cases à cocher** : « [ ] » (non cochée), « [x] » ou « [X] » (cochée) en
+  début de ligne, éventuellement après une indentation et/ou une puce « • » ou
+  « - ». Entrée sur une ligne à case continue par une case « [ ] » non cochée,
+  avec la même indentation et la même puce ; Entrée sur un élément vide
+  termine la liste.
+- **Ctrl+Entrée** coche ou décoche la case de la ligne courante (« [ ] » et
+  « [x] »). Sur une ligne sans case, il insère « [ ] » après l'indentation et la
+  puce (sur « 1. tâche », cela donne « [ ] 1. tâche »).
+- Avec une sélection, Entrée se comporte normalement. Entrée au milieu d'une
+  ligne de liste emmène la fin de la ligne dans le nouvel élément. Les listes
+  restent du texte brut : rien d'autre n'est enregistré.
+
+### Opérations sur les lignes
+
+- **Alt+Haut / Alt+Bas** déplacent la ligne courante, ou toutes les lignes
+  touchées par la sélection, d'une ligne vers le haut ou vers le bas. La
+  sélection suit les lignes et garde son sens ; le curseur garde sa colonne.
+  Rien ne se passe sur la première ligne (Alt+Haut) ou la dernière (Alt+Bas).
+  Maintenir les touches répète le déplacement, une étape d'annulation par
+  déplacement. Ces raccourcis ne figurent dans aucun menu.
+- **Édition > Lignes** :
+  - **Trier par ordre croissant / décroissant** : selon les paramètres
+    régionaux de Windows, sans tenir compte de la casse ni des accents (comme
+    l'arborescence du coffre) ; les lignes égales gardent leur ordre ; les
+    lignes vides viennent en premier dans l'ordre croissant. Si la comparaison
+    du système échoue, le texte reste inchangé et un message donne la raison.
+  - **Supprimer les lignes en double** : égalité exacte (la casse et les
+    espaces comptent), la première occurrence est gardée.
+  - **Joindre les lignes** : une seule ligne, un espace entre les lignes
+    jointes, dont les blancs de début sont enlevés ; la première ligne garde
+    son indentation.
+  - **Supprimer les espaces de fin** : enlève espaces, tabulations et autres
+    blancs en fin de chaque ligne.
+- Portée : les lignes touchées par la sélection quand elle s'étend sur deux
+  lignes ou plus, sinon tout l'onglet (sans la ligne vide qui suit un saut de
+  ligne final : une note qui se termine par un saut de ligne le garde). Une
+  sélection qui se termine tout au début d'une ligne n'inclut pas cette ligne.
+- Ensuite, les lignes obtenues sont sélectionnées : vous pouvez enchaîner
+  (trier, puis supprimer les doublons). Chaque opération s'annule en un seul
+  Ctrl+Z ; une opération qui ne change rien n'ajoute pas d'étape d'annulation
+  et ne marque pas la note comme modifiée.
+
+### Convertir la casse
+
+Édition > Convertir la casse : **MAJUSCULES** (Ctrl+Maj+U), **minuscules**
+(Ctrl+U), **Première lettre des mots en majuscule** (menu seulement : dans
+chaque mot, la première lettre passe en majuscule et le reste en minuscules).
+
+- La conversion porte sur la sélection ou, sans sélection, sur le mot sous le
+  curseur (le texte que sélectionne un double-clic, ponctuation comprise :
+  `user@mail.com` est un seul mot). Sur un blanc ou dans un onglet vide, rien
+  ne se passe.
+- Pour la première lettre en majuscule, les mots ne sont séparés que par les
+  blancs : « don't » -> « Don't », « jean-PIERRE » -> « Jean-pierre »,
+  « (bonjour) » -> « (Bonjour) », « 42abc » -> « 42Abc ».
+- Les accents et les autres écritures sont gérés, et la longueur peut changer
+  (« straße » -> « STRASSE »). Le texte converti est ensuite sélectionné, pour
+  enchaîner les conversions.
+- Une conversion s'annule en un seul Ctrl+Z et marque l'onglet comme modifié ;
+  un texte déjà dans la casse demandée n'est pas touché (pas d'étape
+  d'annulation). Si le raccourci de sauvegarde est Ctrl+U, Ctrl+U enregistre.
+
+### Palette de commandes
+
+Ctrl+Maj+P ouvre la palette de commandes (pas d'entrée de menu ; pas quand
+LockNote est verrouillé).
+
+- Un champ de filtre au-dessus d'une liste. Filtre vide, la liste montre
+  toutes les commandes des menus (Fichier, Édition, Affichage, Onglet, Outils,
+  Aide) avec leur raccourci à droite, puis « Onglet : <nom> » pour chaque
+  onglet, « Coffre : <nom> » pour chaque secret et « Prompt : <nom> » pour
+  chaque prompt. Deux secrets de même nom affichent leur catégorie :
+  « Coffre : admin (Travail) ».
+- Le filtre ignore la casse et les espaces ; les lettres tapées doivent
+  apparaître dans l'ordre, pas forcément côte à côte (« dl » trouve
+  « Dupliquer la ligne »). Les libellés qui commencent par le texte tapé
+  viennent en premier. Les lettres accentuées doivent être tapées telles
+  quelles (« e » ne trouve pas « é »).
+- Haut/Bas déplacent la sélection, Entrée exécute la ligne sélectionnée, Échap
+  ferme la palette et revient à l'éditeur.
+- Une commande fait ce que fait son entrée de menu. Une ligne d'onglet affiche
+  cet onglet. Une ligne de coffre copie le secret comme un clic dans le
+  panneau Coffre (le panneau s'ouvre, « Copié : <nom> », presse-papiers effacé
+  après le délai réglé) ; la valeur n'est jamais affichée. Une ligne de prompt
+  insère le prompt dans la note (voir section 10), même panneau Prompts
+  fermé.
+- Si la note se verrouille pendant que la palette est ouverte, ou si un
+  onglet, un secret ou un prompt est ajouté, supprimé, déplacé ou renommé
+  entre-temps, une ligne d'onglet, de secret ou de prompt ne fait rien. Les
+  commandes s'exécutent quand même.
 
 ### Rechercher et remplacer
 
@@ -362,16 +508,134 @@ démarrage suivant.
 - **Rechercher :** le texte cherché. **Précédent** et **Suivant** passent d'une
   occurrence à l'autre. Le compteur affiche « 3 / 12 », « 12 occurrences » ou
   « Aucune correspondance ».
-- Options : **Respecter la casse**, **Mot entier**.
+- Options : **Respecter la casse**, **Mot entier**, **Expression régulière**.
 - Dans Rechercher et remplacer : **Remplacer :** le nouveau texte, **Remplacer**
   (l'occurrence courante), **Tout remplacer** (« N occurrences remplacées. »).
 - **Fermer** ferme la fenêtre.
+
+**Expression régulière.** La case n'est pas mémorisée : elle est décochée à
+chaque ouverture de la fenêtre.
+
+- `^` et `$` correspondent au début et à la fin de chaque ligne ; `\n`
+  correspond à un saut de ligne.
+- **Respecter la casse** s'applique toujours (décochée : casse ignorée, lettres
+  accentuées comprises). **Mot entier** entoure le motif : `\b(?:motif)\b`.
+- Un motif invalide, ou trop gros (plus de 1 Mio une fois compilé), affiche
+  « Expression régulière invalide » et ne trouve rien. `\p{L}` et les autres
+  classes de propriétés Unicode ne sont pas disponibles et comptent comme
+  invalides ; `\w`, `\d`, `\s` et `\b` gèrent bien l'Unicode. Un motif vide ne
+  fait rien.
+- Dans le remplacement, `$1`, `${2}` et `${nom}` insèrent un groupe et `$$` un
+  `$`. Écrivez `${1}x` quand une lettre suit un numéro de groupe.
+- **Remplacer** ne remplace que si la sélection est exactement une
+  correspondance ; sinon il passe à la suivante. **Tout remplacer** fait une
+  modification annulable par correspondance.
+- Les correspondances vides (`^`, `x*`) fonctionnent : Suivant et Précédent
+  avancent toujours, et remplacer `^` par « > » préfixe chaque ligne.
+
+### Rechercher dans tous les onglets
+
+Édition > Rechercher dans tous les onglets... (Ctrl+Maj+F). Indisponible quand
+LockNote est verrouillé. La fenêtre principale est inutilisable tant que cette
+fenêtre est ouverte.
+
+- **Rechercher :** est rempli avec la sélection si elle tient sur une ligne,
+  et la recherche part tout de suite (une sélection sur plusieurs lignes
+  ouvre un champ vide). **Respecter la casse** : sans elle, la casse est
+  ignorée, mais pas les accents.
+- La liste se met à jour avec Entrée dans le champ, quand la case change, ou
+  0,3 s après la dernière touche. La ligne d'état affiche « N occurrences » ou
+  « Aucune correspondance ».
+- Ce qui est cherché, dans cet ordre :
+  - tous les onglets, l'actif avec ses modifications non enregistrées : une
+    ligne par occurrence, « <nom de l'onglet> : <numéro de ligne> :
+    <extrait> » ;
+  - les secrets du coffre dont le nom ou la catégorie correspond :
+    « Coffre : <catégorie> / <nom> ». Les valeurs des secrets ne sont jamais
+    cherchées ni affichées ;
+  - les prompts dont le nom ou le texte correspond : « Prompt : <nom> ».
+- Au plus 1000 résultats ; une dernière ligne indique alors « Résultats
+  suivants non affichés (limite : 1000) ».
+- **Afficher**, Entrée dans la liste ou un double-clic ouvre le résultat : un
+  résultat d'onglet affiche l'onglet et sélectionne l'occurrence ; un résultat
+  de coffre ouvre le panneau Coffre sur ce secret (ou met son nom dans le
+  champ de recherche du panneau si le coffre a changé) ; un résultat de prompt
+  ouvre le panneau Prompts sur ce prompt (sa recherche est gardée sauf si elle
+  le masquerait).
+- Si LockNote se verrouille, la fenêtre se ferme et rien n'est ouvert.
 
 ### Aller à la ligne
 
 Édition > Aller à la ligne... (Ctrl+G). Le champ contient la ligne courante ;
 tapez un numéro entre 1 et le nombre de lignes indiqué (« Numéro de ligne :
 (1 - N): »), puis OK. Sinon : « Numéro de ligne invalide. »
+
+### Aller au titre
+
+Édition > Aller au titre... (Ctrl+Maj+O) liste les titres Markdown de l'onglet
+actif, indentés selon leur niveau :
+
+- `#` à `######` suivis d'une espace (jusqu'à 3 espaces devant) ; les `#` de
+  fermeture sont enlevés et un titre vide n'est pas listé ;
+- une ligne non vide suivie d'une ligne d'au moins 3 `=` (niveau 1) ou `-`
+  (niveau 2) ;
+- les lignes d'un bloc de code délimité par trois accents graves sont ignorées
+  (un bloc jamais fermé va jusqu'à la fin de l'onglet).
+
+Le champ **Filtre :** réduit la liste au fil de la frappe (sans tenir compte de
+la casse, n'importe où dans le titre) ; la première correspondance est
+sélectionnée. Entrée, OK ou un double-clic place le curseur au début de la
+ligne de ce titre et ferme la fenêtre ; Échap ou Annuler la ferme sans rien
+déplacer. Une indication s'affiche si l'onglet n'a aucun titre ou si rien ne
+correspond. Si le raccourci de sauvegarde est Ctrl+Maj+O, il enregistre.
+
+### Comparer avec le dernier enregistrement
+
+Onglet > Comparer avec le dernier enregistrement... compare l'onglet actif tel
+qu'au dernier enregistrement (ou tel que chargé au démarrage ou au
+déverrouillage) avec son texte actuel, dans une fenêtre en lecture seule :
+
+- des en-têtes de bloc `@@ -a,b +c,d @@` (ligne de début et nombre de lignes
+  dans le texte enregistré, puis dans le texte actuel), puis des lignes qui
+  commencent par `- ` (supprimée), `+ ` (ajoutée) ou deux espaces (inchangée),
+  avec 3 lignes inchangées autour de chaque modification ;
+- le texte utilise la police de l'éditeur, n'est pas renvoyé à la ligne et
+  défile dans les deux sens ; Fermer, Entrée ou Échap ferme la fenêtre.
+
+Un texte identique affiche à la place « Aucune modification depuis le dernier
+enregistrement. ». Les fins de ligne seules et un saut de ligne final ne
+comptent pas. Au-delà de 20000 lignes d'un côté, un message indique que
+l'onglet est trop long pour être comparé. Un nouvel onglet, ou un onglet
+importé d'une sauvegarde, compte comme jamais enregistré : toutes ses lignes
+apparaissent comme ajoutées jusqu'au prochain enregistrement. La copie
+enregistrée n'est gardée qu'en mémoire et effacée au verrouillage.
+
+### Position du curseur
+
+La barre d'état affiche « Ligne X, col. Y » (à partir de 1 ; lignes réelles,
+comme dans la marge des numéros, donc le retour à la ligne automatique ne les
+change pas ; une tabulation ou un émoji compte pour une colonne), et
+« (N sélectionnés) » quand du texte est sélectionné, un saut de ligne comptant
+pour 1. Pour une sélection faite à l'envers, la position est celle du curseur,
+au début de la sélection. L'affichage suit en 200 ms environ. Dans une fenêtre
+étroite, il est masqué s'il ne tient pas.
+
+### Zoom
+
+- Ctrl+molette sur l'éditeur ou les numéros de ligne, Ctrl+= ou Ctrl+Pavé+
+  agrandissent ; Ctrl+- ou Ctrl+Pavé- réduisent ; Ctrl+0 revient à la taille
+  réglée dans les Préférences. Les touches suivent la disposition du clavier
+  (sur un clavier AZERTY, Ctrl+- est la touche 6).
+- 1 pt par cran, entre 6 et 48 pt. Une taille des paramètres au-delà de 48 pt
+  (jusqu'à 72) est gardée par le zoom avant, ramenée à 48 par le zoom arrière
+  et rétablie par Ctrl+0.
+- Les numéros de ligne, l'interligne et le bandeau de la ligne courante suivent
+  le zoom. La vue, la sélection et son sens sont gardés.
+- Le zoom ne vaut que pour la session : il n'est jamais enregistré, ne marque
+  pas la note comme modifiée et ne crée pas d'étape d'annulation. Pas de zoom
+  quand LockNote est verrouillé.
+- Les combinaisons AltGr tapent toujours leurs caractères (AltGr+0 = @ et
+  AltGr+= = } sur un clavier AZERTY). Ctrl+= ne passe plus en indice.
 
 ### Retour à la ligne
 
@@ -394,8 +658,10 @@ choix n'est pas mémorisé : il est désactivé à chaque démarrage.
 
 Fichier > Paramètres... > Préférences... : **Police de l'éditeur :** (Consolas,
 Courier New, Lucida Console, Cascadia Mono, Segoe UI ; Consolas par défaut) et
-**Taille de police :** (8 à 24 ; 11 par défaut). L'éditeur utilise la nouvelle
-police à partir du démarrage suivant de LockNote.
+**Taille de police :** (8 à 24 ; 11 par défaut). La nouvelle police s'applique
+dès OK, sans redémarrer, et met fin au zoom. La police d'une sauvegarde
+importée s'applique aussi tout de suite. Si la police ne peut pas être
+appliquée, un message indique que l'éditeur garde sa police actuelle.
 
 ### Imprimer
 
@@ -405,8 +671,19 @@ Fichier > Imprimer... (Ctrl+P).
    « Saisissez votre mot de passe pour imprimer : »).
 2. Choisissez l'imprimante dans la boîte d'impression de Windows.
 
-Seul l'onglet actif est imprimé, en Consolas 10 pt avec des marges de 2,5 cm
-(1 pouce). Les lignes longues ne sont pas renvoyées à la ligne sur papier.
+- Si du texte est sélectionné, seule la sélection est imprimée ; sinon tout
+  l'onglet actif.
+- La police et la taille de l'éditeur sont utilisées, avec des marges
+  d'environ 2,5 cm (1 pouce). Les lignes longues sont coupées à une espace ou
+  une tabulation (un mot plus large que la ligne est coupé) ; l'indentation est
+  gardée. Les tabulations s'alignent tous les 1,27 cm (un demi-pouce), comme
+  dans l'éditeur.
+- Chaque page affiche le nom de l'onglet en haut et « Page N / M » en bas. Une
+  note vide imprime une page.
+- Une erreur (boîte d'impression, pilote d'imprimante, page trop petite pour
+  la police) s'affiche dans un message « Impression ». Si LockNote se
+  verrouille pendant que la fenêtre du mot de passe ou d'impression est
+  ouverte, rien n'est imprimé.
 
 ### Exporter en fichier texte
 
@@ -516,11 +793,25 @@ prompts pour un outil d'IA) et les copie en un clic.
   Sélectionner un prompt affiche son texte dans l'aperçu en dessous.
 - **Un clic sur un prompt copie son texte** (« Copié : nom »). Le bouton
   **Copier** fait de même.
+- **Insérer** met le prompt sélectionné dans la note : il remplace la
+  sélection de l'éditeur, ou s'insère au curseur. Un Ctrl+Z l'annule ; la
+  ligne d'état affiche « Inséré : nom ». Rien n'est inséré quand LockNote est
+  verrouillé. La palette de commandes (Ctrl+Maj+P) a une ligne « Prompt :
+  nom » par prompt qui fait de même, même panneau fermé.
 - **Ajout.** / **Modif.** : **Nom :**, **Catégorie :** (texte libre, avec la
   liste des catégories déjà utilisées, « Général » en tête) et **Texte :**
   (plusieurs lignes ; Entrée ajoute une ligne, Tab une tabulation, Ctrl+Tab
   quitte le champ). Les trois sont obligatoires.
 - **Suppr.** supprime le prompt sélectionné après confirmation.
+
+**Variables.** Le texte d'un prompt peut contenir `{date}` (AAAA-MM-JJ),
+`{time}` (HH:MM:SS), `{datetime}` (AAAA-MM-JJ HH:MM:SS), `{clipboard}` (le
+texte actuel du presse-papiers, vide s'il n'y en a pas) et `{tab}` (le nom de
+l'onglet actif). La date et l'heure sont en UTC, comme Insérer un horodatage
+(F5). Écrivez `{{` et `}}` pour des accolades littérales. Les noms inconnus
+(`{xyz}`), une autre casse (`{Date}`) et les accolades isolées restent tels
+quels. Les variables sont remplacées quand le prompt est copié ou inséré ; le
+prompt enregistré les garde.
 
 **Limites.** Un texte fait au plus 1 Mio. Une catégorie ne peut pas contenir
 `:`.
@@ -945,8 +1236,8 @@ Fichier > Importer une sauvegarde complète...
 **Attention.**
 
 - Tout est remplacé, paramètres et authentification à deux facteurs compris.
-- Le thème importé s'applique tout de suite ; la langue après enregistrement et
-  redémarrage.
+- Le thème et la police de l'éditeur importés s'appliquent tout de suite ; la
+  langue après enregistrement et redémarrage.
 - Une sauvegarde faite par une version plus récente de LockNote est refusée
   avant tout mot de passe : mettez LockNote à jour. Les fichiers de plus de
   512 Mio sont refusés.
@@ -1083,8 +1374,8 @@ sur OK pour les appliquer, puis enregistrez la note.
 |---|---|---|---|---|
 | Apparence | Thème : | Sombre, Clair | Sombre | tout de suite |
 | Apparence | Langue : | English, Français, Español, Deutsch | English | après redémarrage |
-| Apparence | Police de l'éditeur : | Consolas, Courier New, Lucida Console, Cascadia Mono, Segoe UI | Consolas | au démarrage suivant |
-| Apparence | Taille de police : | 8, 9, 10, 11, 12, 14, 16, 18, 20, 24 | 11 | au démarrage suivant |
+| Apparence | Police de l'éditeur : | Consolas, Courier New, Lucida Console, Cascadia Mono, Segoe UI | Consolas | tout de suite |
+| Apparence | Taille de police : | 8, 9, 10, 11, 12, 14, 16, 18, 20, 24 | 11 | tout de suite |
 | Comportement | À la fermeture : | Demander, Toujours enregistrer, Ne jamais enregistrer | Demander | tout de suite |
 | Comportement | Raccourci de sauvegarde : | modificateur(s) + A-Z ou F1-F24 | Ctrl+S | tout de suite |
 | Comportement | Sauvegarde auto : | Désactivé, 10, 30, 60, 120, 300 s | 30 s | au démarrage suivant |
@@ -1118,10 +1409,20 @@ Voir la [section 23](#23-fichiers-temporaires).
 | Ctrl+Q, Alt+F4 | Quitter |
 | Ctrl+F | Rechercher |
 | Ctrl+H | Rechercher et remplacer |
+| Ctrl+Maj+F | Rechercher dans tous les onglets |
 | Ctrl+G | Aller à la ligne |
+| Ctrl+Maj+O | Aller au titre |
+| Ctrl+Maj+P | Palette de commandes |
 | Ctrl+D | Dupliquer la ligne |
 | Ctrl+Maj+K | Supprimer la ligne |
+| Alt+Haut, Alt+Bas | Déplacer la ou les lignes vers le haut, vers le bas |
+| Ctrl+Maj+U, Ctrl+U | MAJUSCULES, minuscules |
+| Tab, Maj+Tab (sur une sélection de plusieurs lignes) | Indenter, désindenter les lignes |
+| Maj+Tab | Désindenter la ligne courante |
 | Ctrl+. | Ajouter ou enlever une puce sur la ligne |
+| Ctrl+Entrée | Cocher ou décocher la case de la ligne, ou en ajouter une |
+| Ctrl+molette, Ctrl+=, Ctrl+- | Zoom avant, zoom arrière |
+| Ctrl+0 | Taille de police des Préférences |
 | Ctrl+A | Tout sélectionner |
 | Ctrl+Z, Ctrl+Y | Annuler, rétablir |
 | Ctrl+X, Ctrl+C, Ctrl+V | Couper, copier, coller |
