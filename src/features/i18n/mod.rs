@@ -739,6 +739,43 @@ fn build_en() -> Dict {
     m.insert("about.desc", "Self-contained encrypted notepad for Windows");
     m.insert("about.open", "Open in browser");
 
+    // Texts that were hard-coded in English in src/ui (issue #25)
+    m.insert("confirmpwd.title", "Confirm Password");
+    m.insert("confirmpwd.export", "Enter your password to export:");
+    m.insert("confirmpwd.print", "Enter your password to print:");
+    m.insert("about.version", "Version {version}");
+    m.insert("totp.manager.copied", "Copied code for {name}");
+    m.insert("totp.setup.for", "Setting up TOTP for: {name}");
+    m.insert("2fa.invalid.left", "Invalid code. Attempts left: {n}.");
+    m.insert("attach.error.title", "Error");
+    m.insert("attach.limit.title", "Attachment");
+    m.insert("attach.error.toolarge", "File too large: {size} (max {max})");
+    m.insert("attach.error.totaltoolarge", "Total attachments too large: {size} (max {max})");
+    m.insert("status.word", "{n} word");
+    m.insert("status.words", "{n} words");
+    m.insert("status.char", "{n} character");
+    m.insert("status.chars", "{n} characters");
+    m.insert("status.line", "{n} line");
+    m.insert("status.lines", "{n} lines");
+    m.insert("save.error.encrypt", "Encryption failed: {}");
+    m.insert("export.success.encoding", "Note exported as {encoding} to:\n{path}");
+    m.insert("filter.text", "Text Files (*.txt)");
+    m.insert("filter.all", "All Files (*.*)");
+    m.insert("filter.images", "Images (*.jpg;*.jpeg;*.png;*.bmp)");
+    m.insert("filter.image", "Image (*.{ext})");
+    m.insert("update.available.title", "Update Available");
+    m.insert("update.available.ask", "A new version ({version}) is available.\nWould you like to download it?");
+    m.insert("update.downloaded.title", "Update Downloaded");
+    m.insert("update.downloaded.ask", "Update downloaded successfully.\n\nRestart LockNote now to apply it?");
+    m.insert("update.error.title", "Update Error");
+    m.insert("update.uptodate.title", "Up to Date");
+    m.insert("update.uptodate.msg", "You are running the latest version ({version}).");
+    m.insert("update.checkfailed.title", "Update Check Failed");
+    m.insert("update.checkfailed.msg", "Could not check for updates: {error}");
+    m.insert("vault.delete.title", "Delete Secret");
+    m.insert("vault.delete.msg", "Are you sure you want to delete this secret?");
+    m.insert("filter.ext", "{EXT} files (*.{ext})");
+
     // Close confirm
     m.insert("close.title", "Unsaved Changes");
     m.insert("close.msg", "Unsaved changes. Save before closing?");
@@ -1338,6 +1375,41 @@ fn build_fr() -> Dict {
     m.insert("about.desc", "Bloc-notes chiffr\u{00e9} autonome pour Windows");
     m.insert("about.open", "Ouvrir dans le navigateur");
 
+    m.insert("confirmpwd.title", "Confirmer le mot de passe");
+    m.insert("confirmpwd.export", "Saisissez votre mot de passe pour exporter :");
+    m.insert("confirmpwd.print", "Saisissez votre mot de passe pour imprimer :");
+    m.insert("about.version", "Version {version}");
+    m.insert("totp.manager.copied", "Code copi\u{00e9} pour {name}");
+    m.insert("totp.setup.for", "Configuration TOTP pour : {name}");
+    m.insert("2fa.invalid.left", "Code invalide. Tentatives restantes : {n}.");
+    m.insert("attach.error.title", "Erreur");
+    m.insert("attach.limit.title", "Pi\u{00e8}ce jointe");
+    m.insert("attach.error.toolarge", "Fichier trop volumineux : {size} (max. {max})");
+    m.insert("attach.error.totaltoolarge", "Pi\u{00e8}ces jointes trop volumineuses au total : {size} (max. {max})");
+    m.insert("status.word", "{n} mot");
+    m.insert("status.words", "{n} mots");
+    m.insert("status.char", "{n} caract\u{00e8}re");
+    m.insert("status.chars", "{n} caract\u{00e8}res");
+    m.insert("status.line", "{n} ligne");
+    m.insert("status.lines", "{n} lignes");
+    m.insert("save.error.encrypt", "\u{00c9}chec du chiffrement : {}");
+    m.insert("export.success.encoding", "Note export\u{00e9}e en {encoding} vers :\n{path}");
+    m.insert("filter.text", "Fichiers texte (*.txt)");
+    m.insert("filter.all", "Tous les fichiers (*.*)");
+    m.insert("filter.images", "Images (*.jpg;*.jpeg;*.png;*.bmp)");
+    m.insert("filter.image", "Image (*.{ext})");
+    m.insert("update.available.title", "Mise \u{00e0} jour disponible");
+    m.insert("update.available.ask", "Une nouvelle version ({version}) est disponible.\nVoulez-vous la t\u{00e9}l\u{00e9}charger ?");
+    m.insert("update.downloaded.title", "Mise \u{00e0} jour t\u{00e9}l\u{00e9}charg\u{00e9}e");
+    m.insert("update.downloaded.ask", "Mise \u{00e0} jour t\u{00e9}l\u{00e9}charg\u{00e9}e.\n\nRed\u{00e9}marrer LockNote maintenant pour l'appliquer ?");
+    m.insert("update.error.title", "Erreur de mise \u{00e0} jour");
+    m.insert("update.uptodate.title", "\u{00c0} jour");
+    m.insert("update.uptodate.msg", "Vous utilisez la derni\u{00e8}re version ({version}).");
+    m.insert("update.checkfailed.title", "\u{00c9}chec de la v\u{00e9}rification des mises \u{00e0} jour");
+    m.insert("update.checkfailed.msg", "Impossible de v\u{00e9}rifier les mises \u{00e0} jour : {error}");
+    m.insert("vault.delete.title", "Supprimer le secret");
+    m.insert("vault.delete.msg", "Voulez-vous vraiment supprimer ce secret ?");
+    m.insert("filter.ext", "Fichiers {EXT} (*.{ext})");
     m.insert("close.title", "Modifications non enregistr\u{00e9}es");
     m.insert("close.msg", "Modifications non enregistr\u{00e9}es. Enregistrer avant de fermer ?");
     m.insert("close.remember_not_saved", "Votre choix n'a pas \u{00e9}t\u{00e9} m\u{00e9}moris\u{00e9} : LockNote garde ses param\u{00e8}tres dans la note, et la note n'est pas enregistr\u{00e9}e. Pour ne plus voir cette question, choisissez-le dans Fichier > Param\u{00e8}tres > Pr\u{00e9}f\u{00e9}rences, puis enregistrez.");
@@ -1937,6 +2009,41 @@ fn build_es() -> Dict {
     m.insert("about.desc", "Bloc de notas cifrado aut\u{00f3}nomo para Windows");
     m.insert("about.open", "Abrir en el navegador");
 
+    m.insert("confirmpwd.title", "Confirmar contrase\u{00f1}a");
+    m.insert("confirmpwd.export", "Introduzca su contrase\u{00f1}a para exportar:");
+    m.insert("confirmpwd.print", "Introduzca su contrase\u{00f1}a para imprimir:");
+    m.insert("about.version", "Versi\u{00f3}n {version}");
+    m.insert("totp.manager.copied", "C\u{00f3}digo copiado para {name}");
+    m.insert("totp.setup.for", "Configurando TOTP para: {name}");
+    m.insert("2fa.invalid.left", "C\u{00f3}digo no v\u{00e1}lido. Intentos restantes: {n}.");
+    m.insert("attach.error.title", "Error");
+    m.insert("attach.limit.title", "Archivo adjunto");
+    m.insert("attach.error.toolarge", "Archivo demasiado grande: {size} (m\u{00e1}x. {max})");
+    m.insert("attach.error.totaltoolarge", "Total de adjuntos demasiado grande: {size} (m\u{00e1}x. {max})");
+    m.insert("status.word", "{n} palabra");
+    m.insert("status.words", "{n} palabras");
+    m.insert("status.char", "{n} car\u{00e1}cter");
+    m.insert("status.chars", "{n} caracteres");
+    m.insert("status.line", "{n} l\u{00ed}nea");
+    m.insert("status.lines", "{n} l\u{00ed}neas");
+    m.insert("save.error.encrypt", "Error de cifrado: {}");
+    m.insert("export.success.encoding", "Nota exportada como {encoding} en:\n{path}");
+    m.insert("filter.text", "Archivos de texto (*.txt)");
+    m.insert("filter.all", "Todos los archivos (*.*)");
+    m.insert("filter.images", "Im\u{00e1}genes (*.jpg;*.jpeg;*.png;*.bmp)");
+    m.insert("filter.image", "Imagen (*.{ext})");
+    m.insert("update.available.title", "Actualizaci\u{00f3}n disponible");
+    m.insert("update.available.ask", "Hay una nueva versi\u{00f3}n ({version}) disponible.\n\u{00bf}Desea descargarla?");
+    m.insert("update.downloaded.title", "Actualizaci\u{00f3}n descargada");
+    m.insert("update.downloaded.ask", "Actualizaci\u{00f3}n descargada correctamente.\n\n\u{00bf}Reiniciar LockNote ahora para aplicarla?");
+    m.insert("update.error.title", "Error de actualizaci\u{00f3}n");
+    m.insert("update.uptodate.title", "Actualizado");
+    m.insert("update.uptodate.msg", "Est\u{00e1} usando la \u{00fa}ltima versi\u{00f3}n ({version}).");
+    m.insert("update.checkfailed.title", "Error al buscar actualizaciones");
+    m.insert("update.checkfailed.msg", "No se pudieron buscar actualizaciones: {error}");
+    m.insert("vault.delete.title", "Eliminar secreto");
+    m.insert("vault.delete.msg", "\u{00bf}Seguro que desea eliminar este secreto?");
+    m.insert("filter.ext", "Archivos {EXT} (*.{ext})");
     m.insert("close.title", "Cambios sin guardar");
     m.insert("close.msg", "Cambios sin guardar. \u{00bf}Guardar antes de cerrar?");
     m.insert("close.remember_not_saved", "Su elecci\u{00f3}n no se ha recordado: LockNote guarda sus ajustes dentro de la nota, y la nota no se guarda. Para no ver m\u{00e1}s esta pregunta, el\u{00ed}jala en Archivo > Ajustes > Preferencias y guarde.");
@@ -2536,6 +2643,41 @@ fn build_de() -> Dict {
     m.insert("about.desc", "Eigenst\u{00e4}ndiger verschl\u{00fc}sselter Notizblock f\u{00fc}r Windows");
     m.insert("about.open", "Im Browser \u{00f6}ffnen");
 
+    m.insert("confirmpwd.title", "Passwort best\u{00e4}tigen");
+    m.insert("confirmpwd.export", "Geben Sie Ihr Passwort ein, um zu exportieren:");
+    m.insert("confirmpwd.print", "Geben Sie Ihr Passwort ein, um zu drucken:");
+    m.insert("about.version", "Version {version}");
+    m.insert("totp.manager.copied", "Code f\u{00fc}r {name} kopiert");
+    m.insert("totp.setup.for", "TOTP-Einrichtung f\u{00fc}r: {name}");
+    m.insert("2fa.invalid.left", "Ung\u{00fc}ltiger Code. Verbleibende Versuche: {n}.");
+    m.insert("attach.error.title", "Fehler");
+    m.insert("attach.limit.title", "Anhang");
+    m.insert("attach.error.toolarge", "Datei zu gro\u{00df}: {size} (max. {max})");
+    m.insert("attach.error.totaltoolarge", "Anh\u{00e4}nge insgesamt zu gro\u{00df}: {size} (max. {max})");
+    m.insert("status.word", "{n} Wort");
+    m.insert("status.words", "{n} W\u{00f6}rter");
+    m.insert("status.char", "{n} Zeichen");
+    m.insert("status.chars", "{n} Zeichen");
+    m.insert("status.line", "{n} Zeile");
+    m.insert("status.lines", "{n} Zeilen");
+    m.insert("save.error.encrypt", "Verschl\u{00fc}sselung fehlgeschlagen: {}");
+    m.insert("export.success.encoding", "Notiz als {encoding} exportiert nach:\n{path}");
+    m.insert("filter.text", "Textdateien (*.txt)");
+    m.insert("filter.all", "Alle Dateien (*.*)");
+    m.insert("filter.images", "Bilder (*.jpg;*.jpeg;*.png;*.bmp)");
+    m.insert("filter.image", "Bild (*.{ext})");
+    m.insert("update.available.title", "Update verf\u{00fc}gbar");
+    m.insert("update.available.ask", "Eine neue Version ({version}) ist verf\u{00fc}gbar.\nM\u{00f6}chten Sie sie herunterladen?");
+    m.insert("update.downloaded.title", "Update heruntergeladen");
+    m.insert("update.downloaded.ask", "Update erfolgreich heruntergeladen.\n\nLockNote jetzt neu starten, um es anzuwenden?");
+    m.insert("update.error.title", "Update-Fehler");
+    m.insert("update.uptodate.title", "Aktuell");
+    m.insert("update.uptodate.msg", "Sie verwenden die neueste Version ({version}).");
+    m.insert("update.checkfailed.title", "Update-Pr\u{00fc}fung fehlgeschlagen");
+    m.insert("update.checkfailed.msg", "Updates konnten nicht gepr\u{00fc}ft werden: {error}");
+    m.insert("vault.delete.title", "Geheimnis l\u{00f6}schen");
+    m.insert("vault.delete.msg", "M\u{00f6}chten Sie dieses Geheimnis wirklich l\u{00f6}schen?");
+    m.insert("filter.ext", "{EXT}-Dateien (*.{ext})");
     m.insert("close.title", "Ungespeicherte \u{00c4}nderungen");
     m.insert("close.msg", "Ungespeicherte \u{00c4}nderungen. Vor dem Schlie\u{00df}en speichern?");
     m.insert("close.remember_not_saved", "Ihre Wahl wurde nicht gemerkt: LockNote speichert seine Einstellungen in der Notiz, und die Notiz wird nicht gespeichert. Um diese Frage nicht mehr zu sehen, w\u{00e4}hlen Sie es unter Datei > Einstellungen > Einstellungen und speichern Sie.");
@@ -2862,6 +3004,245 @@ mod tests {
             }
         }
         assert!(missing.is_empty(), "keys missing:\n{}", missing.join("\n"));
+    }
+
+    /// Literal texts the UI may show untranslated: names and notations that
+    /// are the same in every language.
+    const UNTRANSLATED_UI_TEXT: &[&str] = &[
+        "LockNote",
+    ];
+
+    /// `text` without the `#[cfg(test)]` items (test modules and helpers):
+    /// their strings are never shown to a user.
+    fn without_test_items(text: &str) -> String {
+        let mut out = String::new();
+        let mut rest = text;
+        while let Some(pos) = rest.find("#[cfg(test)]") {
+            out.push_str(&rest[..pos]);
+            let after = &rest[pos..];
+            // The item ends at its `;` (a `mod x;`) or at the brace closing
+            // its first `{`, whichever comes first.
+            let semi = after.find(';');
+            let brace = after.find('{');
+            let end = match (semi, brace) {
+                (Some(s), Some(b)) if s < b => s + 1,
+                (_, Some(b)) => {
+                    let mut depth = 0usize;
+                    let mut end = after.len();
+                    for (i, c) in after[b..].char_indices() {
+                        match c {
+                            '{' => depth += 1,
+                            '}' => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    end = b + i + 1;
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    end
+                }
+                (Some(s), None) => s + 1,
+                (None, None) => after.len(),
+            };
+            rest = &after[end..];
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// The top-level arguments of the call whose `(` is at the start of `s`.
+    fn call_args(s: &str) -> Vec<&str> {
+        let b = s.as_bytes();
+        let mut args = Vec::new();
+        let (mut depth, mut start, mut in_str, mut i) = (0usize, 1usize, false, 0usize);
+        while i < b.len() {
+            let c = b[i];
+            if in_str {
+                if c == b'\\' {
+                    i += 1;
+                } else if c == b'"' {
+                    in_str = false;
+                }
+            } else {
+                match c {
+                    b'"' => in_str = true,
+                    b'(' | b'[' | b'{' => depth += 1,
+                    b')' | b']' | b'}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            args.push(s[start..i].trim());
+                            break;
+                        }
+                    }
+                    b',' if depth == 1 => {
+                        args.push(s[start..i].trim());
+                        start = i + 1;
+                    }
+                    _ => {}
+                }
+            }
+            i += 1;
+        }
+        args
+    }
+
+    /// The text of a string literal starting `s` (`"..."`, or the format
+    /// string of `format!("...")`), `None` for anything else.
+    fn literal_text(s: &str) -> Option<&str> {
+        let s = s.trim_start_matches('&').trim_start();
+        let s = s.strip_prefix("format!(").map(str::trim_start).unwrap_or(s);
+        let lit = s.strip_prefix('"')?;
+        let mut end = 0;
+        let b = lit.as_bytes();
+        while end < b.len() && b[end] != b'"' {
+            if b[end] == b'\\' {
+                end += 1;
+            }
+            end += 1;
+        }
+        Some(&lit[..end.min(lit.len())])
+    }
+
+    /// Text a user reads: letters once the `{...}` placeholders, escapes and
+    /// URLs are left out, and not a name of `UNTRANSLATED_UI_TEXT`.
+    fn is_user_text(lit: &str) -> bool {
+        // Addresses are not translated: drop each `http(s)://...` up to a
+        // space or an escape.
+        let mut no_urls = String::new();
+        let mut rest = lit;
+        while let Some(pos) = rest.find("http") {
+            no_urls.push_str(&rest[..pos]);
+            let tail = &rest[pos..];
+            if tail.starts_with("http://") || tail.starts_with("https://") {
+                let end = tail.find(|c: char| c.is_whitespace() || c == '\\').unwrap_or(tail.len());
+                rest = &tail[end..];
+            } else {
+                no_urls.push_str("http");
+                rest = &tail[4..];
+            }
+        }
+        no_urls.push_str(rest);
+        let lit = no_urls.as_str();
+        let mut words = String::new();
+        let mut depth = 0;
+        let mut chars = lit.chars().peekable();
+        while let Some(c) = chars.next() {
+            match c {
+                '{' => depth += 1,
+                '}' => depth -= 1,
+                // `\n`, `\u{...}`: an escape, not a word.
+                '\\' => {
+                    if let Some('u') = chars.next() {
+                        for c in chars.by_ref() {
+                            if c == '}' {
+                                break;
+                            }
+                        }
+                    }
+                }
+                _ if depth == 0 => words.push(c),
+                _ => {}
+            }
+        }
+        let mut rest = words;
+        for name in UNTRANSLATED_UI_TEXT {
+            rest = rest.replace(name, "");
+        }
+        rest.chars().any(|c| c.is_alphabetic())
+    }
+
+    /// Hard-coded texts handed to the UI in `src/ui`: arguments of the calls
+    /// that set a visible text, and the `title` / `content` of message boxes.
+    fn hard_coded_ui_texts() -> Vec<String> {
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).unwrap_or_else(|e| panic!("read {}: {}", dir.display(), e)) {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(&path, out);
+                } else if path.extension().map_or(false, |x| x == "rs") {
+                    out.push(path);
+                }
+            }
+        }
+        let mut files = Vec::new();
+        walk(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui"), &mut files);
+        assert!(files.len() > 30, "ui sources not found: {} files", files.len());
+        // Test-only files (declared under `#[cfg(test)]`).
+        files.retain(|f| {
+            let name = f.file_name().unwrap().to_string_lossy();
+            name != "tests.rs" && name != "snapshot.rs"
+        });
+        let calls = [
+            ".text(", ".title(", "set_text(", ".filters(",
+            "modal_info_message(", "modal_error_message(", "modal_warning_message(",
+            "modal_fatal_message(", "simple_message(", "error_message(",
+            "input_dialog(",
+        ];
+        let fields = ["title:", "content:"];
+        let mut found = Vec::new();
+        for file in files {
+            let text = without_test_items(&std::fs::read_to_string(&file).unwrap());
+            let rel = file.strip_prefix(env!("CARGO_MANIFEST_DIR")).unwrap().display().to_string();
+            let line_of = |at: usize| text[..at].matches('\n').count() + 1;
+            for needle in calls {
+                let mut i = 0;
+                while let Some(pos) = text[i..].find(needle) {
+                    let at = i + pos;
+                    i = at + needle.len();
+                    let open = at + needle.len() - 1;
+                    for arg in call_args(&text[open..]) {
+                        if let Some(lit) = literal_text(arg) {
+                            if is_user_text(lit) {
+                                found.push(format!("{}:{}: {}", rel, line_of(at), lit));
+                            }
+                        }
+                    }
+                }
+            }
+            for needle in fields {
+                let mut i = 0;
+                while let Some(pos) = text[i..].find(needle) {
+                    let at = i + pos;
+                    i = at + needle.len();
+                    if let Some(lit) = literal_text(text[i..].trim_start()) {
+                        if is_user_text(lit) {
+                            found.push(format!("{}:{}: {}", rel, line_of(at), lit));
+                        }
+                    }
+                }
+            }
+        }
+        found
+    }
+
+    /// Issue #25: every text the UI shows goes through `t` and exists in the
+    /// four languages. A literal handed straight to a control or a message
+    /// box stays in English whatever the language.
+    #[test]
+    fn the_ui_hands_no_hard_coded_text_to_its_controls() {
+        let found = hard_coded_ui_texts();
+        assert!(found.is_empty(), "{} hard-coded UI texts (use t(\"key\")):\n{}", found.len(), found.join("\n"));
+    }
+
+    /// The scan itself finds the forms it looks for, and skips tests.
+    #[test]
+    fn the_hard_coded_text_scan_sees_literals_and_formats() {
+        assert_eq!(call_args("(&self.window, \"Error\", &msg)"), ["&self.window", "\"Error\"", "&msg"]);
+        assert_eq!(literal_text("&format!(\"Version {}\", V)"), Some("Version {}"));
+        assert_eq!(literal_text("&t(\"about.title\")"), None);
+        assert!(is_user_text("Wrong password"));
+        assert!(!is_user_text("LockNote"));
+        assert!(!is_user_text("{} / {}"));
+        assert!(!is_user_text("\u{1F6E1}"));
+        assert!(!is_user_text("\\u{1F6E1}"));
+        assert!(!is_user_text("https://github.com/x"));
+        assert!(!is_user_text("{}\n\nhttps://github.com/{}\nhttps://uitguard.com"));
+        assert!(is_user_text("see https://x.com now"));
+        let src = "a(\"x\");\n#[cfg(test)]\nmod tests {\n fn f() { b(\"y\"); }\n}\nc();\n#[cfg(test)]\nmod snap;\nd();";
+        assert_eq!(without_test_items(src), "a(\"x\");\n\nc();\n\nd();");
     }
 
     // CURRENT_LANG is an AtomicU8 read by `get()` on every translation lookup

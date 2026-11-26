@@ -241,7 +241,7 @@ impl TotpManagerDialog {
                             if let Some(entry) = entries.get(idx) {
                                 if let Some(code) = totp::generate_code_now(&entry.secret) {
                                     let _ = set_clipboard_text(&code);
-                                    lbl_status.set_text(&format!("Copied code for {}", entry.name));
+                                    lbl_status.set_text(&t("totp.manager.copied").replace("{name}", &entry.name));
                                 }
                             }
                         } else {
@@ -249,7 +249,7 @@ impl TotpManagerDialog {
                         }
                     } else if handle == btn_add.handle {
                         // Ask for a name via a simple input dialog
-                        if let Some(name) = simple_input_dialog(&window_handle, "Add TOTP Entry", "Entry name:") {
+                        if let Some(name) = simple_input_dialog(&window_handle, &t("totp.add.title"), &t("totp.add.prompt")) {
                             if !name.is_empty() {
                                 if let Some(entry) = super::totp_setup::TotpSetupDialog::show(&name, None) {
                                     entries_for_handler.borrow_mut().push(entry);
@@ -269,8 +269,8 @@ impl TotpManagerDialog {
                                 let confirm = nwg::modal_message(
                                     &window_handle,
                                     &nwg::MessageParams {
-                                        title: "Remove TOTP Entry",
-                                        content: &format!("Remove \"{}\"? This cannot be undone.", name),
+                                        title: &t("totp.remove.title"),
+                                        content: &t("totp.remove.msg").replace("{name}", &name),
                                         buttons: nwg::MessageButtons::YesNo,
                                         icons: nwg::MessageIcons::Warning,
                                     },

@@ -1470,7 +1470,10 @@ Lang.Get("menu.file.save")  // → "Enregistrer"
 | Settings | `settings.title`, `.onclose`, `.ask`, `.always`, `.never`, `.theme`, `.dark`, `.light`, `.language`, `.minpwdlen`, `.font`, `.ok`, `.cancel`, `.hotkey`, `.2fa`, `.2fa.enable`, `.2fa.setup`, `.2fa.status.*` |
 | Update | `update.fail`, `.norelease`, `.uptodate`, `.available`, `.success`, `.error` |
 | TOTP | `totp.empty`, `.add`, `.add.title`, `.add.name`, `.add.secret`, `.add.invalid`, `.remove`, `.remove.confirm`, `.copied` |
-| Export | `export.prompt`, `.btn`, `.warning`, `.dlg.title`, `.dlg.filter`, `.fail` |
+| Export | `export.prompt`, `.btn`, `.warning`, `.dlg.title`, `.dlg.filter`, `.fail`, `.success.encoding` |
+| Former hard-coded texts (issue #25) | `confirmpwd.title` / `.export` / `.print`, `about.version`, `status.word(s)` / `.char(s)` / `.line(s)` (`{n}`, singular for 1 only), `save.error.encrypt`, `filter.text` / `.all` / `.images` / `.image` / `.ext` (file dialog labels; the `(*.ext)` part stays, nwg reads the pattern from it), `update.available.*`, `update.downloaded.*`, `update.error.title`, `update.uptodate.*`, `update.checkfailed.*`, `vault.delete.title` / `.msg`, `attach.error.title`, `attach.limit.title`, `attach.error.toolarge` / `.totaltoolarge`, `totp.manager.copied`, `totp.setup.for`, `2fa.invalid.left`, `close.remember_not_saved` |
+
+**No hard-coded UI text** (issue #25): `features::i18n::tests::the_ui_hands_no_hard_coded_text_to_its_controls` scans `src/ui` (test items and test-only files left out) for a string literal, or the format string of a `format!`, passed to `.text(`, `.title(`, `set_text(`, `.filters(`, `modal_*_message(`, `*input_dialog(`, or as the `title:` / `content:` of a message box, that contains letters once `{...}` placeholders, escapes and URLs are left out. `UNTRANSLATED_UI_TEXT` lists the names allowed as they are ("LockNote"). Texts built elsewhere and handed over in a variable are not seen by the scan. Still English by design: the windows shown before the note is decrypted (the language is in the encrypted settings), the default name of a new tab ("Note N", saved in the note), font names, and the `Display` of crypto / storage errors appended to translated messages.
 
 ---
 

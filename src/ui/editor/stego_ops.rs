@@ -12,7 +12,7 @@ impl EditorForm {
         nwg::FileDialog::builder()
             .title(&t("stego.dlg.open_carrier"))
             .action(nwg::FileDialogAction::Open)
-            .filters("Images (*.jpg;*.jpeg;*.png;*.bmp)|All Files (*.*)")
+            .filters(&format!("{}|{}", t("filter.images"), t("filter.all")))
             .build(&mut open_dialog)
             .expect("Failed to build file open dialog");
 
@@ -53,7 +53,7 @@ impl EditorForm {
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("jpg");
-        let filter = format!("Image (*.{})|All Files (*.*)", ext);
+        let filter = format!("{}|{}", t("filter.image").replace("{ext}", ext), t("filter.all"));
 
         let mut save_dialog = nwg::FileDialog::default();
         nwg::FileDialog::builder()
@@ -155,7 +155,7 @@ impl EditorForm {
         nwg::FileDialog::builder()
             .title(&t("stego.dlg.open_extract"))
             .action(nwg::FileDialogAction::Open)
-            .filters("Images (*.jpg;*.jpeg;*.png;*.bmp)|All Files (*.*)")
+            .filters(&format!("{}|{}", t("filter.images"), t("filter.all")))
             .build(&mut open_dialog)
             .expect("Failed to build file open dialog");
 

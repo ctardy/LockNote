@@ -218,7 +218,7 @@ fn dialog_snapshots() {
         "Export full backup", "Password to protect the backup:", "Export", "Cancel", "The password cannot be empty."));
     shot!("backups", super::backups_dialog::BackupsDialog::show(&dir.join("no-backups")));
     shot!("close_confirm", super::close_confirm::CloseConfirmDialog::show());
-    shot!("confirm_password", super::confirm_password::ConfirmPasswordDialog::show("pw", "Export backup"));
+    shot!("confirm_password", super::confirm_password::ConfirmPasswordDialog::show("pw", &crate::features::i18n::get("confirmpwd.export")));
     shot!("create_password", super::create_password::CreatePasswordDialog::show(8));
     shot!("drop_choice", super::drop_choice::DropChoiceDialog::show("report-2026.txt", true));
     shot!("export_encoding", super::export_encoding::ExportEncodingDialog::show());

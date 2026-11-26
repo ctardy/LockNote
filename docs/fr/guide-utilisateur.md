@@ -266,8 +266,8 @@ et les paramètres.
 
 **Sauvegarde auto.** Voir la [section 17](#17-verrouillage-auto-sauvegarde-auto-et-effacement-du-presse-papiers).
 
-**Attention.** Si un enregistrement échoue, un message « Save Error » en donne
-la raison. Vos modifications sont toujours dans la fenêtre : réessayez avant de
+**Attention.** Si un enregistrement échoue, un message « Erreur de
+sauvegarde » en donne la raison. Vos modifications sont toujours dans la fenêtre : réessayez avant de
 fermer. Un enregistrement qui échoue pendant la fermeture (Oui à la question,
 Toujours enregistrer, ou le dernier enregistrement) arrête la fermeture :
 LockNote reste ouvert avec votre texte, pour réessayer ou le copier.
@@ -373,8 +373,8 @@ police à partir du démarrage suivant de LockNote.
 
 Fichier > Imprimer... (Ctrl+P).
 
-1. Confirmez votre mot de passe (fenêtre en anglais « Confirm Password » :
-   « Enter your password to print: »).
+1. Confirmez votre mot de passe (fenêtre « Confirmer le mot de passe » :
+   « Saisissez votre mot de passe pour imprimer : »).
 2. Choisissez l'imprimante dans la boîte d'impression de Windows.
 
 Seul l'onglet actif est imprimé, en Consolas 10 pt avec des marges de 2,5 cm
@@ -384,10 +384,11 @@ Seul l'onglet actif est imprimé, en Consolas 10 pt avec des marges de 2,5 cm
 
 Fichier > Exporter...
 
-1. Confirmez votre mot de passe (« Enter your password to export: »).
+1. Confirmez votre mot de passe (« Saisissez votre mot de passe pour
+   exporter : »).
 2. **Encodage d'exportation** : choisissez **UTF-8** (par défaut),
    **UTF-8 with BOM**, **Windows-1252** ou **ISO-8859-1 (Latin-1)**, puis OK.
-3. Choisissez le nom du fichier (Text Files (*.txt)).
+3. Choisissez le nom du fichier (Fichiers texte (*.txt)).
 
 **Attention.** Seul l'onglet actif est exporté, et **le fichier n'est pas
 chiffré**. Si des caractères ne peuvent pas être écrits dans l'encodage choisi,
@@ -446,8 +447,8 @@ seule sous l'arborescence, puis la masque.
    passe ; son bouton **Utiliser** place le mot de passe dans la valeur.
 5. OK enregistre le secret dans le coffre ; Annuler ferme sans rien changer.
 
-**Supprimer un secret.** Sélectionnez-le, **Suppr.**, puis confirmez (message
-en anglais « Are you sure you want to delete this secret? »).
+**Supprimer un secret.** Sélectionnez-le, **Suppr.**, puis confirmez
+(« Voulez-vous vraiment supprimer ce secret ? »).
 
 **Recherche.** Tapez dans le champ de recherche : l'arborescence ne montre plus
 que les secrets dont le nom contient le texte, sans tenir compte de la casse ni
@@ -930,13 +931,13 @@ sont perdues.** Cette fenêtre ne supprime jamais rien d'autre dans le dossier.
 **Où c'est.** Aide > Vérifier les mises à jour... LockNote ne vérifie que quand
 vous le demandez.
 
-**Fonctionnement.** Les messages de cette procédure sont en anglais.
+**Fonctionnement.**
 
 1. LockNote lit la dernière version publiée du dépôt public
-   (github.com/ctardy/LockNote). S'il n'y en a pas de plus récente : « You are
-   running the latest version (x.y.z). » (vous êtes à jour).
-2. Sinon : « A new version (x.y.z) is available. Would you like to download
-   it? » Répondez Oui.
+   (github.com/ctardy/LockNote). S'il n'y en a pas de plus récente : « Vous
+   utilisez la dernière version (x.y.z). »
+2. Sinon : « Une nouvelle version (x.y.z) est disponible. Voulez-vous la
+   télécharger ? » Répondez Oui.
 3. Une sauvegarde de sécurité (« Avant mise à jour ») est écrite. Si elle
    échoue, rien n'est téléchargé.
 4. LockNote télécharge `LockNote-windows-x64.zip` et le vérifie : la liste des
@@ -944,7 +945,7 @@ vous le demandez.
    l'archive doit correspondre à son empreinte. Sinon la mise à jour s'arrête
    sur une erreur.
 5. Le nouveau programme est placé dans le fichier d'attente avec vos notes.
-   « Restart LockNote now to apply it? » (redémarrer maintenant ?)
+   « Redémarrer LockNote maintenant pour l'appliquer ? »
    - **Oui** : LockNote se ferme (avec un dernier enregistrement), le fichier
      programme est remplacé, et LockNote redémarre.
    - **Non** : le fichier programme est remplacé à la prochaine fermeture de

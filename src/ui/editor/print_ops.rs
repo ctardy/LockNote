@@ -10,7 +10,7 @@ impl EditorForm {
         use crate::ui::dialogs::confirm_password::ConfirmPasswordDialog;
 
         // Require password confirmation before printing
-        if !ConfirmPasswordDialog::show(&self.password.borrow(), "print") {
+        if !ConfirmPasswordDialog::show(&self.password.borrow(), &t("confirmpwd.print")) {
             return;
         }
 

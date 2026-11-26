@@ -1259,7 +1259,7 @@ impl EditorForm {
         let mut lock_label = nwg::Label::default();
         nwg::Label::builder()
             .parent(&lock_frame)
-            .text("LockNote is locked")
+            .text(&t("lock.overlay.title"))
             .h_align(nwg::HTextAlign::Center)
             .build(&mut lock_label)
             .expect("Failed to build lock label");
@@ -1277,14 +1277,14 @@ impl EditorForm {
         let mut lock_eye = nwg::Button::default();
         nwg::Button::builder()
             .parent(&lock_frame)
-            .text("Show password")
+            .text(&t("unlock.show"))
             .build(&mut lock_eye)
             .expect("Failed to build lock show/hide button");
 
         let mut lock_btn = nwg::Button::default();
         nwg::Button::builder()
             .parent(&lock_frame)
-            .text("Unlock")
+            .text(&t("unlock.btn"))
             .build(&mut lock_btn)
             .expect("Failed to build lock button");
 

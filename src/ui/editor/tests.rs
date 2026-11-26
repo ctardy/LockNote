@@ -752,3 +752,26 @@
         // Plain letters go to the editor.
         assert_eq!(plain_key_action(0x41), None);
     }
+
+    // ── count_text / attach_limit_message (issue #25) ──
+
+    #[test]
+    fn count_text_uses_the_singular_key_for_one_only() {
+        let _g = crate::features::i18n::test_support::lang_guard();
+        crate::features::i18n::set_language(crate::features::i18n::Language::French);
+        assert_eq!(count_text(1, "status.word", "status.words"), "1 mot");
+        assert_eq!(count_text(3, "status.word", "status.words"), "3 mots");
+        crate::features::i18n::set_language(crate::features::i18n::Language::English);
+        assert_eq!(count_text(0, "status.line", "status.lines"), "0 lines");
+    }
+
+    #[test]
+    fn attach_limit_message_is_translated() {
+        use crate::features::attachments::AttachmentError;
+        let _g = crate::features::i18n::test_support::lang_guard();
+        crate::features::i18n::set_language(crate::features::i18n::Language::German);
+        let m = attach_limit_message(&AttachmentError::FileTooLarge { size: 2048, max: 1024 });
+        crate::features::i18n::set_language(crate::features::i18n::Language::English);
+        assert!(m.starts_with("Datei zu gro"), "{}", m);
+        assert!(!m.contains('{'), "{}", m);
+    }

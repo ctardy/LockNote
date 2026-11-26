@@ -16,7 +16,7 @@ impl EditorForm {
             return;
         }
         // Require password confirmation before export
-        if !ConfirmPasswordDialog::show(&self.password.borrow(), "export") {
+        if !ConfirmPasswordDialog::show(&self.password.borrow(), &t("confirmpwd.export")) {
             return;
         }
 

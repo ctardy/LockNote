@@ -341,7 +341,7 @@ impl SecurityDialog {
                         let min_pw_length = index_to_pw_length(pw_idx);
                         if let Some(password) = super::create_password::show(min_pw_length) {
                             *new_password_clone.borrow_mut() = Some(password);
-                            lbl_pw_status.set_text("Password changed \u{2713}");
+                            lbl_pw_status.set_text(&t("2fa.pwchanged"));
                         }
                     }
                     // TOTP checkbox: react immediately on click

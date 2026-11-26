@@ -12,12 +12,10 @@ impl EditorForm {
     pub(super) fn on_check_updates(&self) {
         match crate::updater::check_for_update() {
             crate::updater::UpdateCheckResult::Available { version, download_url } => {
-                let msg = format!(
-                    "A new version ({}) is available.\nWould you like to download it?",
-                    version
-                );
+                let msg = t("update.available.ask").replace("{version}", &version.to_string());
+                let title = t("update.available.title");
                 let params = nwg::MessageParams {
-                    title: "Update Available",
+                    title: &title,
                     content: &msg,
                     buttons: nwg::MessageButtons::YesNo,
                     icons: nwg::MessageIcons::Question,
@@ -45,9 +43,11 @@ impl EditorForm {
                             // (storage::promote_pending_on_exit), saved or not,
                             // notes or not.
 
+                            let title = t("update.downloaded.title");
+                            let content = t("update.downloaded.ask");
                             let restart_params = nwg::MessageParams {
-                                title: "Update Downloaded",
-                                content: "Update downloaded successfully.\n\nRestart LockNote now to apply it?",
+                                title: &title,
+                                content: &content,
                                 buttons: nwg::MessageButtons::YesNo,
                                 icons: nwg::MessageIcons::Question,
                             };
@@ -65,8 +65,8 @@ impl EditorForm {
                         Err(e) => {
                             nwg::modal_info_message(
                                 &self.window,
-                                "Update Error",
-                                &format!("Failed to update: {}", e),
+                                &t("update.error.title"),
+                                &t("update.error").replace("{error}", &e.to_string()),
                             );
                         }
                     }
@@ -75,18 +75,15 @@ impl EditorForm {
             crate::updater::UpdateCheckResult::UpToDate => {
                 nwg::modal_info_message(
                     &self.window,
-                    "Up to Date",
-                    &format!(
-                        "You are running the latest version ({}).",
-                        crate::updater::current_version()
-                    ),
+                    &t("update.uptodate.title"),
+                    &t("update.uptodate.msg").replace("{version}", &crate::updater::current_version()),
                 );
             }
             crate::updater::UpdateCheckResult::Error(e) => {
                 nwg::modal_info_message(
                     &self.window,
-                    "Update Check Failed",
-                    &format!("Could not check for updates: {}", e),
+                    &t("update.checkfailed.title"),
+                    &t("update.checkfailed.msg").replace("{error}", &e.to_string()),
                 );
             }
         }
@@ -94,18 +91,17 @@ impl EditorForm {
 
     pub(super) fn on_about(&self) {
         let msg = format!(
-            "LockNote v{}\n\n\
-             Self-contained encrypted notepad for Windows.\n\n\
-             {}\n\n\
+            "LockNote\n{}\n\n{}\n\n{}\n\n\
              https://github.com/{}\n\
              https://uitguard.com",
-            crate::updater::current_version(),
+            t("about.version").replace("{version}", &crate::updater::current_version()),
+            t("about.desc"),
             // The same line as the About dialog, built from the crypto
             // constants so it cannot drift from them (issue #28).
             crate::ui::dialogs::about::crypto_summary(),
             crate::updater::github_repo(),
         );
-        nwg::modal_info_message(&self.window, "About LockNote", &msg);
+        nwg::modal_info_message(&self.window, &t("about.title"), &msg);
     }
 
     // =====================================================================

@@ -61,7 +61,7 @@ impl TotpSetupDialog {
         // --- Name label ---
         let mut lbl_name = Default::default();
         nwg::Label::builder()
-            .text(&format!("Setting up TOTP for: {}", name))
+            .text(&t("totp.setup.for").replace("{name}", name))
             .parent(&window)
             .position((20, 15))
             .size((460, 20))

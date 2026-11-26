@@ -7,6 +7,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use zeroize::Zeroizing;
 
+fn t(key: &str) -> String {
+    crate::features::i18n::get(key).to_string()
+}
+
 /// Compare two byte slices in time that depends only on the longer input's
 /// length. Returns `true` iff they are equal. Used to avoid leaking the
 /// common prefix length of the typed password vs the real one through
@@ -27,7 +31,9 @@ pub struct ConfirmPasswordDialog;
 
 impl ConfirmPasswordDialog {
     /// Show the dialog. Returns `true` if the user entered the correct password.
-    pub fn show(current_password: &str, action_label: &str) -> bool {
+    /// `prompt`: the translated question, e.g. `t("confirmpwd.export")` (a
+    /// whole sentence per action: word order differs between languages).
+    pub fn show(current_password: &str, prompt: &str) -> bool {
         // --- Center on screen ---
         #[link(name = "user32")]
         extern "system" {
@@ -44,7 +50,7 @@ impl ConfirmPasswordDialog {
         nwg::Window::builder()
             .size((win_w, win_h))
             .position((pos_x, pos_y))
-            .title("Confirm Password")
+            .title(&t("confirmpwd.title"))
             .flags(nwg::WindowFlags::WINDOW | nwg::WindowFlags::VISIBLE)
             .build(&mut window)
             .expect("Failed to build ConfirmPasswordDialog window");
@@ -64,7 +70,7 @@ impl ConfirmPasswordDialog {
         // Label
         let mut lbl = Default::default();
         nwg::Label::builder()
-            .text(&format!("Enter your password to {}:", action_label))
+            .text(prompt)
             .parent(&window)
             .position((margin, 15))
             .size((content_w, 22))
@@ -99,7 +105,7 @@ impl ConfirmPasswordDialog {
         // OK button
         let mut btn_ok = Default::default();
         nwg::Button::builder()
-            .text("OK")
+            .text(&t("settings.ok"))
             .parent(&window)
             .position((win_w - margin - 185, 120))
             .size((85, 32))
@@ -110,7 +116,7 @@ impl ConfirmPasswordDialog {
         // Cancel button
         let mut btn_cancel = Default::default();
         nwg::Button::builder()
-            .text("Cancel")
+            .text(&t("settings.cancel"))
             .parent(&window)
             .position((win_w - margin - 90, 120))
             .size((90, 32))
@@ -140,7 +146,7 @@ impl ConfirmPasswordDialog {
                             txt_password.set_text("");
                             nwg::stop_thread_dispatch();
                         } else {
-                            lbl_error.set_text("Wrong password");
+                            lbl_error.set_text(&t("unlock.wrong"));
                             txt_password.set_text("");
                             if let nwg::ControlHandle::Hwnd(h) = txt_password.handle {
                                 unsafe {

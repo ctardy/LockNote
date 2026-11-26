@@ -82,10 +82,10 @@ impl EditorForm {
         ) {
             Ok(bytes) => bytes,
             Err(e) => {
-                let msg = format!("Encryption failed: {}", e);
+                let msg = t("save.error.encrypt").replace("{}", &e.to_string());
                 nwg::modal_info_message(
                     &self.window,
-                    "Save Error",
+                    &t("save.error.title"),
                     &msg,
                 );
                 return Err(msg);
@@ -98,10 +98,10 @@ impl EditorForm {
                 Ok(())
             }
             Err(e) => {
-                let msg = format!("Failed to save: {}", e);
+                let msg = t("save.error.msg").replace("{}", &e.to_string());
                 nwg::modal_info_message(
                     &self.window,
-                    "Save Error",
+                    &t("save.error.title"),
                     &msg,
                 );
                 Err(msg)
@@ -115,7 +115,7 @@ impl EditorForm {
         use crate::ui::dialogs::confirm_password::ConfirmPasswordDialog;
 
         // Require password confirmation before export
-        if !ConfirmPasswordDialog::show(&self.password.borrow(), "export") {
+        if !ConfirmPasswordDialog::show(&self.password.borrow(), &t("confirmpwd.export")) {
             return;
         }
 
@@ -128,9 +128,9 @@ impl EditorForm {
         // Step 2: File save dialog
         let mut dialog = nwg::FileDialog::default();
         nwg::FileDialog::builder()
-            .title("Export Note")
+            .title(&t("export.dlg.title"))
             .action(nwg::FileDialogAction::Save)
-            .filters("Text Files (*.txt)|All Files (*.*)")
+            .filters(&format!("{}|{}", t("filter.text"), t("filter.all")))
             .build(&mut dialog)
             .expect("Failed to build export dialog");
 
@@ -156,19 +156,17 @@ impl EditorForm {
                     Ok(_) => {
                         nwg::modal_info_message(
                             &self.window,
-                            "Export",
-                            &format!(
-                                "Note exported as {} to:\n{}",
-                                encoding.label(),
-                                path.to_string_lossy()
-                            ),
+                            &t("export.success.title"),
+                            &t("export.success.encoding")
+                                .replace("{encoding}", encoding.label())
+                                .replace("{path}", &path.to_string_lossy()),
                         );
                     }
                     Err(e) => {
                         nwg::modal_info_message(
                             &self.window,
-                            "Export Error",
-                            &format!("Failed to export: {}", e),
+                            &t("export.error.title"),
+                            &t("export.error.msg").replace("{}", &e.to_string()),
                         );
                     }
                 }

@@ -91,7 +91,7 @@ impl TotpPanel {
     /// Get the countdown text.
     pub fn countdown_text(&self) -> String {
         let remaining = totp::remaining_seconds();
-        format!("Next code in {} s", remaining)
+        crate::features::i18n::get("totp.nextcode").replace("{n}", &remaining.to_string())
     }
 
     /// Copy a TOTP code to the clipboard.
@@ -212,6 +212,8 @@ mod tests {
 
     #[test]
     fn countdown_text_format() {
+        let _g = crate::features::i18n::test_support::lang_guard();
+        crate::features::i18n::set_language(crate::features::i18n::Language::English);
         let panel = TotpPanel::new();
         let text = panel.countdown_text();
         assert!(text.contains("s"));

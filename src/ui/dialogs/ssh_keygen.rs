@@ -306,7 +306,7 @@ impl SshKeygenDialog {
                     nwg::FileDialog::builder()
                         .title(&t("ssh.gen.export_title"))
                         .action(nwg::FileDialogAction::Save)
-                        .filters("All Files (*.*)")
+                        .filters(&t("filter.all"))
                         .build(&mut dialog)
                         .expect("Failed to build file save dialog");
                     if !dialog.run(Some(window_handle)) {

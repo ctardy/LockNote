@@ -718,3 +718,23 @@ pub(super) fn plain_key_action(vk: u32) -> Option<PlainKey> {
         _ => None,
     }
 }
+
+/// "{n} word" / "{n} words" from the i18n keys `one` / `many` (status bar).
+pub(super) fn count_text(n: usize, one: &str, many: &str) -> String {
+    let key = if n == 1 { one } else { many };
+    crate::features::i18n::get(key).replace("{n}", &n.to_string())
+}
+
+/// The translated text of an attachment size limit (the `Display` of
+/// `AttachmentError` is English).
+pub(super) fn attach_limit_message(e: &crate::features::attachments::AttachmentError) -> String {
+    use crate::features::attachments::{format_size, AttachmentError};
+    match e {
+        AttachmentError::FileTooLarge { size, max } => crate::features::i18n::get("attach.error.toolarge")
+            .replace("{size}", &format_size(*size))
+            .replace("{max}", &format_size(*max)),
+        AttachmentError::TotalTooLarge { total, max } => crate::features::i18n::get("attach.error.totaltoolarge")
+            .replace("{size}", &format_size(*total))
+            .replace("{max}", &format_size(*max)),
+    }
+}

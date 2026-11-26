@@ -87,7 +87,7 @@ impl AboutDialog {
         // Version
         let mut lbl_version = Default::default();
         nwg::Label::builder()
-            .text(&format!("Version {}", VERSION))
+            .text(&t("about.version").replace("{version}", VERSION))
             .parent(&window)
             .position((65, 48))
             .size((300, 20))

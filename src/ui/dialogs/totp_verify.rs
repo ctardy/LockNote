@@ -255,11 +255,9 @@ impl TotpVerifyDialog {
                                 let remaining = MAX_TOTP_ATTEMPTS - *att;
                                 let delay = backoff_seconds(*att);
                                 if delay == 0 {
-                                    lbl_status.set_text(&format!(
-                                        "Invalid code. {} attempt{} remaining.",
-                                        remaining,
-                                        if remaining == 1 { "" } else { "s" }
-                                    ));
+                                    lbl_status.set_text(
+                                        &t("2fa.invalid.left").replace("{n}", &remaining.to_string()),
+                                    );
                                 } else {
                                     btn_verify.set_enabled(false);
                                     txt_code.set_enabled(false);
@@ -267,9 +265,8 @@ impl TotpVerifyDialog {
                                     let retry_msg = t("2fa.retryin")
                                         .replace("{seconds}", &delay.to_string());
                                     lbl_status.set_text(&format!(
-                                        "Invalid code. {} attempt{} left — {}",
-                                        remaining,
-                                        if remaining == 1 { "" } else { "s" },
+                                        "{} \u{2014} {}",
+                                        t("2fa.invalid.left").replace("{n}", &remaining.to_string()),
                                         retry_msg,
                                     ));
                                     backoff_timer.start();

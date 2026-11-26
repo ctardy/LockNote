@@ -316,9 +316,11 @@ impl EditorForm {
     /// Handle vault Delete button.
     pub(super) fn on_vault_delete(&self) {
         let Some(global_idx) = self.selected_vault_secret() else { return };
+        let title = t("vault.delete.title");
+        let content = t("vault.delete.msg");
         let params = nwg::MessageParams {
-            title: "Delete Secret",
-            content: "Are you sure you want to delete this secret?",
+            title: &title,
+            content: &content,
             buttons: nwg::MessageButtons::YesNo,
             icons: nwg::MessageIcons::Warning,
         };

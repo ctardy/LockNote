@@ -180,15 +180,9 @@ impl EditorForm {
         let line_count = if text.is_empty() { 1 } else { text.lines().count().max(1) };
         let word_count = text.split_whitespace().count();
 
-        self.status_bar.set_text(0, &format!(
-            " {} word{}", word_count, if word_count == 1 { "" } else { "s" }
-        ));
-        self.status_bar.set_text(1, &format!(
-            " {} character{}", char_count, if char_count == 1 { "" } else { "s" }
-        ));
-        self.status_bar.set_text(2, &format!(
-            " {} line{}", line_count, if line_count == 1 { "" } else { "s" }
-        ));
+        self.status_bar.set_text(0, &format!(" {}", count_text(word_count, "status.word", "status.words")));
+        self.status_bar.set_text(1, &format!(" {}", count_text(char_count, "status.char", "status.chars")));
+        self.status_bar.set_text(2, &format!(" {}", count_text(line_count, "status.line", "status.lines")));
 
         {
             let enc = self.detected_encoding.borrow();

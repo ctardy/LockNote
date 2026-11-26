@@ -117,14 +117,14 @@ impl EditorForm {
             Ok(m) => m.len(),
             Err(e) => {
                 let msg = t("attach.error.read").replace("{}", &e.to_string());
-                nwg::modal_info_message(&self.window, "Error", &msg);
+                nwg::modal_info_message(&self.window, &t("attach.error.title"), &msg);
                 return;
             }
         };
         {
             let attachments = self.attachments.borrow();
             if let Err(e) = crate::features::attachments::check_limits(&attachments, file_size, max_file, max_total) {
-                nwg::modal_info_message(&self.window, "Attachment", &format!("{}", e));
+                nwg::modal_info_message(&self.window, &t("attach.limit.title"), &attach_limit_message(&e));
                 return;
             }
         }
@@ -133,7 +133,7 @@ impl EditorForm {
             Ok(d) => d,
             Err(e) => {
                 let msg = t("attach.error.read").replace("{}", &e.to_string());
-                nwg::modal_info_message(&self.window, "Error", &msg);
+                nwg::modal_info_message(&self.window, &t("attach.error.title"), &msg);
                 return;
             }
         };
@@ -154,9 +154,12 @@ impl EditorForm {
 
         // Build filter string: "Extension Files (*.ext)\0*.ext\0All Files (*.*)\0*.*\0\0"
         let filter = if ext.is_empty() {
-            "All Files (*.*)\0*.*\0\0".to_string()
+            format!("{}\0*.*\0\0", t("filter.all"))
         } else {
-            format!("{} files (*.{})\0*.{}\0All Files (*.*)\0*.*\0\0", ext.to_uppercase(), ext, ext)
+            let label = t("filter.ext")
+                .replace("{EXT}", &ext.to_uppercase())
+                .replace("{ext}", &ext);
+            format!("{}\0*.{}\0{}\0*.*\0\0", label, ext, t("filter.all"))
         };
         let filter_wide: Vec<u16> = filter.encode_utf16().collect();
 
@@ -214,7 +217,7 @@ impl EditorForm {
         };
 
         if !att.verify() {
-            nwg::modal_info_message(&self.window, "Error", &t("attach.error.corrupt"));
+            nwg::modal_info_message(&self.window, &t("attach.error.title"), &t("attach.error.corrupt"));
             return;
         }
 
@@ -226,7 +229,7 @@ impl EditorForm {
 
         if let Err(e) = std::fs::write(&path, &att.data) {
             let msg = t("attach.error.save").replace("{}", &e.to_string());
-            nwg::modal_info_message(&self.window, "Error", &msg);
+            nwg::modal_info_message(&self.window, &t("attach.error.title"), &msg);
             return;
         }
 
@@ -294,7 +297,7 @@ impl EditorForm {
 
         if let Err(e) = std::fs::write(&path, &att.data) {
             let msg = t("attach.error.save").replace("{}", &e.to_string());
-            nwg::modal_info_message(&self.window, "Error", &msg);
+            nwg::modal_info_message(&self.window, &t("attach.error.title"), &msg);
         }
     }
 
