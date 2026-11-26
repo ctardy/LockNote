@@ -359,7 +359,9 @@ mod tests {
         let ctrl_shift = &shortcut[shortcut.find(header).expect("ctrl+shift branch") + header.len()..];
         let ctrl_shift = &ctrl_shift[..ctrl_shift.find("} else if").expect("end of branch")];
         assert!(ctrl_shift.contains("0x46 => { self.on_search_all_tabs(); return true; }"), "Ctrl+Shift+F");
-        let events = crate::read_source(dir.join("events.rs"));
-        assert!(events.contains("handle == f.menu_edit_search_all.handle {\n                            f.on_search_all_tabs();"));
+        // The menu runs through the command table (palette_ops.rs).
+        let table = crate::read_source(dir.join("palette_ops.rs"));
+        assert!(table.contains("SearchAll => &self.menu_edit_search_all,"));
+        assert!(table.contains("SearchAll => self.on_search_all_tabs(),"));
     }
 }
