@@ -36,14 +36,17 @@ pub struct CloseConfirmResult {
 pub struct CloseConfirmDialog;
 
 impl CloseConfirmDialog {
-    /// Show the confirmation dialog. Returns the user's choice.
-    pub fn show() -> CloseConfirmResult {
+    /// Show the confirmation dialog. Returns the user's choice. `owner`: the
+    /// main window, so the dialog stays above it even when it is always on
+    /// top (an owned window is never behind its owner).
+    pub fn show(owner: Option<nwg::ControlHandle>) -> CloseConfirmResult {
         let mut window = Default::default();
         nwg::Window::builder()
             .size((420, 170))
             .position((300, 300))
             .title(&t("close.title"))
             .flags(nwg::WindowFlags::WINDOW | nwg::WindowFlags::VISIBLE)
+            .parent(owner)
             .build(&mut window)
             .expect("Failed to build CloseConfirmDialog window");
 

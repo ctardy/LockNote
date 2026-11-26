@@ -232,7 +232,7 @@ impl CloseSteps for FormCloseSteps<'_> {
         // its own message loop: a second close request meanwhile (tray menu,
         // title bar) is refused by the modal_dialog_open check of on_close.
         self.form.modal_dialog_open.set(true);
-        let answer = crate::ui::dialogs::close_confirm::CloseConfirmDialog::show();
+        let answer = crate::ui::dialogs::close_confirm::CloseConfirmDialog::show(Some(self.form.window.handle));
         self.form.modal_dialog_open.set(false);
         eprintln!("INFO close: prompt action={:?} remember={}", answer.action, answer.remember);
         answer

@@ -46,7 +46,7 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   4 lanes), taken from the crypto constants so it cannot drift again
   (#28).
 
-## [2.0.0] - Unreleased
+## [2.0.0] - 2026-11-25
 
 LockNote is free and open source (GPL-3.0-or-later), in one edition that
 holds every feature of the former Pro edition. The format of the notes does
