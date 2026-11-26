@@ -55,6 +55,40 @@ pub use style::{mark_error, set_frame_color};
 /// labels / edit boxes / lists (`WM_CTLCOLOR*`), DPI scaling, the font
 /// hierarchy, reflow of text that does not fit, uniform footer buttons, dark
 /// native controls (Dark theme), Esc = close, centering on the main window.
+/// Combo items for durations in seconds: 0 is "Off", then "{n} sec" in the
+/// current language (the items were English literals, issue #25 pass 2).
+pub(crate) fn seconds_options(values: &[u32]) -> Vec<String> {
+    values
+        .iter()
+        .map(|&v| if v == 0 { crate::features::i18n::get("option.off").to_string() } else { crate::features::i18n::get("option.seconds").replace("{n}", &v.to_string()) })
+        .collect()
+}
+
+/// Combo items for durations in minutes, as `seconds_options`.
+pub(crate) fn minutes_options(values: &[u32]) -> Vec<String> {
+    values
+        .iter()
+        .map(|&v| if v == 0 { crate::features::i18n::get("option.off").to_string() } else { crate::features::i18n::get("option.minutes").replace("{n}", &v.to_string()) })
+        .collect()
+}
+
+#[cfg(test)]
+mod duration_option_tests {
+    #[test]
+    fn duration_options_are_translated() {
+        use crate::features::i18n::{set_language, Language};
+        let _g = crate::features::i18n::test_support::lang_guard();
+        set_language(Language::French);
+        let s = super::seconds_options(&[0, 10]);
+        let m = super::minutes_options(&[0, 5]);
+        set_language(Language::English);
+        let en = super::seconds_options(&[0, 30]);
+        assert_eq!(s, ["D\u{e9}sactiv\u{e9}", "10 s"]);
+        assert_eq!(m, ["D\u{e9}sactiv\u{e9}", "5 min"]);
+        assert_eq!(en, ["Off", "30 sec"]);
+    }
+}
+
 pub fn apply_dialog_theme(window: &nwg::Window) {
     apply_window_chrome(window);
     style::register(window);

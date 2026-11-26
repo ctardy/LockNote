@@ -719,6 +719,12 @@ pub(super) fn plain_key_action(vk: u32) -> Option<PlainKey> {
     }
 }
 
+/// The menu label of a tab colour: `color.<name>` in the current language.
+/// The stored name (`theme::TAB_COLORS`, "blue"...) is not translated.
+pub(super) fn tab_color_label(name: &str) -> String {
+    crate::features::i18n::get(&format!("color.{}", name)).to_string()
+}
+
 /// "{n} word" / "{n} words" from the i18n keys `one` / `many` (status bar).
 pub(super) fn count_text(n: usize, one: &str, many: &str) -> String {
     let key = if n == 1 { one } else { many };

@@ -267,6 +267,9 @@ fn build_en() -> Dict {
     m.insert("color.yellow", "Yellow");
     m.insert("color.pink", "Pink");
     m.insert("color.gray", "Gray");
+    m.insert("option.off", "Off");
+    m.insert("option.seconds", "{n} sec");
+    m.insert("option.minutes", "{n} min");
 
     // Status bar
     m.insert("status.stats", "{words} words | {chars} chars | {lines} lines");
@@ -931,6 +934,9 @@ fn build_fr() -> Dict {
     m.insert("color.yellow", "Jaune");
     m.insert("color.pink", "Rose");
     m.insert("color.gray", "Gris");
+    m.insert("option.off", "D\u{00e9}sactiv\u{00e9}");
+    m.insert("option.seconds", "{n} s");
+    m.insert("option.minutes", "{n} min");
 
     m.insert("status.stats", "{words} mots | {chars} caract\u{00e8}res | {lines} lignes");
     m.insert("status.saved", "Enregistr\u{00e9}");
@@ -1575,6 +1581,9 @@ fn build_es() -> Dict {
     m.insert("color.yellow", "Amarillo");
     m.insert("color.pink", "Rosa");
     m.insert("color.gray", "Gris");
+    m.insert("option.off", "Desactivado");
+    m.insert("option.seconds", "{n} s");
+    m.insert("option.minutes", "{n} min");
 
     m.insert("status.stats", "{words} palabras | {chars} caracteres | {lines} l\u{00ed}neas");
     m.insert("status.saved", "Guardado");
@@ -2220,6 +2229,9 @@ fn build_de() -> Dict {
     m.insert("color.yellow", "Gelb");
     m.insert("color.pink", "Rosa");
     m.insert("color.gray", "Grau");
+    m.insert("option.off", "Aus");
+    m.insert("option.seconds", "{n} s");
+    m.insert("option.minutes", "{n} min");
 
     m.insert("status.stats", "{words} W\u{00f6}rter | {chars} Zeichen | {lines} Zeilen");
     m.insert("status.saved", "Gespeichert");
@@ -2977,6 +2989,22 @@ mod tests {
         // ui/editor/ssh_ops.rs: the save failure after an ssh-agent change
         "ssh.agent.save_failed_still_loaded",
         "ssh.agent.save_failed",
+        // ui/editor/helpers.rs: count_text (status bar)
+        "status.word",
+        "status.words",
+        "status.char",
+        "status.chars",
+        "status.line",
+        "status.lines",
+        // ui/editor/helpers.rs: tab_color_label, "color." + theme::TAB_COLORS name
+        "color.blue",
+        "color.green",
+        "color.red",
+        "color.orange",
+        "color.purple",
+        "color.yellow",
+        "color.pink",
+        "color.gray",
     ];
 
     /// Every literal key of a `t("...")` or `get("...")` call in the sources,
@@ -3055,6 +3083,49 @@ mod tests {
     const UNTRANSLATED_UI_TEXT: &[&str] = &[
         "LockNote",
     ];
+
+    /// `const` string lists of `src/ui` that are not translated on purpose:
+    /// language names (each in its own language), font names, file
+    /// extensions.
+    const UNTRANSLATED_UI_LISTS: &[&str] = &["LANGUAGES", "FONT_FAMILIES", "FONT_SIZES", "MIN_PW_LENGTHS", "RISKY_EXTS", "BINARY_EXTS"];
+
+    /// The `{name}` placeholders of a text, sorted (`{}` counted too).
+    fn placeholders(text: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut rest = text;
+        while let Some(open) = rest.find('{') {
+            match rest[open..].find('}') {
+                Some(close) => {
+                    out.push(rest[open..open + close + 1].to_string());
+                    rest = &rest[open + close + 1..];
+                }
+                None => break,
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// Pass 2: a translation that drops or renames a placeholder shows the
+    /// raw `{name}` or loses the value. Every language has the placeholders
+    /// of the English text.
+    #[test]
+    fn every_translation_keeps_the_english_placeholders() {
+        let en = en_dict();
+        let mut wrong = Vec::new();
+        for lang in [Language::French, Language::Spanish, Language::German] {
+            let d = dict_for(lang);
+            for (key, text) in en {
+                if let Some(tr) = d.get(key) {
+                    if placeholders(text) != placeholders(tr) {
+                        wrong.push(format!("{:?} {}: {:?} vs {:?}", lang, key, placeholders(text), placeholders(tr)));
+                    }
+                }
+            }
+        }
+        wrong.sort();
+        assert!(wrong.is_empty(), "{} texts:\n{}", wrong.len(), wrong.join("\n"));
+    }
 
     /// `text` without the `#[cfg(test)]` items (test modules and helpers):
     /// their strings are never shown to a user.
@@ -3254,6 +3325,30 @@ mod tests {
                     if let Some(lit) = literal_text(text[i..].trim_start()) {
                         if is_user_text(lit) {
                             found.push(format!("{}:{}: {}", rel, line_of(at), lit));
+                        }
+                    }
+                }
+            }
+            // `const X: &[&str] = &[...]` lists: the items of combo boxes
+            // (pass 2: "Off" / "10 sec" were missed). Menus built with
+            // AppendMenuW get their label from a variable, which this scan
+            // cannot follow: their texts are covered by
+            // `tab_color_labels_are_translated` and the key tests.
+            let mut i = 0;
+            while let Some(pos) = text[i..].find(": &[&str] = &[") {
+                let at = i + pos;
+                let name_start = text[..at].rfind(|c: char| !(c.is_ascii_uppercase() || c == '_')).map_or(0, |p| p + 1);
+                let name = &text[name_start..at];
+                let body_start = at + ": &[&str] = &[".len();
+                let body_end = text[body_start..].find("];").map_or(text.len(), |e| body_start + e);
+                i = body_end;
+                if UNTRANSLATED_UI_LISTS.contains(&name) {
+                    continue;
+                }
+                for item in text[body_start..body_end].split(',') {
+                    if let Some(lit) = literal_text(item.trim()) {
+                        if is_user_text(lit) {
+                            found.push(format!("{}:{}: {} in {}", rel, line_of(at), lit, name));
                         }
                     }
                 }

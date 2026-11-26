@@ -93,13 +93,10 @@ fn format_shortcut(modifiers: u32, vk: u32) -> String {
 
 const LANGUAGES: &[&str] = &["English", "Français", "Español", "Deutsch"];
 
-const AUTO_LOCK_OPTIONS: &[&str] = &["Off", "1 min", "5 min", "10 min", "15 min", "30 min", "60 min"];
 const AUTO_LOCK_VALUES: &[u32] = &[0, 1, 5, 10, 15, 30, 60];
 
-const AUTO_SAVE_OPTIONS: &[&str] = &["Off", "10 sec", "30 sec", "60 sec", "120 sec", "300 sec"];
 const AUTO_SAVE_VALUES: &[u32] = &[0, 10, 30, 60, 120, 300];
 
-const CLIPBOARD_OPTIONS: &[&str] = &["Off", "10 sec", "30 sec", "60 sec", "120 sec"];
 const CLIPBOARD_VALUES: &[u32] = &[0, 10, 30, 60, 120];
 
 // ---------------------------------------------------------------------------
@@ -396,7 +393,7 @@ impl SettingsDialog {
         {
             build_combo_row(
                 &window, &font, y, &t("settings.autolock"),
-                AUTO_LOCK_OPTIONS.iter().map(|s| s.to_string()).collect(),
+                super::minutes_options(AUTO_LOCK_VALUES),
                 auto_lock_index(current.auto_lock),
                 &mut lbl_autolock, &mut cmb_autolock,
             );
@@ -408,7 +405,7 @@ impl SettingsDialog {
         {
             build_combo_row(
                 &window, &font, y, &t("settings.clipboard"),
-                CLIPBOARD_OPTIONS.iter().map(|s| s.to_string()).collect(),
+                super::seconds_options(CLIPBOARD_VALUES),
                 clipboard_index(current.clipboard_clear),
                 &mut lbl_clipboard, &mut cmb_clipboard,
             );
@@ -528,7 +525,7 @@ impl SettingsDialog {
         {
             build_combo_row(
                 &window, &font, y, &t("settings.autosave"),
-                AUTO_SAVE_OPTIONS.iter().map(|s| s.to_string()).collect(),
+                super::seconds_options(AUTO_SAVE_VALUES),
                 auto_save_index(current.auto_save),
                 &mut lbl_autosave, &mut cmb_autosave,
             );

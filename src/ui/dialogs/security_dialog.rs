@@ -40,10 +40,8 @@ pub struct SecurityChanges {
 
 const MIN_PW_LENGTHS: &[&str] = &["1", "4", "6", "8", "12", "16"];
 
-const AUTO_LOCK_OPTIONS: &[&str] = &["Off", "1 min", "5 min", "10 min", "15 min", "30 min", "60 min"];
 const AUTO_LOCK_VALUES: &[u32] = &[0, 1, 5, 10, 15, 30, 60];
 
-const CLIPBOARD_OPTIONS: &[&str] = &["Off", "10 sec", "30 sec", "60 sec", "120 sec"];
 const CLIPBOARD_VALUES: &[u32] = &[0, 10, 30, 60, 120];
 
 // ---------------------------------------------------------------------------
@@ -229,7 +227,7 @@ impl SecurityDialog {
         {
             build_combo_row(
                 &window, &font, y, &t("settings.autolock"),
-                AUTO_LOCK_OPTIONS.iter().map(|s| s.to_string()).collect(),
+                super::minutes_options(AUTO_LOCK_VALUES),
                 auto_lock_index(current.auto_lock),
                 &mut lbl_autolock, &mut cmb_autolock,
             );
@@ -241,7 +239,7 @@ impl SecurityDialog {
         {
             build_combo_row(
                 &window, &font, y, &t("settings.clipboard"),
-                CLIPBOARD_OPTIONS.iter().map(|s| s.to_string()).collect(),
+                super::seconds_options(CLIPBOARD_VALUES),
                 clipboard_index(current.clipboard_clear),
                 &mut lbl_clipboard, &mut cmb_clipboard,
             );

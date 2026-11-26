@@ -22,9 +22,14 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
 - **Texts left in English**: the password confirmation (print, export), the
   vault delete confirmation, the update messages, the save and export
   errors, the status bar counts, the file dialog filters, the attachment
-  errors, the lock screen buttons and the TOTP dialogs are now translated in
-  French, Spanish and German. A test fails if a new hard-coded text is
-  handed to a control or a message box (#25).
+  errors, the lock screen buttons, the TOTP dialogs, the tab colour names and
+  the Off / sec / min items of the auto-save, auto-lock and clipboard lists
+  are now translated in French, Spanish and German. Still in English: the
+  windows shown before the notes are decrypted (the language is stored
+  inside them), the default vault categories and tab names of a new note
+  (they are saved as data), and the system error details appended to some
+  messages. A test fails if a new hard-coded text is handed to a control, a
+  message box or a `const` list of the UI (#25).
 - **Close prompt**: the English "Unsaved Changes" message box is replaced by
   the translated close dialog with **Remember my choice**. Remembering Save
   sets On close to Always save. Remembering Don't Save cannot be stored (the

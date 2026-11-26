@@ -87,7 +87,6 @@ fn format_shortcut(modifiers: u32, vk: u32) -> String {
 
 const LANGUAGES: &[&str] = &["English", "Français", "Español", "Deutsch"];
 
-const AUTO_SAVE_OPTIONS: &[&str] = &["Off", "10 sec", "30 sec", "60 sec", "120 sec", "300 sec"];
 const AUTO_SAVE_VALUES: &[u32] = &[0, 10, 30, 60, 120, 300];
 
 // ---------------------------------------------------------------------------
@@ -431,7 +430,7 @@ impl PreferencesDialog {
         {
             build_combo_row(
                 &window, &font, y, &t("settings.autosave"),
-                AUTO_SAVE_OPTIONS.iter().map(|s| s.to_string()).collect(),
+                super::seconds_options(AUTO_SAVE_VALUES),
                 auto_save_index(current.auto_save),
                 &mut lbl_autosave, &mut cmb_autosave,
             );

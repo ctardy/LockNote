@@ -755,6 +755,24 @@
 
     // ── count_text / attach_limit_message (issue #25) ──
 
+    /// Pass 2: the tab colour submenu showed the stored names ("blue").
+    #[test]
+    fn tab_color_labels_are_translated() {
+        use crate::features::i18n::{set_language, Language};
+        let _g = crate::features::i18n::test_support::lang_guard();
+        for lang in [Language::English, Language::French, Language::Spanish, Language::German] {
+            set_language(lang);
+            for name in crate::theme::tab_color_names() {
+                let label = tab_color_label(name);
+                assert!(!label.starts_with('[') && label != name, "{:?} {} -> {}", lang, name, label);
+            }
+        }
+        set_language(Language::French);
+        let blue = tab_color_label("blue");
+        set_language(Language::English);
+        assert_eq!(blue, "Bleu");
+    }
+
     #[test]
     fn count_text_uses_the_singular_key_for_one_only() {
         let _g = crate::features::i18n::test_support::lang_guard();

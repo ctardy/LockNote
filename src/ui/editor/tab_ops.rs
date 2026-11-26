@@ -315,7 +315,8 @@ impl EditorForm {
                 } else {
                     MENU_ITEM_FLAGS(0)
                 };
-                let label: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+                // The stored name stays "blue"...; the menu shows its translation.
+                let label: Vec<u16> = tab_color_label(name).encode_utf16().chain(std::iter::once(0)).collect();
                 let label_pcwstr = PCWSTR(label.as_ptr());
                 let _ = AppendMenuW(hcolor, flags, 5100 + i, label_pcwstr);
             }

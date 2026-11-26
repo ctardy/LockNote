@@ -294,9 +294,8 @@ son texte, son nom et une couleur facultative.
   onglet ne peut pas être fermé.
 - **Renommer** : Onglet > Renommer l'onglet... (**F2**), ou clic droit sur l'onglet >
   Renommer l’onglet.... Le nom ne peut pas être vide.
-- **Couleur** : clic droit sur l'onglet > Couleur > une couleur (affichées en
-  anglais : blue, green, red, orange, purple, yellow, pink, gray), ou Aucune
-  couleur. L'onglet affiche une pastille de cette couleur.
+- **Couleur** : clic droit sur l'onglet > Couleur > une couleur (Bleu, Vert,
+  Rouge, Orange, Violet, Jaune, Rose, Gris), ou Aucune couleur. L'onglet affiche une pastille de cette couleur.
 - **Réordonner** : appuyez sur un onglet, faites-le glisser sur un autre onglet
   et relâchez. Une marque indique où il va se placer.
 - **Onglets masqués** : quand les onglets ne tiennent pas, un bouton à liste
@@ -737,8 +736,8 @@ dernières options utilisées sont conservées avec la note.
 
 ### Verrouillage auto
 
-Fichier > Paramètres... > Sécurité... > **Verrouillage auto :** Off, 1, 5, 10,
-15 (par défaut), 30 ou 60 min.
+Fichier > Paramètres... > Sécurité... > **Verrouillage auto :** Désactivé, 1, 5,
+10, 15 (par défaut), 30 ou 60 min.
 
 LockNote se verrouille ([section 4](#4-verrouillage-et-écran-verrouillé)) quand,
 pendant cette durée, aucune touche n'a été frappée, la souris n'a ni bougé ni
@@ -749,8 +748,8 @@ nouvelle période. Une nouvelle valeur s'applique tout de suite.
 
 ### Sauvegarde auto
 
-Fichier > Paramètres... > Préférences... > **Sauvegarde auto :** Off, 10,
-30 (par défaut), 60, 120 ou 300 sec.
+Fichier > Paramètres... > Préférences... > **Sauvegarde auto :** Désactivé, 10,
+30 (par défaut), 60, 120 ou 300 s.
 
 Quand des modifications ne sont pas enregistrées, LockNote les enregistre à cet
 intervalle. Il n'enregistre jamais pendant le verrouillage. Une nouvelle valeur
@@ -758,8 +757,8 @@ s'applique à partir du démarrage suivant de LockNote.
 
 ### Effacement du presse-papiers
 
-Fichier > Paramètres... > Sécurité... > **Effacement presse-papiers :** Off, 10,
-30 (par défaut), 60 ou 120 sec.
+Fichier > Paramètres... > Sécurité... > **Effacement presse-papiers :**
+Désactivé, 10, 30 (par défaut), 60 ou 120 s.
 
 Passé ce délai, LockNote vide le presse-papiers, seulement s'il contient
 toujours la valeur qu'il y a copiée (vérification toutes les 5 secondes). Cela
@@ -1010,8 +1009,7 @@ d'anciennes versions, ne sert plus. Vous pouvez le supprimer.
 
 Les paramètres sont stockés dans la note chiffrée et font partie d'une
 sauvegarde complète (sauf les tailles de la fenêtre et des panneaux). Cliquez
-sur OK pour les appliquer, puis enregistrez la note. Certaines listes affichent
-leurs valeurs en anglais (« Off », « 10 sec », « 5 min »).
+sur OK pour les appliquer, puis enregistrez la note.
 
 ### Fichier > Paramètres... > Préférences...
 
@@ -1023,7 +1021,7 @@ leurs valeurs en anglais (« Off », « 10 sec », « 5 min »).
 | Apparence | Taille de police : | 8, 9, 10, 11, 12, 14, 16, 18, 20, 24 | 11 | au démarrage suivant |
 | Comportement | À la fermeture : | Demander, Toujours enregistrer, Ne jamais enregistrer | Demander | tout de suite |
 | Comportement | Raccourci de sauvegarde : | modificateur(s) + A-Z ou F1-F24 | Ctrl+S | tout de suite |
-| Comportement | Sauvegarde auto : | Off, 10, 30, 60, 120, 300 sec | 30 sec | au démarrage suivant |
+| Comportement | Sauvegarde auto : | Désactivé, 10, 30, 60, 120, 300 s | 30 s | au démarrage suivant |
 | Comportement | Réduire dans la zone de notification | oui / non | non | tout de suite |
 | Comportement | Raccourci global : | affiché seulement | Ctrl+Shift+L | - |
 
@@ -1033,8 +1031,8 @@ leurs valeurs en anglais (« Off », « 10 sec », « 5 min »).
 |---|---|---|---|
 | Changer le mot de passe... | ouvre la fenêtre de création de mot de passe (nouveau mot de passe deux fois) | - | après enregistrement |
 | Long. min. mot de passe : | 1, 4, 6, 8, 12, 16 | 6 (4 pour les notes faites avec des versions qui n'avaient pas ce réglage) | à la prochaine création ou au prochain changement de mot de passe |
-| Verrouillage auto : | Off, 1, 5, 10, 15, 30, 60 min | 15 min | tout de suite |
-| Effacement presse-papiers : | Off, 10, 30, 60, 120 sec | 30 sec | au démarrage suivant |
+| Verrouillage auto : | Désactivé, 1, 5, 10, 15, 30, 60 min | 15 min | tout de suite |
+| Effacement presse-papiers : | Désactivé, 10, 30, 60, 120 s | 30 s | au démarrage suivant |
 | Activer l'authentification TOTP à deux facteurs | oui / non | non | au démarrage suivant (après enregistrement) |
 
 **Changer le mot de passe...** : « Password changed ✓ » s'affiche dans la
