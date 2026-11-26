@@ -1232,7 +1232,7 @@ Tests: `cargo test features::auto_backup`: exact name matching (foreign names, s
 - Message: "Unsaved changes. Save before closing?" (`close.msg`, translated)
 - Buttons: Save (DialogResult.Yes), Don't save (DialogResult.No), Cancel
 - Checkbox: "Remember my choice" → sets `SaveOnClose` to Always/Never
-- Rust (issue #27): `ui/dialogs/close_confirm.rs` is the prompt of `on_close` (setting Ask), shown with `modal_dialog_open` set. `close_flow::remembered_close_action`: Save + remember → `save_on_close = always`, set before the save that writes it; Cancel never stores anything; Don't save + remember → `never` in memory only, since the settings are inside the encrypted note and storing them would save the declined changes: LockNote says so (`close.remember_not_saved`, logged `WARN close: remember=never not stored`)
+- Rust (issue #27): `ui/dialogs/close_confirm.rs` is the prompt of `on_close` (setting Ask), shown with `modal_dialog_open` set. `close_flow::remembered_close_action`: Save + remember → `save_on_close = always`, set before the save that writes it; Cancel never stores anything; Don't save + remember → nothing is written, not even in memory (decision of 2026-11-26), since the settings are inside the encrypted note and storing them would save the declined changes: LockNote says so and names the setting (`close_remember_notice`: `close.remember_not_saved` filled with `settings.onclose`, `settings.never` and the File > Settings > Preferences labels without `&`; shown with `modal_dialog_open` set; logged `WARN close: remember=never not stored`)
 
 #### GoToLineDialog
 

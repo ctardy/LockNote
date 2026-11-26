@@ -92,8 +92,8 @@ pub(super) enum CloseOutcome {
 pub(super) trait CloseSteps {
     /// The "unsaved changes" prompt.
     fn ask(&mut self) -> crate::ui::dialogs::close_confirm::CloseConfirmResult;
-    /// Store the "Remember my choice" answer in `save_on_close` (memory; the
-    /// next save writes it).
+    /// Store the "Remember my choice" answer (Save -> Always) in
+    /// `save_on_close` (memory; the save that follows writes it).
     fn remember(&mut self, action: crate::settings::CloseAction);
     /// Tell the user that "Remember my choice" with Don't save cannot be
     /// stored (see `run_close`).
@@ -127,6 +127,23 @@ pub(super) fn remembered_close_action(
     }
 }
 
+/// The text of the notice shown when "Remember my choice" goes with Don't
+/// save: it names the setting and the menu with the labels the app shows.
+pub(super) fn close_remember_notice() -> String {
+    // Menu labels without their access-key `&` and trailing "...".
+    let plain = |key: &str| t(key).replace('&', "").trim_end_matches("...").trim_end_matches('\u{2026}').to_string();
+    let menu = format!(
+        "{} > {} > {}",
+        plain("menu.file"),
+        plain("menu.file.settings"),
+        plain("menu.settings.preferences"),
+    );
+    t("close.remember_not_saved")
+        .replace("{onclose}", &t("settings.onclose"))
+        .replace("{never}", &t("settings.never"))
+        .replace("{menu}", &menu)
+}
+
 /// The close flow once the window state is captured: prompt (setting `Ask`),
 /// saves, ssh-agent unload, wipe. A failed save stops it before the wipe, so
 /// the unsaved changes stay in the open window (issue #22: they were lost),
@@ -158,8 +175,9 @@ pub(super) fn run_close(
                     Some(CloseAction::Always) => steps.remember(CloseAction::Always),
                     // Settings live in the encrypted note: storing Never
                     // would mean saving the changes the user just declined.
+                    // Nothing is written, not even in memory (decision of
+                    // 2026-11-26): the notice says where to set it.
                     Some(CloseAction::Never) => {
-                        steps.remember(CloseAction::Never);
                         eprintln!("WARN close: remember=never not stored, the note is not saved");
                         steps.tell_choice_not_remembered();
                     }
@@ -226,7 +244,11 @@ impl CloseSteps for FormCloseSteps<'_> {
     }
 
     fn tell_choice_not_remembered(&mut self) {
-        nwg::modal_info_message(&self.form.window, "LockNote", &t("close.remember_not_saved"));
+        // Its own message loop: a close request meanwhile (tray Quit) must be
+        // refused by on_close.
+        self.form.modal_dialog_open.set(true);
+        nwg::modal_info_message(&self.form.window, "LockNote", &close_remember_notice());
+        self.form.modal_dialog_open.set(false);
     }
 
     fn save(&mut self) -> Result<(), String> {
@@ -443,7 +465,32 @@ mod tests {
         let mut f = Fake::new(Choice::DontSave, vec![]);
         f.answer.remember = true;
         assert_eq!(run_close(true, CloseAction::Ask, &mut f), CloseOutcome::Close);
-        assert_eq!(f.log, ["ask", "remember:never", "not_remembered", "unload", "wipe"]);
+        // Decision of 2026-11-26: nothing is written, not even in memory.
+        assert_eq!(f.log, ["ask", "not_remembered", "unload", "wipe"]);
+    }
+
+    /// Pass 2, M4: the notice names the setting to change, with the labels
+    /// the app shows.
+    #[test]
+    fn the_not_remembered_notice_names_the_setting_and_the_menu() {
+        use crate::features::i18n::{set_language, Language};
+        let _g = crate::features::i18n::test_support::lang_guard();
+        set_language(Language::French);
+        let fr = close_remember_notice();
+        let mut all = Vec::new();
+        for lang in [Language::English, Language::Spanish, Language::German] {
+            set_language(lang);
+            all.push(close_remember_notice());
+        }
+        set_language(Language::English);
+        assert!(
+            fr.ends_with("Pour ne plus \u{ea}tre questionn\u{e9}, choisissez \u{ab} \u{c0} la fermeture : Ne jamais enregistrer \u{bb} dans Fichier > Param\u{e8}tres > Pr\u{e9}f\u{e9}rences, puis enregistrez."),
+            "{}", fr
+        );
+        assert!(all[0].contains("\"On close: Never save\" in File > Settings > Preferences"), "{}", all[0]);
+        for text in all.iter().chain(std::iter::once(&fr)) {
+            assert!(!text.contains('{') && !text.contains('&'), "{}", text);
+        }
     }
 
     #[test]
