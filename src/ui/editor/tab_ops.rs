@@ -230,7 +230,15 @@ impl EditorForm {
         let tb = self.tab_bar.borrow();
         let current_name = tb.active_tab().name.clone();
         drop(tb);
-        if let Some(new_name) = crate::ui::dialogs::rename_tab::RenameTabDialog::show(&current_name) {
+        let renamed = {
+            let _modal = self.modal();
+            crate::ui::dialogs::rename_tab::RenameTabDialog::show(&current_name)
+        };
+        if let Some(new_name) = renamed {
+            if *self.is_locked.borrow() {
+                eprintln!("INFO tabs: rename dropped, the note locked meanwhile");
+                return;
+            }
             let mut tb = self.tab_bar.borrow_mut();
             let active = tb.active_index();
             tb.rename_tab(active, &new_name);
@@ -376,7 +384,15 @@ impl EditorForm {
         drop(tb);
         if let Some(tab) = tabs.get(index) {
             let current_name = tab.name.clone();
-            if let Some(new_name) = crate::ui::dialogs::rename_tab::RenameTabDialog::show(&current_name) {
+            let renamed = {
+                let _modal = self.modal();
+                crate::ui::dialogs::rename_tab::RenameTabDialog::show(&current_name)
+            };
+            if let Some(new_name) = renamed {
+                if *self.is_locked.borrow() {
+                    eprintln!("INFO tabs: rename dropped, the note locked meanwhile");
+                    return;
+                }
                 let tb = self.tab_bar.borrow();
                 tb.rename_tab(index, &new_name);
                 drop(tb);

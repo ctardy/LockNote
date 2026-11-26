@@ -166,6 +166,13 @@ fn state_of(window: isize) -> Option<Rc<RefCell<DialogState>>> {
     STATES.with(|s| s.borrow().get(&window).cloned())
 }
 
+/// Number of LockNote dialogs open on this thread: registered by
+/// `apply_dialog_theme`, forgotten at WM_NCDESTROY (issue #30: the main
+/// window's timers wait while one is open).
+pub fn open_dialog_count() -> usize {
+    STATES.with(|s| s.borrow().len())
+}
+
 /// Register a freshly built dialog and queue its styling pass.
 pub fn register(window: &nwg::Window) {
     let Some(hwnd) = hwnd_of(window.handle) else {

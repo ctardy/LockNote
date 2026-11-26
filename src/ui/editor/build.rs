@@ -1415,7 +1415,9 @@ impl EditorForm {
             status_path_slot: Cell::new(None),
             status_path_feedback: RefCell::new(None),
             status_path_pressed: Cell::new(false),
-            modal_dialog_open: Cell::new(false),
+            modal_depth: Default::default(),
+            autosave_gate: Default::default(),
+            autolock_gate: Default::default(),
             // Tray
             tray_icon,
             tray_menu,

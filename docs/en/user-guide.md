@@ -691,6 +691,12 @@ text for that long. It checks every 10 seconds. Unsaved changes are saved
 first; if that save fails, LockNote does not lock and tries again after another
 period. A new value applies at once.
 
+While a LockNote window or message is open over the main window (a dialog,
+the close question...), neither auto-lock nor auto-save runs; both delays
+start again when it closes. The Lock button also waits for the dialog to be
+closed. While LockNote is locked, the menus only offer File > Quit and
+Help > About.
+
 ### Auto-save
 
 File > Settings > Preferences... > **Auto-save:** Off, 10, 30 (default), 60, 120

@@ -136,7 +136,12 @@ pub struct EditorForm {
     status_path_pressed: Cell<bool>,
     /// A modal dialog with its own message loop is open (Temporary files):
     /// `on_close` refuses meanwhile.
-    modal_dialog_open: Cell<bool>,
+    /// Modals opened through `modal()` (issue #30; `modal_open` also sees
+    /// the dialogs and message boxes opened without it).
+    modal_depth: self::modal_guard::ModalDepth,
+    /// Auto-save and auto-lock ticks wait while a modal is open.
+    autosave_gate: self::modal_guard::TimerGate,
+    autolock_gate: self::modal_guard::TimerGate,
 
     // ── Tray icon ──
     tray_icon: nwg::TrayNotification,
@@ -421,6 +426,7 @@ mod surface;
 mod theme_switch;
 mod toolbar;
 mod panel_grip;
+mod modal_guard;
 
 #[allow(unused_imports)]
 use self::helpers::*;

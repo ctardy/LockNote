@@ -77,9 +77,10 @@ impl EditorForm {
         // The tray menu still reaches the disabled editor: `on_close` refuses
         // while this is set, since the message loop it would stop is the
         // dialog's, not the application's.
-        self.modal_dialog_open.set(true);
-        let action = TempFilesDialog::show(self.window.handle, &self.exe_path);
-        self.modal_dialog_open.set(false);
+        let action = {
+            let _modal = self.modal();
+            TempFilesDialog::show(self.window.handle, &self.exe_path)
+        };
         match action {
             TempFilesAction::CloseApp => self.on_close(),
             TempFilesAction::Close => false,

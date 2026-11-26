@@ -35,6 +35,18 @@ impl EditorForm {
                         }
                     }
                     Event::OnMenuItemSelected => {
+                        // Issue #30: while locked, no menu command may open a
+                        // dialog that changes the (wiped) note; quitting,
+                        // About and the tray stay available.
+                        if *f.is_locked.borrow()
+                            && handle != f.menu_file_quit.handle
+                            && handle != f.menu_help_about.handle
+                            && handle != f.tray_menu_restore.handle
+                            && handle != f.tray_menu_quit.handle
+                        {
+                            eprintln!("INFO menu: command ignored while locked");
+                            return;
+                        }
                         // File menu
                         if handle == f.menu_file_save.handle {
                             let _ = f.on_save();
@@ -230,7 +242,15 @@ impl EditorForm {
                             f.repaint_gutter_if_caret_moved();
                         }
                         if handle == f.autolock_timer.handle {
-                            if !*f.is_locked.borrow() {
+                            use super::modal_guard::TimerTick;
+                            // Issue #30: nothing under an open modal; the
+                            // delay restarts once it closes.
+                            let locked = *f.is_locked.borrow();
+                            let tick = f.autolock_gate.tick(f.modal_open(), locked);
+                            if tick == TimerTick::RestartDelay {
+                                f.autolock.borrow_mut().reset();
+                            }
+                            if tick == TimerTick::Run {
                                 use crate::features::autolock::LockDecision;
                                 let decision = f.autolock.borrow().lock_decision();
                                 match decision {
@@ -254,8 +274,16 @@ impl EditorForm {
                             }
                         }
                         if handle == f.autosave_timer.handle {
-                            if f.autosave.borrow().should_save() && f.is_modified.load(Ordering::Relaxed) {
-                                f.on_autosave();
+                            use super::modal_guard::TimerTick;
+                            let locked = *f.is_locked.borrow();
+                            match f.autosave_gate.tick(f.modal_open(), locked) {
+                                TimerTick::Skip => {}
+                                TimerTick::RestartDelay => f.autosave.borrow_mut().mark_saved(),
+                                TimerTick::Run => {
+                                    if f.autosave.borrow().should_save() && f.is_modified.load(Ordering::Relaxed) {
+                                        f.on_autosave();
+                                    }
+                                }
                             }
                         }
                         if handle == f.clipboard_timer.handle {

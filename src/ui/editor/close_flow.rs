@@ -49,7 +49,7 @@ impl EditorForm {
         // A modal dialog runs its own message loop: closing now would wipe
         // the password and the text, then stop that loop instead of the
         // application's, leaving an empty editor that cannot save.
-        if self.modal_dialog_open.get() {
+        if self.modal_open() {
             eprintln!("INFO close: refused while a modal dialog is open");
             return false;
         }
@@ -230,10 +230,12 @@ impl CloseSteps for FormCloseSteps<'_> {
     fn ask(&mut self) -> crate::ui::dialogs::close_confirm::CloseConfirmResult {
         // The translated dialog with "Remember my choice" (issue #27). It runs
         // its own message loop: a second close request meanwhile (tray menu,
-        // title bar) is refused by the modal_dialog_open check of on_close.
-        self.form.modal_dialog_open.set(true);
-        let answer = crate::ui::dialogs::close_confirm::CloseConfirmDialog::show(Some(self.form.window.handle));
-        self.form.modal_dialog_open.set(false);
+        // title bar) is refused by the modal check of on_close; auto-save and
+        // auto-lock wait (issue #30).
+        let answer = {
+            let _modal = self.form.modal();
+            crate::ui::dialogs::close_confirm::CloseConfirmDialog::show(Some(self.form.window.handle))
+        };
         eprintln!("INFO close: prompt action={:?} remember={}", answer.action, answer.remember);
         answer
     }
@@ -246,9 +248,8 @@ impl CloseSteps for FormCloseSteps<'_> {
     fn tell_choice_not_remembered(&mut self) {
         // Its own message loop: a close request meanwhile (tray Quit) must be
         // refused by on_close.
-        self.form.modal_dialog_open.set(true);
+        let _modal = self.form.modal();
         nwg::modal_info_message(&self.form.window, "LockNote", &close_remember_notice());
-        self.form.modal_dialog_open.set(false);
     }
 
     fn save(&mut self) -> Result<(), String> {
@@ -270,9 +271,10 @@ impl CloseSteps for FormCloseSteps<'_> {
         };
         // Owned by the main window (above it even when it is always on top);
         // a close request meanwhile (tray menu) is refused by on_close.
-        self.form.modal_dialog_open.set(true);
-        let choice = nwg::modal_message(&self.form.window, &params);
-        self.form.modal_dialog_open.set(false);
+        let choice = {
+            let _modal = self.form.modal();
+            nwg::modal_message(&self.form.window, &params)
+        };
         let close = choice == nwg::MessageChoice::No;
         eprintln!("INFO close: save failed, close_without_saving={}", close);
         close

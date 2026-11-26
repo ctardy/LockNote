@@ -19,6 +19,12 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   setting, saved with the note and restored at the next start (#26).
 
 ### Fixed
+- **Auto-save and auto-lock under an open dialog**: they kept running while
+  a dialog or a message of LockNote was open (auto-save could write changes
+  then declined, auto-lock could wipe the password under the close
+  prompt). Both now wait and restart their delays when it closes. The Lock
+  button waits for the dialog, and while locked the menus only allow Quit
+  and About (#30).
 - **"Copied" shown after a failed copy**: the TOTP panel and dialogs and
   the vault said "Copied" even when Windows refused the clipboard write.
   Now a failed copy says "Copy failed: ..." and "Copied" appears only after
