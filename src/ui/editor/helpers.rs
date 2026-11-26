@@ -789,6 +789,58 @@ pub(super) fn zeroize_settings_secrets(s: &mut crate::settings::Settings) {
     s.totp_2fa_secret.zeroize();
 }
 
+/// What the lock does after its save (owner decision, pass 6).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum FailedLockSave {
+    /// Nothing to save, or saved: lock.
+    Proceed,
+    /// Manual lock: ask "Keep open" (default) / "Lock without saving".
+    AskManual,
+    /// Automatic lock (nobody there): curtain lifted only with the password,
+    /// nothing wiped, nothing discarded.
+    HideUntilPassword,
+}
+
+pub(super) fn failed_lock_save_step(modified: bool, save_ok: bool, manual: bool) -> FailedLockSave {
+    if lock_proceeds(modified, save_ok) {
+        FailedLockSave::Proceed
+    } else if manual {
+        FailedLockSave::AskManual
+    } else {
+        FailedLockSave::HideUntilPassword
+    }
+}
+
+/// Whether the password typed on the "save failed" curtain is the one in
+/// memory (constant time; an empty one never matches).
+pub(super) fn curtain_password_ok(typed: &str, password: &str) -> bool {
+    !password.is_empty() && crate::ui::dialogs::confirm_password::constant_time_eq(typed.as_bytes(), password.as_bytes())
+}
+
+/// Lock requests made while the lock shows its own box (pass 6): the
+/// manual one is kept for after it, the log appears once per box.
+#[derive(Default)]
+pub(super) struct LockBoxQueue {
+    manual: Cell<bool>,
+    logged: Cell<bool>,
+}
+
+impl LockBoxQueue {
+    /// Record a request; true when it is the first one to log for this box.
+    pub(super) fn request(&self, manual: bool) -> bool {
+        if manual {
+            self.manual.set(true);
+        }
+        !self.logged.replace(true)
+    }
+
+    /// After the box: whether a manual lock was asked meanwhile (and reset).
+    pub(super) fn take_manual(&self) -> bool {
+        self.logged.set(false);
+        self.manual.replace(false)
+    }
+}
+
 /// Whether the lock goes on after its save: not when there were unsaved
 /// changes and the save failed (pass 5: the wipe lost them).
 pub(super) fn lock_proceeds(modified: bool, save_ok: bool) -> bool {

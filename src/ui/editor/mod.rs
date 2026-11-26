@@ -154,6 +154,10 @@ pub struct EditorForm {
     lock_in_progress: Cell<bool>,
     /// The curtain (lock screen without unlock field) hides the note.
     curtain: Cell<self::modal_guard::Curtain>,
+    /// Reason of the failed save behind the "save failed" curtain.
+    lock_save_failed_reason: RefCell<String>,
+    /// Lock requests made during the lock's own box (pass 6).
+    lock_box_queue: self::helpers::LockBoxQueue,
     /// A failed save blocked the shutdown (issue #29): the reason is removed
     /// at WM_ENDSESSION.
     shutdown_blocked: Cell<bool>,

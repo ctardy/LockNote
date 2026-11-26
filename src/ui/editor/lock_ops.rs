@@ -84,28 +84,46 @@ impl EditorForm {
     // Auto-lock
     // =====================================================================
 
-    pub(super) fn on_autolock(&self) {
+    pub(super) fn on_autolock(&self, manual: bool) {
         // Serialize against unlock / autosave / manual save (fix #036).
         // Take the global persistence lock for the whole lock sequence:
         // save-if-dirty + clear editor + zeroize password.
         let _persistence_guard = crate::features::persistence_lock::acquire();
 
-        // Save first. Pass 5: a failed save no longer leads to a wipe of the
-        // unsaved changes (data loss): the curtain hides the note, the
-        // reason is shown, and once the user closes it the note is shown
-        // again, still unsaved, the inactivity delay restarted. Nothing else
-        // of the lock is done.
+        // Save first. A failed save never wipes the unsaved changes (owner
+        // decision, pass 6): a manual lock asks, an automatic one hides the
+        // note until the password is typed.
         let modified = self.is_modified.load(Ordering::Relaxed);
         let saved = if modified { self.save_note() } else { Ok(()) };
-        if !lock_proceeds(modified, saved.is_ok()) {
-            if let Err(f) = saved {
-                eprintln!("WARN lock: save before the lock failed, the note stays open (hidden while the reason is shown)");
-                self.lock_in_progress.set(true);
-                self.show_curtain(super::modal_guard::Curtain::Waiting);
-                self.inform(&t("save.error.title"), &lock_save_failed_text(f.message()));
-                self.hide_curtain();
+        let reason = saved.as_ref().err().map(|f| f.message().to_string()).unwrap_or_default();
+        match failed_lock_save_step(modified, saved.is_ok(), manual) {
+            FailedLockSave::Proceed => {}
+            FailedLockSave::AskManual => {
+                eprintln!("WARN lock: save before a manual lock failed, asking");
+                let msg = t("lock.save_failed.manual").replace("{error}", &reason);
+                let answer = {
+                    self.lock_in_progress.set(true);
+                    let _modal = self.modal();
+                    crate::ui::dialogs::close_confirm::SaveFailedDialog::show_with(
+                        Some(self.window.handle), &msg, &t("lock.keep_open"), &t("lock.lock_unsaved"),
+                    )
+                };
                 self.lock_in_progress.set(false);
-                self.autolock.borrow_mut().reset();
+                let lock_anyway = crate::ui::dialogs::close_confirm::closes_without_saving(answer);
+                self.after_lock_box();
+                if !lock_anyway {
+                    eprintln!("INFO lock: kept open after the failed save");
+                    self.autolock.borrow_mut().reset();
+                    return;
+                }
+                eprintln!("WARN lock: locking without saving (user choice), unsaved changes lost");
+            }
+            FailedLockSave::HideUntilPassword => {
+                if self.curtain.get() != super::modal_guard::Curtain::SaveFailed {
+                    eprintln!("WARN lock: save before an automatic lock failed, note hidden until the password");
+                }
+                *self.lock_save_failed_reason.borrow_mut() = reason;
+                self.show_curtain(super::modal_guard::Curtain::SaveFailed);
                 return;
             }
         }
@@ -421,6 +439,38 @@ impl EditorForm {
         }
     }
 
+    /// The password typed on the "save failed" curtain: the one in memory
+    /// lifts it (no disk read: the save just failed), then the reason of
+    /// the failed save is shown; the note comes back with its unsaved
+    /// changes (owner decision, pass 6).
+    pub(super) fn lift_save_failed_curtain(&self) {
+        let typed = Zeroizing::new(self.lock_input.text());
+        self.lock_input.set_text("");
+        let ok = curtain_password_ok(&typed, &self.password.borrow());
+        if !ok {
+            eprintln!("INFO lock: wrong password on the save-failed curtain");
+            self.lock_status_msg.set(Tone::Error, &t("unlock.wrong"));
+            return;
+        }
+        eprintln!("INFO lock: save-failed curtain lifted with the password");
+        self.hide_curtain();
+        self.autolock.borrow_mut().reset();
+        let reason = std::mem::take(&mut *self.lock_save_failed_reason.borrow_mut());
+        self.lock_in_progress.set(true);
+        self.inform(&t("save.error.title"), &lock_save_failed_text(&reason));
+        self.lock_in_progress.set(false);
+        self.after_lock_box();
+    }
+
+    /// After the lock's own box: run a manual lock asked meanwhile; a close
+    /// asked meanwhile runs from its pending request.
+    pub(super) fn after_lock_box(&self) {
+        if self.lock_box_queue.take_manual() {
+            eprintln!("INFO lock: manual lock asked during the box, running it");
+            self.request_lock(true);
+        }
+    }
+
     /// Lift the curtain (the note was not locked).
     pub(super) fn hide_curtain(&self) {
         if self.curtain.replace(super::modal_guard::Curtain::None) == super::modal_guard::Curtain::None {
@@ -523,6 +573,11 @@ impl EditorForm {
     /// increments the attempts counter, shows the error in the status label,
     /// and applies exponential backoff (same schedule as the previous popup).
     pub(super) fn on_unlock_overlay(&self) {
+        // The "save failed" curtain: the note was not locked (pass 6).
+        if self.curtain.get() == super::modal_guard::Curtain::SaveFailed {
+            self.lift_save_failed_curtain();
+            return;
+        }
         // Ignore clicks while backoff is active (defense in depth; the button
         // is also disabled during backoff via set_enabled(false)).
         if self.lock_backoff_remaining.get() > 0 {

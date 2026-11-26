@@ -851,6 +851,40 @@
         assert!(!ev.contains("if *f_ed.is_locked.borrow()"), "editor key handler on is_locked alone");
     }
 
+    /// Pass 6, owner decision: a failed save before a MANUAL lock asks
+    /// (keep open / lock without saving); before an AUTOMATIC lock the note
+    /// is hidden until the password is typed, nothing is discarded.
+    #[test]
+    fn a_failed_save_at_lock_asks_or_hides_until_the_password() {
+        assert_eq!(failed_lock_save_step(false, false, false), FailedLockSave::Proceed, "nothing to save");
+        assert_eq!(failed_lock_save_step(true, true, true), FailedLockSave::Proceed, "saved");
+        assert_eq!(failed_lock_save_step(true, false, true), FailedLockSave::AskManual);
+        assert_eq!(failed_lock_save_step(true, false, false), FailedLockSave::HideUntilPassword);
+    }
+
+    /// Pass 6: the "save failed" curtain lifts only with the password held
+    /// in memory (compared in constant time), never with an empty one.
+    #[test]
+    fn the_save_failed_curtain_lifts_only_with_the_password() {
+        assert!(curtain_password_ok("s3cret", "s3cret"));
+        assert!(!curtain_password_ok("s3cre", "s3cret"));
+        assert!(!curtain_password_ok("", ""));
+        assert!(!curtain_password_ok("x", ""));
+    }
+
+    /// Pass 6: a manual lock asked while the lock shows its own box is kept
+    /// for after it; the log of ignored requests appears once per box.
+    #[test]
+    fn requests_during_the_lock_box_are_queued_and_logged_once() {
+        let q = LockBoxQueue::default();
+        assert!(q.request(false), "first ignored request: logged");
+        assert!(!q.request(false), "then silent");
+        assert!(!q.request(true));
+        assert!(q.take_manual(), "the manual request runs after the box");
+        assert!(!q.take_manual());
+        assert!(q.request(false), "a new box logs again");
+    }
+
     /// Pass 5: a failed save before the lock keeps the note (no wipe of the
     /// unsaved changes); an unmodified note or a saved one locks.
     #[test]

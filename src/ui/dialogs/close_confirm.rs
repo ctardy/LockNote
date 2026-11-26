@@ -234,6 +234,13 @@ impl SaveFailedDialog {
     /// `message`: `close.save_failed` with the reason. Owned by `owner` (the
     /// main window). "Keep LockNote open" is the default (Enter) button.
     pub fn show(owner: Option<nwg::ControlHandle>, message: &str) -> SaveFailedAnswer {
+        Self::show_with(owner, message, &t("close.keep_open"), &t("close.close_unsaved"))
+    }
+
+    /// The same dialog with other button texts (the failed save before a
+    /// manual lock: "Keep open" / "Lock without saving", pass 6).
+    /// `CloseWithoutSaving` is the second button.
+    pub fn show_with(owner: Option<nwg::ControlHandle>, message: &str, keep: &str, act: &str) -> SaveFailedAnswer {
         let mut window = Default::default();
         nwg::Window::builder()
             .size((460, 190))
@@ -267,7 +274,7 @@ impl SaveFailedDialog {
 
         let mut btn_keep = Default::default();
         nwg::Button::builder()
-            .text(&t("close.keep_open"))
+            .text(keep)
             .parent(&window)
             .position((110, 130))
             .size((160, 30))
@@ -278,7 +285,7 @@ impl SaveFailedDialog {
 
         let mut btn_close = Default::default();
         nwg::Button::builder()
-            .text(&t("close.close_unsaved"))
+            .text(act)
             .parent(&window)
             .position((280, 130))
             .size((160, 30))

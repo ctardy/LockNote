@@ -49,6 +49,14 @@ impl EditorForm {
         // A modal dialog runs its own message loop: closing now would wipe
         // the password and the text, then stop that loop instead of the
         // application's, leaving an empty editor that cannot save.
+        // The note is hidden after a failed save before an automatic lock:
+        // quitting would lose the unsaved changes behind the password
+        // (owner decision, pass 6). Logoff / shutdown goes through
+        // WM_QUERYENDSESSION, which blocks it after a failed save.
+        if self.curtain.get() == super::modal_guard::Curtain::SaveFailed {
+            eprintln!("INFO close: refused, the note is hidden after a failed save (password needed)");
+            return false;
+        }
         // Closing now would stop that dialog's loop, not the application's:
         // the dialogs are cancelled and the close runs once they are gone
         // (run_pending_requests).

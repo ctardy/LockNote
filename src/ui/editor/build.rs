@@ -1422,6 +1422,8 @@ impl EditorForm {
             lock_epoch: Cell::new(0),
             lock_in_progress: Cell::new(false),
             curtain: Cell::new(self::modal_guard::Curtain::None),
+            lock_save_failed_reason: RefCell::new(String::new()),
+            lock_box_queue: Default::default(),
             shutdown_blocked: Cell::new(false),
             wipe_pending: Cell::new(false),
             exiting: Cell::new(false),

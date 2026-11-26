@@ -16,7 +16,7 @@ fn t(key: &str) -> String {
 /// common prefix length of the typed password vs the real one through
 /// timing (a local attacker with repeated attempts could otherwise recover
 /// the password character-by-character).
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }

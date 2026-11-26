@@ -228,9 +228,14 @@ impl EditorForm {
         // The lock's own save-error box (on_autolock) must not be cancelled
         // by a lock request made under it.
         if self.lock_in_progress.get() {
-            eprintln!("INFO lock: request ignored, a lock is in progress manual={}", manual);
+            // Kept for after the box when manual; logged once per box.
+            if self.lock_box_queue.request(manual) {
+                eprintln!("INFO lock: requests wait for the lock's box manual={}", manual);
+            }
             return;
         }
+        // The "save failed" curtain already hides the note; the next
+        // automatic tick retries the save (on_autolock).
         match lock_request(self.modal_open()) {
             LockRequest::LockNow => self.execute_lock(manual),
             LockRequest::CancelDialogsThenLock => {
@@ -250,6 +255,12 @@ impl EditorForm {
         if self.close_pending.get().is_none() {
             self.close_pending.set(Some(Pending::new(false)));
         }
+        // The lock's own box (reason of a failed save) is never cancelled:
+        // the close waits for it (pass 6).
+        if self.lock_in_progress.get() {
+            eprintln!("INFO close: queued after the lock's box");
+            return;
+        }
         let n = cancel_open_dialogs();
         eprintln!("INFO close: requested with dialogs open, cancelled={}", n);
     }
@@ -267,7 +278,7 @@ impl EditorForm {
                     }
                 }
                 LockStep::CancelAgain => {
-                    let n = cancel_open_dialogs();
+                    let n = if self.lock_in_progress.get() { 0 } else { cancel_open_dialogs() };
                     p.last_cancel = std::time::Instant::now();
                     eprintln!("INFO lock: dialogs asked to close again count={}", n);
                     self.lock_pending.set(Some(p));
@@ -306,7 +317,9 @@ impl EditorForm {
             match pending_step(self.modal_open(), p.last_cancel.elapsed()) {
                 PendingStep::Wait => {}
                 PendingStep::CancelAgain => {
-                    cancel_open_dialogs();
+                    if !self.lock_in_progress.get() {
+                        cancel_open_dialogs();
+                    }
                     p.last_cancel = std::time::Instant::now();
                     self.close_pending.set(Some(p));
                 }
@@ -330,9 +343,9 @@ impl EditorForm {
             eprintln!("INFO lock: pending auto lock dropped, the user is active again");
             return;
         }
-        // on_autolock saves first and, if that save fails, keeps the note
-        // open with the reason instead of wiping the unsaved changes.
-        self.on_autolock();
+        // on_autolock saves first and, if that save fails, never wipes the
+        // unsaved changes (owner decision, pass 6).
+        self.on_autolock(manual);
     }
 
     /// A message of the main window (pass 5: counted as a modal, owned by
