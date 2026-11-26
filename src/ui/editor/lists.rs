@@ -631,7 +631,7 @@ mod tests {
         assert!(ops.contains("0x0D => { self.on_toggle_checkbox(); return true; } // Ctrl+Enter"));
         let ev = editor_src("events.rs");
         assert!(ev.contains("if vk == 0x0D && ctrl {\n                                CTRL_ENTER_SUPPRESS_CHAR.store(true"));
-        assert!(ev.contains("w_param == 0x0A"));
+        assert!(ev.contains("0x0A => CTRL_ENTER_SUPPRESS_CHAR.swap(false"));
         assert!(ev.contains("CTRL_ENTER_SUPPRESS_CHAR.swap(false"));
     }
 

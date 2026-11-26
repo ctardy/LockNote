@@ -87,7 +87,11 @@ fn split_keep_breaks(s: &str) -> Vec<(&str, &str)> {
 /// - Selection across a line break: every touched line gets a leading tab
 ///   (`In`) or loses one leading tab, else up to 4 leading spaces (`Out`);
 ///   the selection then covers the touched lines entirely. A selection
-///   ending at column 0 of a line does not touch that line.
+///   ending at column 0 of a line does not touch that line, and still ends
+///   at column 0 of that line afterwards, so a second Tab touches the same
+///   lines. This holds even when a single line is touched: a whole line
+///   with its break (Home, then Shift+Down) is indented, not replaced by a
+///   tab.
 /// - Empty or one-line selection: `In` is `Native` (the control inserts the
 ///   tab); `Out` removes one indentation level from the current line.
 ///
@@ -98,20 +102,20 @@ pub(super) fn block_indent(
     sel_end: u32,
     dir: IndentDir,
 ) -> Result<IndentAction, Utf16RangeError> {
-    let len = utf16_len(text) as u32;
-    let (s, e) = (sel_start.min(sel_end).min(len), sel_start.max(sel_end).min(len));
-    let b0 = utf16_to_byte_exact(text, s as usize)?;
-    let b1 = utf16_to_byte_exact(text, e as usize)?;
-    let offsets = build_utf16_offset_map(text);
+    let b0 = byte_at_clamped(text, sel_start.min(sel_end))?;
+    let b1 = byte_at_clamped(text, sel_start.max(sel_end))?;
 
     let first = line_start_at(text, b0);
     let last_line_start = line_start_at(text, b1);
+    // Decided before the offset map is built: plain Tab stays cheap.
+    if last_line_start == first && dir == IndentDir::In {
+        return Ok(IndentAction::Native);
+    }
+    let offsets = build_utf16_offset_map(text);
+    let (s, e) = (offsets[b0] as u32, offsets[b1] as u32);
 
     if last_line_start == first {
-        // Empty or one-line selection.
-        if dir == IndentDir::In {
-            return Ok(IndentAction::Native);
-        }
+        // Empty or one-line selection, Shift+Tab.
         let line = &text[first..line_end_at(text, first)];
         let k = outdent_len(line) as u32;
         if k == 0 {
@@ -148,14 +152,25 @@ pub(super) fn block_indent(
 
     let start_u16 = offsets[first] as u32;
     let end_u16 = offsets[last_end] as u32;
+    // A column-0 end keeps the break after the last touched line selected.
+    let tail = if b1 == last_line_start { e - end_u16 } else { 0 };
     if new_region == region {
-        return Ok(IndentAction::Apply { replace: None, select: (start_u16, end_u16) });
+        return Ok(IndentAction::Apply { replace: None, select: (start_u16, end_u16 + tail) });
     }
     let new_end = start_u16 + utf16_len(&new_region) as u32;
     Ok(IndentAction::Apply {
         replace: Some(Replacement { start: start_u16, end: end_u16, text: new_region }),
-        select: (start_u16, new_end),
+        select: (start_u16, new_end + tail),
     })
+}
+
+/// Byte offset of RichEdit position `pos`; a position past the end maps to
+/// the end of the text.
+fn byte_at_clamped(text: &str, pos: u32) -> Result<usize, Utf16RangeError> {
+    match utf16_to_byte_exact(text, pos as usize) {
+        Err(Utf16RangeError::OutOfBounds { .. }) => Ok(text.len()),
+        other => other,
+    }
 }
 
 /// What `run_indent` (and `lists.rs`) needs from the editor.
@@ -173,16 +188,26 @@ pub(super) trait IndentSteps {
 /// caller then swallows the WM_CHAR tab that follows), false when the
 /// control must handle it.
 pub(super) fn run_indent(steps: &mut impl IndentSteps, dir: IndentDir) -> bool {
-    let text = steps.text();
     let (s, e) = steps.selection();
+    // Tab on a caret: the control inserts it, no need to copy the text.
+    if dir == IndentDir::In && s == e {
+        return false;
+    }
+    let text = steps.text();
     match block_indent(&text, s, e, dir) {
         Ok(IndentAction::Native) => false,
-        Ok(IndentAction::Apply { replace, select }) => {
-            if let Some(r) = replace {
-                steps.set_selection(r.start, r.end);
-                steps.replace_selection(&r.text);
-                steps.mark_modified();
+        Ok(IndentAction::Apply { replace: None, select }) => {
+            // Nothing to remove: leave an unchanged selection alone, so a
+            // selection made backwards keeps its direction.
+            if select != (s.min(e), s.max(e)) {
+                steps.set_selection(select.0, select.1);
             }
+            true
+        }
+        Ok(IndentAction::Apply { replace: Some(r), select }) => {
+            steps.set_selection(r.start, r.end);
+            steps.replace_selection(&r.text);
+            steps.mark_modified();
             steps.set_selection(select.0, select.1);
             true
         }
@@ -337,15 +362,42 @@ mod tests {
         // "aa\nbb\n" selected: ends at column 0 of "cc"
         let a = apply(t, 0, 6, IndentDir::In);
         assert_eq!(result_text(t, &a), "\taa\n\tbb\ncc");
-        assert_eq!(a, IndentAction::Apply { replace: repl(0, 5, "\taa\n\tbb"), select: (0, 7) });
+        // the selection still ends at column 0 of "cc"
+        assert_eq!(a, IndentAction::Apply { replace: repl(0, 5, "\taa\n\tbb"), select: (0, 8) });
     }
 
     #[test]
     fn tab_whole_line_with_its_break_indents_that_line() {
         // A selection across one line break that ends at column 0 touches one line.
         let t = "aa\nbb";
+        // The new selection keeps the break, so it still ends at column 0.
         let a = apply(t, 0, 3, IndentDir::In);
-        assert_eq!(a, IndentAction::Apply { replace: repl(0, 2, "\taa"), select: (0, 3) });
+        assert_eq!(a, IndentAction::Apply { replace: repl(0, 2, "\taa"), select: (0, 4) });
+    }
+
+    #[test]
+    fn shift_tab_whole_line_with_its_break_outdents_that_line() {
+        let t = "\taa\nbb";
+        let a = apply(t, 0, 4, IndentDir::Out);
+        assert_eq!(a, IndentAction::Apply { replace: repl(0, 3, "aa"), select: (0, 3) });
+    }
+
+    #[test]
+    fn block_end_at_column_zero_without_indent_keeps_selection() {
+        assert_eq!(
+            apply("aa\r\nbb", 0, 3, IndentDir::Out),
+            IndentAction::Apply { replace: None, select: (0, 3) }
+        );
+    }
+
+    #[test]
+    fn block_on_large_text_maps_positions() {
+        // Regression guard for the single offset map (not a timing assert).
+        let t = "x\r\n".repeat(100_000);
+        let len = utf16_len(&t) as u32;
+        assert_eq!(apply(&t, len - 2, len - 1, IndentDir::In), IndentAction::Native);
+        let a = apply(&t, 0, len, IndentDir::In);
+        assert_eq!(result_text(&t, &a).matches('\t').count(), 100_000);
     }
 
     #[test]
@@ -454,16 +506,18 @@ mod tests {
         text: String,
         sel: (u32, u32),
         calls: Vec<Call>,
+        text_reads: std::cell::Cell<usize>,
     }
 
     impl Fake {
         fn new(text: &str, s: u32, e: u32) -> Self {
-            Fake { text: text.to_string(), sel: (s, e), calls: Vec::new() }
+            Fake { text: text.to_string(), sel: (s, e), calls: Vec::new(), text_reads: Default::default() }
         }
     }
 
     impl IndentSteps for Fake {
         fn text(&self) -> String {
+            self.text_reads.set(self.text_reads.get() + 1);
             self.text.clone()
         }
         fn selection(&self) -> (u32, u32) {
@@ -522,14 +576,48 @@ mod tests {
         let mut f = Fake::new("abc", 1, 1);
         assert!(!run_indent(&mut f, IndentDir::In));
         assert!(f.calls.is_empty());
+        // the common keystroke does not copy the whole note
+        assert_eq!(f.text_reads.get(), 0);
+    }
+
+    #[test]
+    fn seq_whole_line_tab_twice_never_loses_text() {
+        // Home, Shift+Down, then Tab twice and Shift+Tab twice.
+        let mut f = Fake::new("aa\nbb", 0, 3);
+        assert!(run_indent(&mut f, IndentDir::In));
+        assert!(run_indent(&mut f, IndentDir::In));
+        assert_eq!(f.text, "\t\taa\nbb");
+        assert_eq!(f.sel, (0, 5));
+        assert!(run_indent(&mut f, IndentDir::Out));
+        assert!(run_indent(&mut f, IndentDir::Out));
+        assert_eq!(f.text, "aa\nbb");
+        assert_eq!(f.sel, (0, 3));
+    }
+
+    #[test]
+    fn seq_block_end_at_column_zero_tab_twice_keeps_lines() {
+        let mut f = Fake::new("aa\r\nbb\r\ncc", 0, 6);
+        assert!(run_indent(&mut f, IndentDir::In));
+        assert!(run_indent(&mut f, IndentDir::In));
+        assert_eq!(f.text, "\t\taa\r\n\t\tbb\r\ncc");
+        assert_eq!(f.sel, (0, 10));
     }
 
     #[test]
     fn seq_shift_tab_without_indent_is_consumed_without_edit() {
         let mut f = Fake::new("abc", 1, 1);
         assert!(run_indent(&mut f, IndentDir::Out));
-        assert_eq!(f.calls, vec![Call::Select(1, 1)]);
+        assert!(f.calls.is_empty());
         assert_eq!(f.text, "abc");
+    }
+
+    #[test]
+    fn seq_shift_tab_without_indent_keeps_backward_selection() {
+        // anchor after the caret (Shift+Left): no set_selection to flip it
+        let mut f = Fake::new("abc", 2, 1);
+        assert!(run_indent(&mut f, IndentDir::Out));
+        assert!(f.calls.is_empty());
+        assert_eq!(f.sel, (2, 1));
     }
 
     #[test]
@@ -550,7 +638,23 @@ mod tests {
         );
         assert!(ev.contains("vk == 0x09 && !ctrl && f_ed.handle_tab_indent(shift)"));
         assert!(ev.contains("TAB_SUPPRESS_CHAR.store(true"));
-        assert!(ev.contains("w_param == 0x09"));
+        assert!(ev.contains("0x09 => TAB_SUPPRESS_CHAR.swap(false"));
         assert!(ev.contains("TAB_SUPPRESS_CHAR.swap(false"));
+    }
+
+    #[test]
+    fn editor_char_handler_clears_suppress_flags_before_lock_check() {
+        // A lock between the VK and its queued WM_CHAR must not leave a flag
+        // set that would swallow the next real character after unlock.
+        let ev = crate::read_source(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("src").join("ui").join("editor").join("events.rs"),
+        );
+        let arm = &ev[ev.find("0x0102 =>").expect("WM_CHAR arm")..];
+        let blocked = arm.find("f_ed.input_blocked()").expect("lock check in WM_CHAR arm");
+        for flag in ["TAB_SUPPRESS_CHAR", "BULLET_SUPPRESS_ENTER_CHAR", "CTRL_ENTER_SUPPRESS_CHAR"] {
+            let swap = arm.find(&format!("{}.swap(false", flag)).expect(flag);
+            assert!(swap < blocked, "{} cleared after the lock check", flag);
+        }
     }
 }

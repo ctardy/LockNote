@@ -872,22 +872,16 @@ impl EditorForm {
                     // WM_CHAR — swallow the 0x0D that TranslateMessage queues
                     // right after a bullet-handled VK_RETURN.
                     0x0102 => {
-                        if f_ed.input_blocked() {
-                            return Some(0);
-                        }
-                        if w_param == 0x0D
-                            && BULLET_SUPPRESS_ENTER_CHAR.swap(false, SuppressOrd::SeqCst)
-                        {
-                            return Some(0);
-                        }
-                        if w_param == 0x09
-                            && TAB_SUPPRESS_CHAR.swap(false, SuppressOrd::SeqCst)
-                        {
-                            return Some(0);
-                        }
-                        if w_param == 0x0A
-                            && CTRL_ENTER_SUPPRESS_CHAR.swap(false, SuppressOrd::SeqCst)
-                        {
+                        // Clear the flag before the lock check: a lock
+                        // between the VK and its WM_CHAR must not leave it
+                        // set to swallow the next real character.
+                        let suppressed = match w_param {
+                            0x0D => BULLET_SUPPRESS_ENTER_CHAR.swap(false, SuppressOrd::SeqCst),
+                            0x09 => TAB_SUPPRESS_CHAR.swap(false, SuppressOrd::SeqCst),
+                            0x0A => CTRL_ENTER_SUPPRESS_CHAR.swap(false, SuppressOrd::SeqCst),
+                            _ => false,
+                        };
+                        if f_ed.input_blocked() || suppressed {
                             return Some(0);
                         }
                     }
