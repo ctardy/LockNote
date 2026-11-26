@@ -139,6 +139,10 @@ fn build_en() -> Dict {
     m.insert("menu.file.settings", "S&ettings...");
     m.insert("menu.file.quit", "&Quit\tAlt+F4");
     m.insert("menu.file.print", "&Print...\tCtrl+P");
+    m.insert("print.footer", "Page {n} / {m}");
+    m.insert("print.error.title", "Print");
+    m.insert("print.error.failed", "Printing failed: {error}");
+    m.insert("print.error.too_small", "The printable area of the page is too small for the editor font.");
     m.insert("menu.file.export", "E&xport...");
 
     // View menu
@@ -822,6 +826,10 @@ fn build_fr() -> Dict {
     m.insert("menu.file.settings", "&Param\u{00e8}tres...");
     m.insert("menu.file.quit", "&Quitter\tAlt+F4");
     m.insert("menu.file.print", "&Imprimer...\tCtrl+P");
+    m.insert("print.footer", "Page {n} / {m}");
+    m.insert("print.error.title", "Impression");
+    m.insert("print.error.failed", "L'impression a \u{00e9}chou\u{00e9} : {error}");
+    m.insert("print.error.too_small", "La zone imprimable de la page est trop petite pour la police de l'\u{00e9}diteur.");
     m.insert("menu.file.export", "E&xporter...");
 
     m.insert("menu.view", "&Affichage");
@@ -1477,6 +1485,10 @@ fn build_es() -> Dict {
     m.insert("menu.file.settings", "&Ajustes...");
     m.insert("menu.file.quit", "&Salir\tAlt+F4");
     m.insert("menu.file.print", "&Imprimir...\tCtrl+P");
+    m.insert("print.footer", "P\u{00e1}gina {n} / {m}");
+    m.insert("print.error.title", "Imprimir");
+    m.insert("print.error.failed", "La impresi\u{00f3}n ha fallado: {error}");
+    m.insert("print.error.too_small", "El \u{00e1}rea imprimible de la p\u{00e1}gina es demasiado peque\u{00f1}a para la fuente del editor.");
     m.insert("menu.file.export", "E&xportar...");
 
     m.insert("menu.view", "&Ver");
@@ -2133,6 +2145,10 @@ fn build_de() -> Dict {
     m.insert("menu.file.settings", "&Einstellungen...");
     m.insert("menu.file.quit", "&Beenden\tAlt+F4");
     m.insert("menu.file.print", "&Drucken...\tStrg+P");
+    m.insert("print.footer", "Seite {n} / {m}");
+    m.insert("print.error.title", "Drucken");
+    m.insert("print.error.failed", "Drucken fehlgeschlagen: {error}");
+    m.insert("print.error.too_small", "Der druckbare Bereich der Seite ist f\u{00fc}r die Editor-Schriftart zu klein.");
     m.insert("menu.file.export", "E&xportieren...");
 
     m.insert("menu.view", "&Ansicht");
