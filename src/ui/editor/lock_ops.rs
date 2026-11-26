@@ -396,12 +396,11 @@ impl EditorForm {
         if self.curtain.get() == super::modal_guard::Curtain::None {
             return;
         }
-        let text = if self.lock_save_failed_reason.borrow().is_some() {
-            t("lock.curtain.save_failed")
-        } else if self.modal_open() {
-            curtain_waiting_text(&super::modal_guard::first_dialog_title())
-        } else {
-            t("lock.curtain")
+        let save_failed = self.lock_save_failed_reason.borrow().is_some();
+        let text = match curtain_subtitle(self.modal_open(), save_failed) {
+            CurtainSubtitle::WaitingFor => curtain_waiting_text(&super::modal_guard::first_dialog_title()),
+            CurtainSubtitle::SaveFailed => t("lock.curtain.save_failed"),
+            CurtainSubtitle::Password => t("lock.curtain"),
         };
         self.lock_subtitle.set_text(&text);
     }

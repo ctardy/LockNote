@@ -370,6 +370,8 @@ impl UnlockDialog {
         let activate_handler = lock_card::keep_focus_on(&window_handle, &txt_password_handle)
             .expect("Failed to bind the focus handler");
 
+        // Known to the editor's lock while shown (pass 9).
+        let _open = mark_open(window_hwnd);
         nwg::dispatch_thread_events();
         nwg::unbind_event_handler(&handler);
         nwg::unbind_raw_event_handler(&activate_handler).ok();
@@ -379,6 +381,34 @@ impl UnlockDialog {
         let out = result.borrow_mut().take();
         out
     }
+}
+
+thread_local! {
+    /// The unlock window while it is shown (pass 9): neither a registered
+    /// LockNote dialog nor a standard one, the editor's lock asks it to close
+    /// (WM_CLOSE = Cancel) like the others, and names it on the curtain.
+    static OPEN_WINDOW: std::cell::Cell<isize> = const { std::cell::Cell::new(0) };
+}
+
+/// The unlock window shown on this thread, if any.
+pub fn open_window() -> Option<isize> {
+    let h = OPEN_WINDOW.with(|c| c.get());
+    (h != 0).then_some(h)
+}
+
+/// Forgets the unlock window when dropped (also on a panic).
+struct OpenWindow(isize);
+
+impl Drop for OpenWindow {
+    fn drop(&mut self) {
+        OPEN_WINDOW.with(|c| c.set(self.0));
+    }
+}
+
+/// Record `hwnd` as the open unlock window until the guard is dropped (the
+/// previous one, if nested, comes back).
+fn mark_open(hwnd: isize) -> OpenWindow {
+    OpenWindow(OPEN_WINDOW.with(|c| c.replace(hwnd)))
 }
 
 /// WS_EX_TOOLWINDOW: a window with it has no taskbar entry.
@@ -416,6 +446,17 @@ pub fn show_with_parent(encrypted_data: &[u8], parent_hwnd: isize) -> Option<(Ze
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Pass 9: the unlock window is known while shown, forgotten after.
+    #[test]
+    fn the_unlock_window_is_known_while_shown() {
+        assert_eq!(open_window(), None);
+        {
+            let _open = mark_open(0x1234);
+            assert_eq!(open_window(), Some(0x1234));
+        }
+        assert_eq!(open_window(), None);
+    }
 
     #[test]
     fn max_attempts_constant() {

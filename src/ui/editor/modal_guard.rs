@@ -444,18 +444,40 @@ impl CloseWaitSteps for FormCloseWaitSteps<'_> {
     }
 }
 
-/// The title of the first LockNote dialog still open (the window the
-/// curtain waits for), or of a standard dialog.
+/// The title of the first window the curtain waits for: a LockNote
+/// dialog, the unlock window, else a standard dialog (pass 9).
 pub(super) fn first_dialog_title() -> String {
-    use windows::Win32::UI::WindowsAndMessaging::GetWindowTextW;
-    for h in crate::ui::dialogs::style::registered_dialogs() {
+    use windows::Win32::Foundation::{HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{EnumThreadWindows, GetClassNameW, GetWindowTextW, IsWindowVisible};
+    fn title_of(h: isize) -> String {
         let mut title = [0u16; 128];
-        let n = unsafe { GetWindowTextW(windows::Win32::Foundation::HWND(h as *mut _), &mut title) } as usize;
-        if n > 0 {
-            return String::from_utf16_lossy(&title[..n]);
+        let n = unsafe { GetWindowTextW(HWND(h as *mut _), &mut title) } as usize;
+        String::from_utf16_lossy(&title[..n])
+    }
+    let own = crate::ui::dialogs::style::registered_dialogs().into_iter().chain(crate::ui::dialogs::unlock::open_window());
+    for h in own {
+        let title = title_of(h);
+        if !title.is_empty() {
+            return title;
         }
     }
-    String::new()
+    unsafe extern "system" fn cb(h: HWND, lp: LPARAM) -> windows::core::BOOL {
+        let out = &mut *(lp.0 as *mut Vec<isize>);
+        if IsWindowVisible(h).as_bool() {
+            let mut buf = [0u16; 16];
+            let n = GetClassNameW(h, &mut buf) as usize;
+            if String::from_utf16_lossy(&buf[..n]) == "#32770" {
+                out.push(h.0 as isize);
+            }
+        }
+        true.into()
+    }
+    let mut standard: Vec<isize> = Vec::new();
+    unsafe {
+        let tid = windows::Win32::System::Threading::GetCurrentThreadId();
+        let _all_enumerated = EnumThreadWindows(tid, Some(cb), LPARAM(&mut standard as *mut _ as isize));
+    }
+    standard.into_iter().map(title_of).find(|t| !t.is_empty()).unwrap_or_default()
 }
 
 /// Show again the LockNote dialogs the curtain hid, when it is lifted with
@@ -491,8 +513,11 @@ fn cancel_open_dialogs() -> usize {
     use windows::Win32::UI::WindowsAndMessaging::{
         EnumThreadWindows, GetClassNameW, IsWindowVisible, PostMessageW, WM_CLOSE, WM_COMMAND,
     };
+    // The unlock window (pass 9) is neither registered nor standard: its
+    // WM_CLOSE is Cancel, so the curtain never waits for it forever.
     let mut targets: Vec<(isize, bool)> = crate::ui::dialogs::style::registered_dialogs()
         .into_iter()
+        .chain(crate::ui::dialogs::unlock::open_window())
         .map(|h| (h, false))
         .collect();
     unsafe extern "system" fn cb(h: HWND, lp: LPARAM) -> windows::core::BOOL {

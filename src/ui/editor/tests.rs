@@ -947,6 +947,10 @@
         assert!(do_lock.contains("self.show_lock_overlay(curtain_was_up)"));
         assert!(body(&lock, "pub(super) fn show_lock_overlay(").contains("lock_screen_field(curtain_was_up,"));
         let guard = read("modal_guard.rs");
+        // Pass 9: the unlock window is asked to close by the lock and named
+        // on the curtain.
+        assert!(top(&guard, "fn cancel_open_dialogs(").contains(".chain(crate::ui::dialogs::unlock::open_window())"));
+        assert!(top(&guard, "pub(super) fn first_dialog_title(").contains("crate::ui::dialogs::unlock::open_window()"));
         assert!(body(&guard, "pub(super) fn run_pending_requests(").contains("lock_flow::tick("));
         assert!(body(&guard, "pub(super) fn request_lock(").contains("lock_flow::request("));
         let req = top(&flow, "pub(super) fn request<");
@@ -1012,6 +1016,17 @@
         let autosave = &rt[start..end];
         assert!(!autosave.contains("let _ = self.on_save();"), "auto-save result discarded");
         assert!(autosave.contains("WARN autosave: save failed"), "auto-save failure logged");
+    }
+
+    /// Pass 9: while a window keeps the lock waiting, the curtain says so
+    /// (naming it), even after a failed save: that save is retried once the
+    /// window is gone.
+    #[test]
+    fn the_curtain_names_the_window_it_waits_for_before_a_failed_save() {
+        assert_eq!(curtain_subtitle(true, true), CurtainSubtitle::WaitingFor);
+        assert_eq!(curtain_subtitle(true, false), CurtainSubtitle::WaitingFor);
+        assert_eq!(curtain_subtitle(false, true), CurtainSubtitle::SaveFailed);
+        assert_eq!(curtain_subtitle(false, false), CurtainSubtitle::Password);
     }
 
     /// The reason of a failed save at lock, shown once the curtain is lifted

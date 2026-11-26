@@ -768,6 +768,29 @@ pub(super) fn curtain_waiting_text(window: &str) -> String {
     }
 }
 
+/// Which subtitle the curtain shows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum CurtainSubtitle {
+    /// A window keeps the lock waiting (named, `lock.curtain.waiting_for`).
+    WaitingFor,
+    /// The save before the lock failed (`lock.curtain.save_failed`).
+    SaveFailed,
+    /// Just "enter your password" (`lock.curtain`).
+    Password,
+}
+
+/// A window that keeps the lock waiting comes first (pass 9): a failed save
+/// is retried only once it is gone.
+pub(super) fn curtain_subtitle(modal_open: bool, save_failed: bool) -> CurtainSubtitle {
+    if modal_open {
+        CurtainSubtitle::WaitingFor
+    } else if save_failed {
+        CurtainSubtitle::SaveFailed
+    } else {
+        CurtainSubtitle::Password
+    }
+}
+
 /// Whether the window's activation gives the focus to the password field:
 /// locked, or the curtain (it has one, pass 8).
 pub(super) fn focus_password_field(locked: bool, curtain: super::modal_guard::Curtain) -> bool {
