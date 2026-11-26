@@ -336,6 +336,13 @@ impl EditorForm {
             .build(&mut menu_tab_prev)
             .expect("Failed to build Previous Tab menu item");
 
+        let mut menu_tab_compare = nwg::MenuItem::default();
+        nwg::MenuItem::builder()
+            .text(&t("menu.tab.compare"))
+            .parent(&menu_tab)
+            .build(&mut menu_tab_compare)
+            .expect("Failed to build Compare with Last Save menu item");
+
         // ── Menu: Tools ──
         let mut menu_tools = nwg::Menu::default();
         nwg::Menu::builder()
@@ -1381,6 +1388,7 @@ impl EditorForm {
             menu_tab_rename,
             menu_tab_next,
             menu_tab_prev,
+            menu_tab_compare,
             // Tools menu
             menu_tools,
             menu_tools_vault,

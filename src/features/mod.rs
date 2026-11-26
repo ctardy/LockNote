@@ -60,3 +60,6 @@ pub mod import_log;
 
 // Markdown headings of a tab, for Edit > Go to Heading (Ctrl+Shift+O).
 pub mod outline;
+
+// Line diff of a tab against its last save, for Tab > Compare with Last Save.
+pub mod line_diff;

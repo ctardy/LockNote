@@ -25,6 +25,9 @@ pub struct Tab {
     pub color: Option<String>,
     /// The note content for this tab.
     pub content: String,
+    /// The content as of the last load or save, in memory only (Tab >
+    /// Compare with Last Save); empty for a tab never saved.
+    pub saved_content: String,
 }
 
 impl Tab {
@@ -34,6 +37,7 @@ impl Tab {
             is_modified: false,
             color: None,
             content: String::new(),
+            saved_content: String::new(),
         }
     }
 
@@ -52,6 +56,7 @@ impl Tab {
     pub fn wipe_content(&mut self) {
         use zeroize::Zeroize;
         self.content.zeroize();
+        self.saved_content.zeroize();
     }
 }
 
@@ -238,6 +243,18 @@ impl TabBar {
         }
     }
 
+    /// The content of the tab at `index` as of the last load or save.
+    pub fn get_saved_content(&self, index: usize) -> Option<String> {
+        self.tabs.borrow().get(index).map(|t| t.saved_content.clone())
+    }
+
+    /// After a successful save: every tab's content is the saved one.
+    pub fn mark_all_saved(&self) {
+        for t in self.tabs.borrow_mut().iter_mut() {
+            t.saved_content.clone_from(&t.content);
+        }
+    }
+
     /// Switch to the next tab (wraps around).
     pub fn next_tab(&self) {
         let count = self.tabs.borrow().len();
@@ -411,6 +428,34 @@ mod tests {
         let bar = TabBar::new();
         bar.set_tab_content(0, "Hello World");
         assert_eq!(bar.get_tab_content(0), "Hello World");
+    }
+
+    #[test]
+    fn saved_content_follows_saves_not_edits() {
+        let bar = TabBar::with_tabs(vec![Tab::new("A"), Tab::new("B")]);
+        assert_eq!(bar.get_saved_content(0).as_deref(), Some(""));
+        bar.set_tab_content(0, "one");
+        bar.set_tab_content(1, "two");
+        assert_eq!(bar.get_saved_content(0).as_deref(), Some(""));
+        bar.mark_all_saved();
+        bar.set_tab_content(0, "one edited");
+        assert_eq!(bar.get_saved_content(0).as_deref(), Some("one"));
+        assert_eq!(bar.get_saved_content(1).as_deref(), Some("two"));
+        assert_eq!(bar.get_saved_content(2), None);
+        // A new tab was never saved.
+        let idx = bar.add_tab("C");
+        assert_eq!(bar.get_saved_content(idx).as_deref(), Some(""));
+    }
+
+    /// The lock wipes the saved copy with the content.
+    #[test]
+    fn wipe_clears_the_saved_content_too() {
+        let bar = TabBar::new();
+        bar.set_tab_content(0, "secret");
+        bar.mark_all_saved();
+        bar.wipe_contents();
+        assert_eq!(bar.get_tab_content(0), "");
+        assert_eq!(bar.get_saved_content(0).as_deref(), Some(""));
     }
 
     #[test]

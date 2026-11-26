@@ -159,6 +159,12 @@ fn build_en() -> Dict {
     m.insert("menu.tab.rename", "&Rename Tab...\tF2");
     m.insert("menu.tab.next", "Next Tab\tCtrl+Tab");
     m.insert("menu.tab.prev", "Previous Tab\tCtrl+Shift+Tab");
+    m.insert("menu.tab.compare", "Compare with Last &Save...");
+    m.insert("compare.title", "Compare with Last Save");
+    m.insert("compare.identical", "No changes since the last save.");
+    m.insert("compare.too_large", "This tab is too long to compare (more than {} lines on one side).");
+    m.insert("compare.failed", "The comparison could not be computed.");
+    m.insert("compare.close", "Close");
     m.insert("menu.edit.goto_heading", "Go to &Heading...\tCtrl+Shift+O");
     m.insert("heading.title", "Go to Heading");
     m.insert("heading.filter", "Filter:");
@@ -855,6 +861,12 @@ fn build_fr() -> Dict {
     m.insert("menu.tab.rename", "&Renommer l'onglet...\tF2");
     m.insert("menu.tab.next", "Onglet suivant\tCtrl+Tab");
     m.insert("menu.tab.prev", "Onglet pr\u{00e9}c\u{00e9}dent\tCtrl+Shift+Tab");
+    m.insert("menu.tab.compare", "&Comparer avec le dernier enregistrement...");
+    m.insert("compare.title", "Comparer avec le dernier enregistrement");
+    m.insert("compare.identical", "Aucune modification depuis le dernier enregistrement.");
+    m.insert("compare.too_large", "Cet onglet est trop long pour \u{00ea}tre compar\u{00e9} (plus de {} lignes d\u{2019}un c\u{00f4}t\u{00e9}).");
+    m.insert("compare.failed", "La comparaison n\u{2019}a pas pu \u{00ea}tre calcul\u{00e9}e.");
+    m.insert("compare.close", "Fermer");
     m.insert("menu.edit.goto_heading", "Aller au t&itre...\tCtrl+Shift+O");
     m.insert("heading.title", "Aller au titre");
     m.insert("heading.filter", "Filtre :");
@@ -1525,6 +1537,12 @@ fn build_es() -> Dict {
     m.insert("menu.tab.rename", "&Renombrar pesta\u{00f1}a...\tF2");
     m.insert("menu.tab.next", "Pesta\u{00f1}a siguiente\tCtrl+Tab");
     m.insert("menu.tab.prev", "Pesta\u{00f1}a anterior\tCtrl+Shift+Tab");
+    m.insert("menu.tab.compare", "Com&parar con el \u{00fa}ltimo guardado...");
+    m.insert("compare.title", "Comparar con el \u{00fa}ltimo guardado");
+    m.insert("compare.identical", "No hay cambios desde el \u{00fa}ltimo guardado.");
+    m.insert("compare.too_large", "Esta pesta\u{00f1}a es demasiado larga para compararla (m\u{00e1}s de {} l\u{00ed}neas en un lado).");
+    m.insert("compare.failed", "No se pudo calcular la comparaci\u{00f3}n.");
+    m.insert("compare.close", "Cerrar");
     m.insert("menu.edit.goto_heading", "Ir al &encabezado...\tCtrl+Shift+O");
     m.insert("heading.title", "Ir al encabezado");
     m.insert("heading.filter", "Filtro:");
@@ -2196,6 +2214,12 @@ fn build_de() -> Dict {
     m.insert("menu.tab.rename", "Tab &umbenennen...\tF2");
     m.insert("menu.tab.next", "N\u{00e4}chster Tab\tStrg+Tab");
     m.insert("menu.tab.prev", "Vorheriger Tab\tStrg+Umschalt+Tab");
+    m.insert("menu.tab.compare", "Mit letzter Speicherung &vergleichen...");
+    m.insert("compare.title", "Mit letzter Speicherung vergleichen");
+    m.insert("compare.identical", "Keine \u{00c4}nderungen seit der letzten Speicherung.");
+    m.insert("compare.too_large", "Dieser Tab ist zu lang f\u{00fc}r einen Vergleich (mehr als {} Zeilen auf einer Seite).");
+    m.insert("compare.failed", "Der Vergleich konnte nicht berechnet werden.");
+    m.insert("compare.close", "Schlie\u{00df}en");
     m.insert("menu.edit.goto_heading", "Gehe zu \u{00dc}&berschrift...\tStrg+Umschalt+O");
     m.insert("heading.title", "Gehe zu \u{00dc}berschrift");
     m.insert("heading.filter", "Filter:");
@@ -3006,6 +3030,30 @@ mod tests {
                 assert_ne!(key_of(d[item]), Some(mine), "{item} of {lang:?} uses the same key as Go to Heading");
             }
             assert!(label.ends_with("+O"), "{label}");
+        }
+    }
+
+    // Compare with Last Save: its access key is free in the Tab menu of
+    // every language (the items of `editor::build`); no shortcut.
+    #[test]
+    fn compare_menu_access_key_is_free_in_every_language() {
+        let key_of = |label: &str| -> Option<char> {
+            let i = label.find('&')?;
+            label[i + 1..].chars().next().map(|c| c.to_lowercase().next().unwrap_or(c))
+        };
+        let tab = ["menu.tab.new", "menu.tab.close", "menu.tab.rename", "menu.tab.next", "menu.tab.prev"];
+        for lang in [Language::English, Language::French, Language::Spanish, Language::German] {
+            let d = dict_for(lang);
+            let label = d["menu.tab.compare"];
+            let mine = key_of(label).unwrap_or_else(|| panic!("no access key {lang:?}"));
+            for item in tab {
+                assert_ne!(key_of(d[item]), Some(mine), "{item} of {lang:?} uses the same key as Compare");
+            }
+            assert!(!label.contains('\t'), "{label}");
+            for key in ["compare.title", "compare.identical", "compare.failed", "compare.close"] {
+                assert!(d.contains_key(key), "{key} missing for {lang:?}");
+            }
+            assert!(d["compare.too_large"].contains("{}"), "{lang:?}");
         }
     }
 

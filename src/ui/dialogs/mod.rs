@@ -5,6 +5,7 @@ pub mod unlock;
 pub mod close_confirm;
 pub mod goto_line;
 pub mod goto_heading;
+pub mod compare_dialog;
 pub mod find_replace;
 pub mod about;
 pub mod settings_dialog;

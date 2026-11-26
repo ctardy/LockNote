@@ -77,6 +77,7 @@ pub struct EditorForm {
     menu_tab_rename: nwg::MenuItem,
     menu_tab_next: nwg::MenuItem,
     menu_tab_prev: nwg::MenuItem,
+    menu_tab_compare: nwg::MenuItem,
 
     // ── Menu: Tools ──
     menu_tools: nwg::Menu,
@@ -465,6 +466,7 @@ mod indent;
 mod lists;
 mod palette_ops;
 mod heading_flow;
+mod compare_flow;
 
 #[allow(unused_imports)]
 use self::helpers::*;

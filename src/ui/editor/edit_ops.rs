@@ -439,6 +439,8 @@ impl EditorForm {
         let view = crate::features::payload::build_view(parsed.tabs, in_memory, parsed.session);
         let ui_tabs: Vec<crate::ui::tab_bar::Tab> = view.tabs.into_iter().map(|nt| {
             let mut t = crate::ui::tab_bar::Tab::new(&nt.name);
+            // What was just read is what the last save wrote.
+            t.saved_content = nt.content.clone();
             t.content = nt.content;
             t.color = nt.color;
             t

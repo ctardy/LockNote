@@ -132,6 +132,9 @@ impl EditorForm {
         match crate::storage::write_data(&self.exe_path, &encrypted) {
             Ok(()) => {
                 self.mark_clean();
+                // Tab > Compare with Last Save compares with what was just
+                // written (the tabs were synced above, nothing ran since).
+                self.tab_bar.borrow().mark_all_saved();
                 // A shutdown blocked by an earlier failed save may go on now.
                 self.clear_shutdown_block();
                 Ok(())

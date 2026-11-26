@@ -430,6 +430,48 @@ impl EditorForm {
     pub(super) fn on_close_tab_at(&self, index: usize) {
         self.close_tab_at(index);
     }
+
+    /// Tab > Compare with Last Save: the sequence of compare_flow.
+    pub(super) fn on_compare_with_last_save(&self) {
+        use super::compare_flow::{compare_with_last_save, CompareOutcome};
+        let tab = self.tab_bar.borrow().active_index();
+        match compare_with_last_save(&mut FormCompareSteps { form: self }) {
+            CompareOutcome::NoActiveTab => {
+                eprintln!("ERROR compare: no saved text for active tab={}", tab);
+            }
+            CompareOutcome::Failed(e) => {
+                eprintln!("ERROR compare: diff failed tab={} err={:?}", tab, e);
+            }
+            outcome => eprintln!("INFO compare: tab={} {:?}", tab, outcome),
+        }
+    }
+}
+
+/// The steps of `compare_flow` on the window.
+struct FormCompareSteps<'a> {
+    form: &'a EditorForm,
+}
+
+impl super::compare_flow::CompareSteps for FormCompareSteps<'_> {
+    fn texts(&self) -> Option<(Zeroizing<String>, Zeroizing<String>)> {
+        // Copies: no tab bar borrow lives across the dialog.
+        let tb = self.form.tab_bar.borrow();
+        let saved = tb.get_saved_content(tb.active_index())?;
+        drop(tb);
+        Some((Zeroizing::new(saved), Zeroizing::new(self.form.get_content())))
+    }
+    fn inform(&mut self, message: &str) {
+        self.form.inform(&t("compare.title"), message);
+    }
+    fn show_diff(&mut self, lines: &[String]) {
+        let text = Zeroizing::new(lines.join("\r\n"));
+        let (family, size) = {
+            let s = self.form.settings.borrow();
+            (s.font_family.clone(), font_size_to_nwg(s.font_size))
+        };
+        let _modal = self.form.modal();
+        crate::ui::dialogs::compare_dialog::CompareDialog::show(&text, &family, size, Some(self.form.window.handle));
+    }
 }
 
 /// Measures tab names with the font the tab strip paints them in (Segoe UI,

@@ -672,6 +672,8 @@ impl EditorForm {
             .tabs
             .into_iter()
             .map(|nt| {
+                // Not saved yet: `saved_content` stays empty until the next
+                // save (Compare with Last Save shows every line as added).
                 let mut t = crate::ui::tab_bar::Tab::new(&nt.name);
                 t.content = nt.content;
                 t.color = nt.color;
