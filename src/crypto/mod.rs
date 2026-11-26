@@ -8,8 +8,8 @@
 
 use aes::Aes256;
 use argon2::Argon2;
-use cbc::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit};
-use hmac::{Hmac, Mac};
+use cbc::cipher::{BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};
+use hmac::{Hmac, KeyInit, Mac};
 use rand::RngCore;
 use sha2::Sha256;
 use zeroize::Zeroize;
@@ -284,7 +284,7 @@ fn encrypt_with(
     buf[..plain_bytes.len()].copy_from_slice(&plain_bytes);
 
     let ciphertext = Aes256CbcEnc::new(&enc_key.into(), &iv.into())
-        .encrypt_padded_mut::<cbc::cipher::block_padding::Pkcs7>(&mut buf, plain_bytes.len())
+        .encrypt_padded::<cbc::cipher::block_padding::Pkcs7>(&mut buf, plain_bytes.len())
         .map_err(|e| CryptoError::Encryption(e.to_string()))?
         .to_vec();
 
@@ -389,8 +389,17 @@ pub fn decrypt(data: &[u8], password: &str) -> Result<String, CryptoError> {
 
     // Decrypt
     let mut ct_buf = ciphertext.to_vec();
-    let plaintext_result = Aes256CbcDec::new(&enc_key.into(), iv.into())
-        .decrypt_padded_mut::<cbc::cipher::block_padding::Pkcs7>(&mut ct_buf);
+    // `iv` is IV_SIZE bytes by the slicing above.
+    let iv: [u8; IV_SIZE] = match iv.try_into() {
+        Ok(a) => a,
+        Err(_) => {
+            enc_key.zeroize();
+            mac_key.zeroize();
+            return Err(CryptoError::InvalidInput("IV length".into()));
+        }
+    };
+    let plaintext_result = Aes256CbcDec::new(&enc_key.into(), &iv.into())
+        .decrypt_padded::<cbc::cipher::block_padding::Pkcs7>(&mut ct_buf);
 
     enc_key.zeroize();
     mac_key.zeroize();

@@ -19,12 +19,12 @@ path = "src/bin/locknote_swap.rs"
 
 [dependencies]
 # Crypto
-aes = "0.8"
-cbc = { version = "0.1", features = ["alloc"] }
-hmac = "0.12"
-sha2 = "0.10"
-sha1 = "0.10"
-argon2 = "0.5"
+aes = "0.9"
+cbc = { version = "0.2", features = ["alloc"] }
+hmac = "0.13"
+sha2 = "0.11"
+sha1 = "0.11"
+argon2 = "0.6"
 rand = "0.9"
 
 # Release integrity: the updater verifies the Ed25519-signed SHA256SUMS.txt.

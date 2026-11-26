@@ -3,7 +3,7 @@
 // Provides TOTP generation, verification, Base32 encoding/decoding,
 // OtpAuth URI handling, and entry serialization.
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha1::Sha1;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
