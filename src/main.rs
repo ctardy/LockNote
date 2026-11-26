@@ -14,6 +14,18 @@ mod features;
 #[cfg(test)]
 mod integration_tests;
 
+/// Text of a source file of this crate, line endings turned into `\n`, for
+/// the tests that check the code as text. A Windows checkout with
+/// `core.autocrlf=true` (the CI runner) has CRLF where the repository has LF,
+/// and the scans look for `\n`-based patterns.
+#[cfg(test)]
+pub(crate) fn read_source(path: impl AsRef<std::path::Path>) -> String {
+    let path = path.as_ref();
+    std::fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+        .replace("\r\n", "\n")
+}
+
 fn main() {
     // ── Single-instance guard ──
     // Create a named mutex; if it already exists, another instance is running.

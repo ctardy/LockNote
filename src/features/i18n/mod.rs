@@ -3074,7 +3074,7 @@ mod tests {
         assert!(files.len() > 50, "sources not found: {} files", files.len());
         let mut keys = Vec::new();
         for file in files {
-            let text = std::fs::read_to_string(&file).unwrap();
+            let text = crate::read_source(&file);
             let b = text.as_bytes();
             // `t(...)` helpers, and direct `get(...)` calls (ui/vault_panel.rs).
             // This module's own tests ask `get` for unknown keys on purpose.
@@ -3348,7 +3348,7 @@ mod tests {
         let fields = ["title:", "content:"];
         let mut found = Vec::new();
         for file in files {
-            let text = without_test_items(&std::fs::read_to_string(&file).unwrap());
+            let text = without_test_items(&crate::read_source(&file));
             let rel = file.strip_prefix(env!("CARGO_MANIFEST_DIR")).unwrap().display().to_string();
             let line_of = |at: usize| text[..at].matches('\n').count() + 1;
             for needle in calls {

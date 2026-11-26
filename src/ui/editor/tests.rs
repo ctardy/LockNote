@@ -791,7 +791,7 @@
     #[test]
     fn the_export_reads_the_text_after_the_last_question_and_wipes_it() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
-        let src = std::fs::read_to_string(dir.join("file_ops.rs")).unwrap();
+        let src = crate::read_source(dir.join("file_ops.rs"));
         let start = src.find("pub(super) fn on_export(&self)").unwrap();
         let body = &src[start..start + src[start..].find("\n    }\n").unwrap()];
         let last_question = body.rfind("self.confirm(").expect("confirm");
@@ -808,10 +808,10 @@
     #[test]
     fn the_2fa_setup_copy_arms_the_clipboard_guard() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui");
-        let sec = std::fs::read_to_string(root.join("dialogs").join("security_dialog.rs")).unwrap();
+        let sec = crate::read_source(root.join("dialogs").join("security_dialog.rs"));
         assert!(sec.contains("TotpSetupDialog::show(\"LockNote 2FA\", None, &mut setup_copied)"));
         assert!(sec.contains("*copied_out = copied.borrow_mut().take();"));
-        let prefs = std::fs::read_to_string(root.join("editor").join("prefs_ops.rs")).unwrap();
+        let prefs = crate::read_source(root.join("editor").join("prefs_ops.rs"));
         let at = prefs.find("SecurityDialog::show(&current, &mut copied)").expect("copied passed");
         assert!(prefs[at..].find("self.arm_clipboard_guard(copied);").map_or(false, |i| i < 400));
     }
@@ -835,7 +835,7 @@
     fn every_input_entry_point_uses_the_blocked_predicate() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
         let body_of = |file: &str, fun: &str| -> String {
-            let src = std::fs::read_to_string(dir.join(file)).unwrap();
+            let src = crate::read_source(dir.join(file));
             let start = src.find(fun).unwrap_or_else(|| panic!("{} in {}", fun, file));
             let end = src[start..].find("\n    }\n").map_or(src.len(), |e| start + e);
             src[start..end].to_string()
@@ -843,7 +843,7 @@
         assert!(body_of("edit_ops.rs", "pub(super) fn handle_shortcut").contains("if self.input_blocked()"));
         assert!(body_of("layout.rs", "pub(super) fn layout_controls").contains("layout_mode(self.input_blocked())"));
         assert!(body_of("panel_grip.rs", "fn note_is_locked").contains("self.input_blocked()"));
-        let ev = std::fs::read_to_string(dir.join("events.rs")).unwrap();
+        let ev = crate::read_source(dir.join("events.rs"));
         // Menu handler, drop handler, editor WM_KEYDOWN and WM_CHAR.
         assert!(ev.matches("f.input_blocked()").count() >= 2, "menu and drop");
         assert!(ev.matches("f_ed.input_blocked()").count() >= 2, "editor keys and chars");
@@ -867,7 +867,7 @@
         assert!(focus_password_field(true, Curtain::None));
         assert!(focus_password_field(false, Curtain::Up));
         assert!(!focus_password_field(false, Curtain::None));
-        let ev = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor").join("events.rs")).unwrap();
+        let ev = crate::read_source(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor").join("events.rs"));
         assert_eq!(ev.matches("focus_password_field(*f2.is_locked.borrow(), f2.curtain.get())").count(), 2, "WM_ACTIVATE and WM_SETFOCUS");
     }
 
@@ -879,7 +879,7 @@
         let delays: Vec<u32> = (1..=8).map(curtain_wrong_password_delay).collect();
         assert_eq!(delays, [0, 1, 2, 4, 8, 8, 8, 8]);
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
-        let lock = std::fs::read_to_string(dir.join("lock_ops.rs")).unwrap();
+        let lock = crate::read_source(dir.join("lock_ops.rs"));
         let start = lock.find("pub(super) fn lift_curtain(").unwrap();
         let body = &lock[start..start + lock[start..].find("\n    }\n").unwrap()];
         assert!(body.contains("self.lock_attempts.borrow_mut()"), "no attempt counter");
@@ -897,7 +897,7 @@
         assert!(!constant_time_eq(b"abcd", b"abc"));
         assert!(!constant_time_eq(b"", b"a"));
         assert!(constant_time_eq(b"", b""));
-        let src = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("dialogs").join("confirm_password.rs")).unwrap();
+        let src = crate::read_source(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("dialogs").join("confirm_password.rs"));
         let start = src.find("pub(crate) fn constant_time_eq(").unwrap();
         let body = &src[start..start + src[start..].find("\n}\n").unwrap()];
         assert!(!body.contains("return false") && !body.contains("return true"), "early return in constant_time_eq");
@@ -917,7 +917,7 @@
     #[test]
     fn the_lock_and_dialog_decisions_are_wired() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
-        let read = |f: &str| std::fs::read_to_string(dir.join(f)).unwrap();
+        let read = |f: &str| crate::read_source(dir.join(f));
         let body = |src: &str, fun: &str| -> String {
             let start = src.find(fun).unwrap_or_else(|| panic!("{}", fun));
             let end = src[start..].find("\n    }\n").map_or(src.len(), |e| start + e);
@@ -1008,7 +1008,7 @@
     #[test]
     fn auto_save_waits_under_the_curtain_and_handles_its_result() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
-        let read = |f: &str| std::fs::read_to_string(dir.join(f)).unwrap();
+        let read = |f: &str| crate::read_source(dir.join(f));
         let events = read("events.rs");
         let start = events.find("if handle == f.autosave_timer.handle {").expect("auto-save tick");
         let tick = &events[start..start + 400];
@@ -1080,12 +1080,12 @@
             ("vault_ops.rs", "pub(super) fn on_vault_category_rename("),
             ("ssh_ops.rs", "pub(super) fn on_ssh_generate("),
         ] {
-            let src = std::fs::read_to_string(dir.join(file)).unwrap();
+            let src = crate::read_source(dir.join(file));
             let start = src.find(fun).unwrap_or_else(|| panic!("{}", fun));
             let body = &src[start..start + src[start..].find("\n    }\n").unwrap()];
             assert!(body.contains("self.lock_epoch()") && body.contains("still_valid(epoch)"), "{} {}", file, fun);
         }
-        let ev = std::fs::read_to_string(dir.join("events.rs")).unwrap();
+        let ev = crate::read_source(dir.join("events.rs"));
         assert!(ev.contains("let choice = DropChoiceDialog::show(") && ev.contains("f.still_valid(epoch)"));
     }
 
@@ -1094,7 +1094,7 @@
     #[test]
     fn the_fake_and_still_valid_share_one_check() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
-        let read = |f: &str| std::fs::read_to_string(dir.join(f)).unwrap();
+        let read = |f: &str| crate::read_source(dir.join(f));
         let guard = read("modal_guard.rs");
         let start = guard.find("pub(super) fn still_valid(").unwrap();
         let still_valid = &guard[start..start + guard[start..].find("
@@ -1161,8 +1161,8 @@
     #[test]
     fn every_menu_but_quit_and_about_is_greyed_while_locked() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
-        let fields = std::fs::read_to_string(dir.join("mod.rs")).unwrap();
-        let lock = std::fs::read_to_string(dir.join("lock_ops.rs")).unwrap();
+        let fields = crate::read_source(dir.join("mod.rs"));
+        let lock = crate::read_source(dir.join("lock_ops.rs"));
         let start = lock.find("fn set_menus_for_lock").expect("set_menus_for_lock");
         let body = &lock[start..start + lock[start..].find("\n    }\n").unwrap()];
         let parents = ["menu_edit", "menu_view", "menu_tab", "menu_tools", "menu_file_settings"];
@@ -1198,7 +1198,7 @@
             if !name.ends_with(".rs") || name == "tests.rs" {
                 continue;
             }
-            let text = std::fs::read_to_string(&p).unwrap();
+            let text = crate::read_source(&p);
             for (i, line) in text.lines().enumerate() {
                 let allowed = name == "modal_guard.rs" && line.trim() == format!("nwg::{}&self.window, title, content);", needle);
                 if (line.contains(&needle) && !allowed) || others.iter().any(|o| line.contains(o.as_str())) {
@@ -1235,7 +1235,7 @@
             if !name.ends_with(".rs") || name == "tests.rs" {
                 continue;
             }
-            let text = std::fs::read_to_string(&p).unwrap();
+            let text = crate::read_source(&p);
             for (i, line) in text.lines().enumerate() {
                 if banned.iter().any(|b| line.contains(b.as_str())) {
                     found.push(format!("{}:{}: {}", name, i + 1, line.trim()));
@@ -1255,7 +1255,7 @@
             if !name.ends_with(".rs") || name == "tests.rs" {
                 continue;
             }
-            let text = std::fs::read_to_string(&p).unwrap();
+            let text = crate::read_source(&p);
             for (i, line) in text.lines().enumerate() {
                 let direct = line.contains(&format!("nwg::{}(", "message")) || line.contains(&format!("{}_message(", "modal"));
                 let in_confirm = name == "modal_guard.rs" && line.trim() == "nwg::modal_message(&self.window, params)";
@@ -1284,7 +1284,7 @@
             if !file.ends_with(".rs") || file == "tests.rs" {
                 continue;
             }
-            let text = std::fs::read_to_string(&p).unwrap();
+            let text = crate::read_source(&p);
             for store in stores {
                 for kind in [".borrow()", ".borrow_mut()"] {
                     let needle = format!("= self.{}{}", store, kind);

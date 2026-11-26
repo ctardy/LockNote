@@ -485,7 +485,7 @@ pub(crate) fn all_source() -> String {
     files.sort();
     files
         .iter()
-        .map(|p| std::fs::read_to_string(p).expect("read an editor source file"))
+        .map(|p| crate::read_source(p))
         .collect::<Vec<String>>()
         .join("\n")
 }

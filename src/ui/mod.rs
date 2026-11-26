@@ -345,7 +345,7 @@ mod tests {
         walk(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
         let mut found = Vec::new();
         for f in files {
-            let text = std::fs::read_to_string(&f).unwrap();
+            let text = crate::read_source(&f);
             for s in discarded_clipboard_writes(&text) {
                 found.push(format!("{}: {}", f.display(), s));
             }
