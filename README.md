@@ -110,6 +110,7 @@ real `%LOCALAPPDATA%\LockNote` (it may hold the only copy of a save). Run
 - [docs/fr/guide-utilisateur.md](docs/fr/guide-utilisateur.md): the same guide
   in French.
 - `docs/SPEC.md`: full specification (formats, cryptography, file swap, UI).
+- `docs/releasing.md`: how a release is published and rolled back.
 - `docs/release-signing-setup.md`: release signing keys.
 - `scripts/migrate-exe.ps1`: replace the program of an exe that already
   holds notes.

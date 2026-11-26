@@ -115,6 +115,7 @@ enregistrement). Ne lancez `cargo test` à la main qu'avec la même redirection.
 - [docs/en/user-guide.md](docs/en/user-guide.md) : le même guide en anglais.
 - `docs/SPEC.md` : spécification complète (formats, cryptographie, recopie du
   fichier, interface), en anglais.
+- `docs/releasing.md` : publication d'une version et retour arrière.
 - `docs/release-signing-setup.md` : clés de signature des versions.
 - `scripts/migrate-exe.ps1` : remplacer le programme d'un exe qui contient déjà
   des notes.

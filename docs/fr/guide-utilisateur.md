@@ -1,4 +1,4 @@
-# Guide utilisateur de LockNote 2.0.0
+# Guide utilisateur de LockNote 2.1
 
 [English](../en/user-guide.md) | [README](../../README.fr.md)
 
@@ -7,7 +7,7 @@ notes dans un seul fichier `.exe`. Rien à installer, aucun compte, rien
 n'est envoyé dans un cloud. Depuis la 2.0.0, toutes les fonctions sont
 gratuites ; il n'y a plus d'édition Pro.
 
-Ce guide décrit toutes les fonctions de LockNote 2.0.0. Les noms de menus et
+Ce guide décrit toutes les fonctions de LockNote 2.1. Les noms de menus et
 de boutons sont ceux de l'interface en français (Fichier > Paramètres... >
 Préférences... > Langue : Français). Quelques fenêtres et messages restent en
 anglais quelle que soit la langue choisie : ils sont cités en anglais, avec

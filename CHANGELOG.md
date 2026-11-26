@@ -6,6 +6,8 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-26
+
 ### Added
 - **TOTP: add the secret of an existing website**: Tools > TOTP > Add Key
   now lets you paste the secret given by the site, as Base32 text (spaces

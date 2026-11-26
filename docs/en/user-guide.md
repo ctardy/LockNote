@@ -1,4 +1,4 @@
-# LockNote 2.0.0 user guide
+# LockNote 2.1 user guide
 
 [Français](../fr/guide-utilisateur.md) | [README](../../README.md)
 
@@ -7,7 +7,7 @@ notes in a single `.exe` file. You install nothing, you need no account, and
 nothing goes to a cloud. Since 2.0.0 every feature is free; there is no Pro
 edition any more.
 
-This guide describes every function of LockNote 2.0.0. Menu names are the
+This guide describes every function of LockNote 2.1. Menu names are the
 English labels of the application. The French labels are in the
 [French guide](../fr/guide-utilisateur.md).
 

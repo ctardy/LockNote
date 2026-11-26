@@ -32,6 +32,34 @@ real notes.
 - Keep the style of the surrounding code; comments say why, not what.
 - Update `docs/SPEC.md` and `CHANGELOG.md` with the behaviour you change.
 
+## Rules for the editor window (src/ui/editor)
+
+These come from bugs found in 2.1 (issues #22 to #31); the tests enforce most
+of them.
+
+- **Lock rule** (`lock_flow.rs`, SPEC "Auto-lock"): a due lock hides the note
+  at once under a curtain that only the password lifts; open dialogs get
+  their harmless answer; the wipe happens only with no window open and after
+  a successful save. Do not add a path that wipes, or acts on a dialog
+  answer, outside this flow.
+- **Questions and messages** of the main window go through `confirm()` and
+  `inform()`, never `nwg::message` / `modal_*_message` / `MessageBoxW`
+  directly.
+- **A dialog result** that changes the note is applied only if
+  `still_valid(epoch)` is true (no lock happened while the dialog was open).
+- **Never hold a `RefCell` borrow** of the password, tabs, attachments,
+  settings or panels across a dialog: copy what you need (`Zeroizing` for
+  secrets) and drop the borrow. A dialog runs its own message loop, and a
+  lock or the end of the Windows session can run inside it.
+- **Release builds use `panic = "abort"`**: a panic kills LockNote with the
+  unsaved text. No `unwrap` on user input; slice strings on bytes or with
+  `get(..)`.
+- **Tests that read the code as text** use `crate::read_source`, which turns
+  CRLF into LF: the CI runner checks out with `core.autocrlf=true`.
+- **Test the sequence, not only the decision**: a pure decision function can
+  be right while the window chains it wrongly. Flows with several steps get a
+  trait (`LockSteps`, `CloseSteps`, ...) and sequence tests with a fake.
+
 ## Commits and pull requests
 
 - One topic per pull request, with a description of what changes for the
