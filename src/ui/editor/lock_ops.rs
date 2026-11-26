@@ -22,13 +22,19 @@ impl EditorForm {
             }
             Err(e) => {
                 eprintln!("ERROR unlock: {} exe={}", e, self.exe_path.display());
-                nwg::modal_info_message(&self.window, "LockNote", &e);
+                self.inform("LockNote", &e);
                 return false;
             }
         };
         let (_hint, encrypted) = crate::storage::split_hint_and_encrypted(&raw_payload);
         let parent = if let nwg::ControlHandle::Hwnd(h) = self.window.handle { h as isize } else { 0 };
-        match crate::ui::dialogs::unlock::show_with_parent(&encrypted, parent) {
+        // The unlock window is not a registered LockNote dialog: counted as
+        // a modal through the guard (pass 5).
+        let unlocked = {
+            let _modal = self.modal();
+            crate::ui::dialogs::unlock::show_with_parent(&encrypted, parent)
+        };
+        match unlocked {
             Some((password, decrypted_text)) => {
                 let decrypted_text = crate::features::compression::decompress(&decrypted_text);
                 let (settings, note_text) = crate::settings::Settings::parse(&decrypted_text);
@@ -141,6 +147,7 @@ impl EditorForm {
     pub(super) fn retry_pending_wipe(&self) {
         if !wipe_retry_due(self.wipe_pending.get(), *self.is_locked.borrow(), self.exiting.get()) {
             if self.wipe_pending.get() {
+                eprintln!("INFO wipe: deferred wipe dropped, the note is no longer locked");
                 self.wipe_pending.set(false);
             }
             return;
@@ -543,9 +550,7 @@ impl EditorForm {
                 };
 
                 if attempts_now >= MAX_ATTEMPTS {
-                    nwg::modal_info_message(
-                        &self.window,
-                        &t("unlock.locked.title"),
+                    self.inform(&t("unlock.locked.title"),
                         &t("unlock.maxattempts"),
                     );
                     nwg::stop_thread_dispatch();
@@ -652,9 +657,9 @@ impl EditorForm {
         // The settings were read back from the file: the menu follows them,
         // and the TOTP panel (wiped at lock) shows their entries again.
         self.sync_view_menu();
-        if self.totp_panel.is_visible() {
-            self.refresh_totp_list();
-        }
+        // Always (pass 5): the panel's entries were wiped at lock, and a
+        // panel opened later reads them anyway.
+        self.refresh_totp_list();
         self.layout_controls();
         self.paint_tab_bar();
 

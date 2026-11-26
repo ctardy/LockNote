@@ -373,8 +373,7 @@ impl EditorForm {
                 // Les dossiers ne sont pas supportés : on avertit l'utilisateur plutôt que
                 // d'ignorer silencieusement (éviter l'impression de bug).
                 if path.is_dir() {
-                    nwg::modal_info_message(
-                        &f.window, "LockNote",
+                    f.inform("LockNote",
                         &t("drop.directory"),
                     );
                     return;
@@ -407,8 +406,7 @@ impl EditorForm {
                 const MAX_TEXT_DROP_SIZE: u64 = 32 * 1024 * 1024; // 32 MiB
                 if let Ok(md) = std::fs::metadata(path) {
                     if md.len() > MAX_TEXT_DROP_SIZE {
-                        nwg::modal_info_message(
-                            &f.window, "LockNote",
+                        f.inform("LockNote",
                             &format!(
                                 "{}\n\n{}",
                                 path.display(),
@@ -427,8 +425,7 @@ impl EditorForm {
                         f.update_status_bar();
                     }
                     Err(_) => {
-                        nwg::modal_info_message(
-                            &f.window, "LockNote",
+                        f.inform("LockNote",
                             &format!(
                                 "{}\n\n{}",
                                 path.display(),

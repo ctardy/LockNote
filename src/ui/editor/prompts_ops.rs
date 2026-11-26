@@ -195,9 +195,7 @@ impl EditorForm {
     fn report_prompt_gone(&self, action: &str) {
         eprintln!("INFO prompts: {} dropped, prompt changed meanwhile count={}", action, self.prompts_panel.count());
         self.refresh_prompts_list(None);
-        nwg::modal_info_message(
-            &self.window,
-            "LockNote",
+        self.inform("LockNote",
             &t("prompts.gone"),
         );
     }

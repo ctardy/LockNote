@@ -152,9 +152,7 @@ impl EditorForm {
         let mut tb = self.tab_bar.borrow_mut();
         if tb.count() >= crate::ui::tab_bar::MAX_TABS {
             drop(tb);
-            nwg::modal_info_message(
-                &self.window,
-                &t("tab.limit.title"),
+            self.inform(&t("tab.limit.title"),
                 &t("tab.limit.msg"),
             );
             return;

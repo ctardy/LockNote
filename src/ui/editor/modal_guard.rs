@@ -317,6 +317,7 @@ impl EditorForm {
     /// the main window), for every information box of the editor.
     pub(super) fn inform(&self, title: &str, content: &str) {
         let _modal = self.modal();
+        // The only direct call of the editor (scan test).
         nwg::modal_info_message(&self.window, title, content);
     }
 

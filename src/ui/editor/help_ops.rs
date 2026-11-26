@@ -25,9 +25,7 @@ impl EditorForm {
                     // up first, and do not update without that backup.
                     {
                         if let Err(detail) = self.write_auto_backup(crate::features::auto_backup::Kind::PreUpdate) {
-                            nwg::modal_info_message(
-                                &self.window,
-                                "LockNote",
+                            self.inform("LockNote",
                                 &t("autobackup.failed.update")
                                     .replace("{msg}", &detail),
                             );
@@ -63,9 +61,7 @@ impl EditorForm {
                             }
                         }
                         Err(e) => {
-                            nwg::modal_info_message(
-                                &self.window,
-                                &t("update.error.title"),
+                            self.inform(&t("update.error.title"),
                                 &t("update.error").replace("{error}", &e.to_string()),
                             );
                         }
@@ -73,16 +69,12 @@ impl EditorForm {
                 }
             }
             crate::updater::UpdateCheckResult::UpToDate => {
-                nwg::modal_info_message(
-                    &self.window,
-                    &t("update.uptodate.title"),
+                self.inform(&t("update.uptodate.title"),
                     &t("update.uptodate.msg").replace("{version}", &crate::updater::current_version()),
                 );
             }
             crate::updater::UpdateCheckResult::Error(e) => {
-                nwg::modal_info_message(
-                    &self.window,
-                    &t("update.checkfailed.title"),
+                self.inform(&t("update.checkfailed.title"),
                     &t("update.checkfailed.msg").replace("{error}", &e.to_string()),
                 );
             }
@@ -101,7 +93,7 @@ impl EditorForm {
             crate::ui::dialogs::about::crypto_summary(),
             crate::updater::github_repo(),
         );
-        nwg::modal_info_message(&self.window, &t("about.title"), &msg);
+        self.inform(&t("about.title"), &msg);
     }
 
     // =====================================================================

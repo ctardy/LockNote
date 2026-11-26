@@ -34,38 +34,43 @@ pub struct CloseConfirmResult {
 // typing reached the main window under the prompt)
 // ---------------------------------------------------------------------------
 
-/// Calls `set_enabled(false)` now and `set_enabled(true)` when dropped (also
-/// on an early return or a panic).
-pub struct DisabledWhile<F: FnMut(bool)> {
+/// Calls `set_enabled(false)` now and, when dropped (also on an early
+/// return or a panic), puts back the state it had: `set_enabled` returns
+/// whether the window was enabled before the call (pass 5: an owner already
+/// disabled by another dialog was enabled under it).
+pub struct DisabledWhile<F: FnMut(bool) -> bool> {
     set_enabled: F,
+    was_enabled: bool,
 }
 
-impl<F: FnMut(bool)> DisabledWhile<F> {
+impl<F: FnMut(bool) -> bool> DisabledWhile<F> {
     pub fn new(mut set_enabled: F) -> Self {
-        set_enabled(false);
-        DisabledWhile { set_enabled }
+        let was_enabled = set_enabled(false);
+        DisabledWhile { set_enabled, was_enabled }
     }
 }
 
-impl<F: FnMut(bool)> Drop for DisabledWhile<F> {
+impl<F: FnMut(bool) -> bool> Drop for DisabledWhile<F> {
     fn drop(&mut self) {
-        (self.set_enabled)(true);
+        if self.was_enabled {
+            (self.set_enabled)(true);
+        }
     }
 }
 
 /// Disable `owner` until the guard is dropped.
-fn disable_owner(owner: Option<nwg::ControlHandle>) -> DisabledWhile<impl FnMut(bool)> {
+fn disable_owner(owner: Option<nwg::ControlHandle>) -> DisabledWhile<impl FnMut(bool) -> bool> {
     let hwnd = owner.and_then(|o| o.hwnd());
     DisabledWhile::new(move |enabled| {
-        if let Some(h) = hwnd {
-            // The return value is the previous state, not an error.
-            let _previous_state = unsafe {
-                windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow(
-                    windows::Win32::Foundation::HWND(h as *mut _),
-                    enabled,
-                )
-            };
-        }
+        let Some(h) = hwnd else { return false };
+        // EnableWindow returns TRUE when the window WAS disabled.
+        let was_disabled = unsafe {
+            windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow(
+                windows::Win32::Foundation::HWND(h as *mut _),
+                enabled,
+            )
+        };
+        !was_disabled.as_bool()
     })
 }
 
@@ -314,14 +319,32 @@ mod tests {
     fn the_owner_is_enabled_again_on_every_path() {
         let calls = std::cell::RefCell::new(Vec::new());
         {
-            let _g = DisabledWhile::new(|e| calls.borrow_mut().push(e));
+            let _g = DisabledWhile::new(|e| { calls.borrow_mut().push(e); true });
         }
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _g = DisabledWhile::new(|e| calls.borrow_mut().push(e));
+            let _g = DisabledWhile::new(|e| { calls.borrow_mut().push(e); true });
             panic!("dialog failed");
         }));
         assert!(r.is_err());
         assert_eq!(*calls.borrow(), [false, true, false, true]);
+    }
+
+    /// Pass 5: an owner that was already disabled (under another dialog)
+    /// stays disabled; its previous state is restored, not "enabled".
+    #[test]
+    fn the_owner_gets_its_previous_state_back() {
+        let enabled = std::cell::Cell::new(false);
+        {
+            let _g = DisabledWhile::new(|e: bool| enabled.replace(e));
+            assert!(!enabled.get());
+        }
+        assert!(!enabled.get(), "was disabled before: stays disabled");
+        enabled.set(true);
+        {
+            let _g = DisabledWhile::new(|e: bool| enabled.replace(e));
+            assert!(!enabled.get());
+        }
+        assert!(enabled.get());
     }
 
     #[test]

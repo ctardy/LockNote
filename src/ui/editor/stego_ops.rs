@@ -28,9 +28,7 @@ impl EditorForm {
         let image_data = match std::fs::read(&carrier_path) {
             Ok(data) => data,
             Err(e) => {
-                nwg::modal_info_message(
-                    &self.window,
-                    &t("stego.error"),
+                self.inform(&t("stego.error"),
                     &format!("{}: {}", t("stego.error.read_image"), e),
                 );
                 return;
@@ -40,9 +38,7 @@ impl EditorForm {
         if crate::features::stego::detect_format(&image_data).is_none()
             && crate::features::stego::detect_format_by_extension(&carrier_path).is_none()
         {
-            nwg::modal_info_message(
-                &self.window,
-                &t("stego.error.format_title"),
+            self.inform(&t("stego.error.format_title"),
                 &t("stego.error.format"),
             );
             return;
@@ -88,9 +84,7 @@ impl EditorForm {
         ) {
             Ok(bytes) => bytes,
             Err(e) => {
-                nwg::modal_info_message(
-                    &self.window,
-                    &t("stego.error"),
+                self.inform(&t("stego.error"),
                     &format!("{}: {}", t("stego.error.encrypt"), e),
                 );
                 return;
@@ -111,25 +105,19 @@ impl EditorForm {
                             result_kb,
                             t("stego.warning_recompress"),
                         );
-                        nwg::modal_info_message(
-                            &self.window,
-                            &t("stego.title"),
+                        self.inform(&t("stego.title"),
                             &msg,
                         );
                     }
                     Err(e) => {
-                        nwg::modal_info_message(
-                            &self.window,
-                            &t("stego.error"),
+                        self.inform(&t("stego.error"),
                             &format!("{}: {}", t("stego.error.write"), e),
                         );
                     }
                 }
             }
             Err(crate::features::stego::StegoError::PayloadTooLarge { ratio_percent }) => {
-                nwg::modal_info_message(
-                    &self.window,
-                    &t("stego.error.toolarge_title"),
+                self.inform(&t("stego.error.toolarge_title"),
                     &format!(
                         "{} ({}%)\n{}",
                         t("stego.error.toolarge"),
@@ -139,9 +127,7 @@ impl EditorForm {
                 );
             }
             Err(e) => {
-                nwg::modal_info_message(
-                    &self.window,
-                    &t("stego.error"),
+                self.inform(&t("stego.error"),
                     &format!("{}: {}", t("stego.error.embed"), e),
                 );
             }
@@ -171,9 +157,7 @@ impl EditorForm {
         let file_data = match std::fs::read(&image_path) {
             Ok(data) => data,
             Err(e) => {
-                nwg::modal_info_message(
-                    &self.window,
-                    &t("stego.error"),
+                self.inform(&t("stego.error"),
                     &format!("{}: {}", t("stego.error.read_image"), e),
                 );
                 return;
@@ -181,9 +165,7 @@ impl EditorForm {
         };
 
         if !crate::features::stego::has_hidden_data(&file_data) {
-            nwg::modal_info_message(
-                &self.window,
-                &t("stego.nodata_title"),
+            self.inform(&t("stego.nodata_title"),
                 &t("stego.nodata"),
             );
             return;
@@ -226,23 +208,17 @@ impl EditorForm {
                         self.mark_modified();
                     }
                 }
-                nwg::modal_info_message(
-                    &self.window,
-                    &t("stego.title"),
+                self.inform(&t("stego.title"),
                     &t("stego.extracted"),
                 );
             }
             Err(crate::features::stego::StegoError::DecryptionFailed) => {
-                nwg::modal_info_message(
-                    &self.window,
-                    &t("stego.error.decrypt_title"),
+                self.inform(&t("stego.error.decrypt_title"),
                     &t("stego.error.decrypt"),
                 );
             }
             Err(e) => {
-                nwg::modal_info_message(
-                    &self.window,
-                    &t("stego.error"),
+                self.inform(&t("stego.error"),
                     &format!("{}: {}", t("stego.error.extract"), e),
                 );
             }

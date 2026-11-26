@@ -41,7 +41,7 @@ impl EditorForm {
             // issue 049) gets the Err.
             Err(SaveFailure::Refused(msg)) => Err(msg),
             Err(SaveFailure::Failed(msg)) => {
-                nwg::modal_info_message(&self.window, &t("save.error.title"), &msg);
+                self.inform(&t("save.error.title"), &msg);
                 Err(msg)
             }
         }
@@ -213,18 +213,14 @@ impl EditorForm {
 
                 match std::fs::write(&path, &bytes[..]) {
                     Ok(_) => {
-                        nwg::modal_info_message(
-                            &self.window,
-                            &t("export.success.title"),
+                        self.inform(&t("export.success.title"),
                             &t("export.success.encoding")
                                 .replace("{encoding}", encoding.label())
                                 .replace("{path}", &path.to_string_lossy()),
                         );
                     }
                     Err(e) => {
-                        nwg::modal_info_message(
-                            &self.window,
-                            &t("export.error.title"),
+                        self.inform(&t("export.error.title"),
                             &t("export.error.msg").replace("{}", &e.to_string()),
                         );
                     }

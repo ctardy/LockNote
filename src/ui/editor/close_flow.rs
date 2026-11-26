@@ -252,7 +252,7 @@ impl CloseSteps for FormCloseSteps<'_> {
         // Its own message loop: a close request meanwhile (tray Quit) must be
         // refused by on_close.
         let _modal = self.form.modal();
-        nwg::modal_info_message(&self.form.window, "LockNote", &close_remember_notice());
+        self.form.inform("LockNote", &close_remember_notice());
     }
 
     fn save(&mut self) -> Result<(), String> {

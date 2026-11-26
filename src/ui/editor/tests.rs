@@ -902,6 +902,30 @@
         assert!(missing.is_empty(), "not greyed while locked: {:?}", missing);
     }
 
+    /// Pass 5: every information box of the editor goes through `inform`
+    /// (counted as a modal, owned by the main window).
+    #[test]
+    fn every_main_window_message_goes_through_inform() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
+        let needle = format!("modal_{}_message(", "info");
+        let mut found = Vec::new();
+        for e in std::fs::read_dir(&dir).unwrap() {
+            let p = e.unwrap().path();
+            let name = p.file_name().unwrap().to_string_lossy().to_string();
+            if !name.ends_with(".rs") || name == "tests.rs" {
+                continue;
+            }
+            let text = std::fs::read_to_string(&p).unwrap();
+            for (i, line) in text.lines().enumerate() {
+                let allowed = name == "modal_guard.rs" && line.trim() == format!("nwg::{}&self.window, title, content);", needle);
+                if line.contains(&needle) && !allowed {
+                    found.push(format!("{}:{}: {}", name, i + 1, line.trim()));
+                }
+            }
+        }
+        assert!(found.is_empty(), "messages outside inform():\n{}", found.join("\n"));
+    }
+
     /// Pass 4: every Yes/No question of the main window goes through
     /// `confirm` (lock epoch, locked and exiting re-checked after the box).
     #[test]

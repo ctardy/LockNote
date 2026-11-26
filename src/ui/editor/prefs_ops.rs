@@ -59,9 +59,7 @@ impl EditorForm {
             {
                 let current_lang = self.settings.borrow().language;
                 if current_lang != current.language {
-                    nwg::modal_info_message(
-                        &self.window,
-                        "LockNote",
+                    self.inform("LockNote",
                         &t("settings.restart"),
                     );
                 }

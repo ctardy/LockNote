@@ -402,9 +402,7 @@ impl EditorForm {
 
     pub(super) fn show_vault_category_error(&self, e: &crate::features::vault::categories::CategoryError) {
         eprintln!("vault: category refused err={:?}", e);
-        nwg::modal_info_message(
-            &self.window,
-            &t("vault.cat.error.title"),
+        self.inform(&t("vault.cat.error.title"),
             &crate::ui::vault_panel::category_error_message(e),
         );
     }

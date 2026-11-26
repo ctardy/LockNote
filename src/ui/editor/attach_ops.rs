@@ -117,7 +117,7 @@ impl EditorForm {
             Ok(m) => m.len(),
             Err(e) => {
                 let msg = t("attach.error.read").replace("{}", &e.to_string());
-                nwg::modal_info_message(&self.window, &t("attach.error.title"), &msg);
+                self.inform(&t("attach.error.title"), &msg);
                 return;
             }
         };
@@ -128,7 +128,7 @@ impl EditorForm {
             crate::features::attachments::check_limits(&attachments, file_size, max_file, max_total)
         };
         if let Err(e) = limits {
-            nwg::modal_info_message(&self.window, &t("attach.limit.title"), &attach_limit_message(&e));
+            self.inform(&t("attach.limit.title"), &attach_limit_message(&e));
             return;
         }
 
@@ -136,7 +136,7 @@ impl EditorForm {
             Ok(d) => d,
             Err(e) => {
                 let msg = t("attach.error.read").replace("{}", &e.to_string());
-                nwg::modal_info_message(&self.window, &t("attach.error.title"), &msg);
+                self.inform(&t("attach.error.title"), &msg);
                 return;
             }
         };
@@ -218,7 +218,7 @@ impl EditorForm {
         let Some((name, data, intact)) = self.attachment_copy(idx) else { return };
 
         if !intact {
-            nwg::modal_info_message(&self.window, &t("attach.error.title"), &t("attach.error.corrupt"));
+            self.inform(&t("attach.error.title"), &t("attach.error.corrupt"));
             return;
         }
 
@@ -235,7 +235,7 @@ impl EditorForm {
 
         if let Err(e) = std::fs::write(&path, &data[..]) {
             let msg = t("attach.error.save").replace("{}", &e.to_string());
-            nwg::modal_info_message(&self.window, &t("attach.error.title"), &msg);
+            self.inform(&t("attach.error.title"), &msg);
             return;
         }
 
@@ -312,7 +312,7 @@ impl EditorForm {
 
         if let Err(e) = std::fs::write(&path, &data[..]) {
             let msg = t("attach.error.save").replace("{}", &e.to_string());
-            nwg::modal_info_message(&self.window, &t("attach.error.title"), &msg);
+            self.inform(&t("attach.error.title"), &msg);
         }
     }
 
@@ -499,15 +499,5 @@ impl EditorForm {
         } else {
             self.totp_lbl_status.set_text(&t("totp.select_first"));
         }
-    }
-
-    /// Sync TOTP panel entries back to settings (called before save).
-    pub(super) fn sync_totp_to_settings(&self) {
-        let entries = self.totp_panel.get_entries();
-        let converted: Vec<crate::settings::TotpEntry> = entries
-            .iter()
-            .map(|e| crate::settings::TotpEntry { name: e.name.clone(), secret: e.secret.clone() })
-            .collect();
-        self.settings.borrow_mut().totp_entries = converted;
     }
 }

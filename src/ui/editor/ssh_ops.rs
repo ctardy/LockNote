@@ -10,9 +10,7 @@ impl EditorForm {
     // =====================================================================
 
     pub(super) fn show_ssh_error(&self, e: &crate::features::ssh_keys::SshKeyError) {
-        nwg::modal_info_message(
-            &self.window,
-            &t("ssh.title"),
+        self.inform(&t("ssh.title"),
             &crate::ui::dialogs::ssh_keygen::ssh_error_message(e),
         );
     }
@@ -94,9 +92,7 @@ impl EditorForm {
             .map(|s| (s.name.clone(), Zeroizing::new(s.value.clone())))
             .collect();
         if keys.is_empty() {
-            nwg::modal_info_message(
-                &self.window,
-                &t("ssh.title"),
+            self.inform(&t("ssh.title"),
                 &t("ssh.agent.none"),
             );
             return;
@@ -176,14 +172,12 @@ impl EditorForm {
                 true
             };
             let key = if still_loaded { "ssh.agent.save_failed_still_loaded" } else { "ssh.agent.save_failed" };
-            nwg::modal_info_message(&self.window, &t("ssh.title"), &t(key).replace("{detail}", &msg));
+            self.inform(&t("ssh.title"), &t(key).replace("{detail}", &msg));
             return;
         }
         match added {
             Ok(()) => {
-                nwg::modal_info_message(
-                    &self.window,
-                    &t("ssh.title"),
+                self.inform(&t("ssh.title"),
                     &t("ssh.agent.loaded").replace("{fingerprint}", &fingerprint),
                 );
             }
@@ -238,9 +232,7 @@ impl EditorForm {
             }
         }
         if let (Some(e), true) = (out.error, interactive) {
-            nwg::modal_info_message(
-                &self.window,
-                &t("ssh.title"),
+            self.inform(&t("ssh.title"),
                 &t("ssh.agent.unload_failed")
                     .replace("{detail}", &crate::ui::dialogs::ssh_keygen::ssh_error_message(&e)),
             );
@@ -308,9 +300,7 @@ impl EditorForm {
             if !self.vault_panel.update_secret_if_unchanged(global_idx, &secret, vault_entry) {
                 eprintln!("INFO vault: edit dropped, secret changed meanwhile count={}", self.vault_panel.count());
                 self.refresh_vault_tree(None);
-                nwg::modal_info_message(
-                    &self.window,
-                    "LockNote",
+                self.inform("LockNote",
                     &t("vault.edit.gone"),
                 );
                 return;

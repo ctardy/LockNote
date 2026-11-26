@@ -84,18 +84,14 @@ impl EditorForm {
                     counts.4,
                     written
                 );
-                nwg::modal_info_message(
-                    &self.window,
-                    "LockNote",
+                self.inform("LockNote",
                     &t("backup.export.done")
                         .replace("{path}", &path.to_string_lossy()),
                 );
             }
             Err((stage, detail)) => {
                 eprintln!("backup: export failed stage={}", stage);
-                nwg::modal_info_message(
-                    &self.window,
-                    "LockNote",
+                self.inform("LockNote",
                     &t("backup.export.error").replace("{msg}", &detail),
                 );
             }
@@ -115,16 +111,12 @@ impl EditorForm {
             BackupsAction::Close => {}
             BackupsAction::CreateNow => match self.write_auto_backup(crate::features::auto_backup::Kind::Manual) {
                 Ok(()) => {
-                    nwg::modal_info_message(
-                        &self.window,
-                        "LockNote",
+                    self.inform("LockNote",
                         &t("autobackup.manual.done"),
                     );
                 }
                 Err(detail) => {
-                    nwg::modal_info_message(
-                        &self.window,
-                        "LockNote",
+                    self.inform("LockNote",
                         &t("autobackup.manual.failed")
                             .replace("{msg}", &detail),
                     );
@@ -256,9 +248,7 @@ impl EditorForm {
             }
         };
         if left > 0 {
-            nwg::modal_info_message(
-                &self.window,
-                "LockNote",
+            self.inform("LockNote",
                 &t("autobackup.purge.partial")
                     .replace("{n}", &left.to_string())
                     .replace("{dir}", &dir.to_string_lossy()),
@@ -338,7 +328,7 @@ impl EditorForm {
                 t("backup.import.corrupt").replace("{msg}", &err.to_string())
             }
         };
-        nwg::modal_info_message(&self.window, "LockNote", &text);
+        self.inform("LockNote", &text);
     }
 
     /// Import a full backup file, replacing all current content.
@@ -374,18 +364,14 @@ impl EditorForm {
 
         let read_error = |detail: String| {
             eprintln!("backup: import refused reason=read");
-            nwg::modal_info_message(
-                &self.window,
-                "LockNote",
+            self.inform("LockNote",
                 &t("backup.import.read_error").replace("{msg}", &detail),
             );
         };
         match std::fs::metadata(path) {
             Ok(md) if md.len() > backup::MAX_FILE_SIZE => {
                 eprintln!("backup: import refused reason=too_large");
-                nwg::modal_info_message(
-                    &self.window,
-                    "LockNote",
+                self.inform("LockNote",
                     &t("backup.import.too_large"),
                 );
                 return;
@@ -493,9 +479,7 @@ impl EditorForm {
         if let Err(detail) = self.write_auto_backup(crate::features::auto_backup::Kind::PreImport) {
             crate::features::import_log::note(&format!("{}: import refused reason=auto_backup", tag));
             imported.wipe();
-            nwg::modal_info_message(
-                &self.window,
-                "LockNote",
+            self.inform("LockNote",
                 &t("autobackup.failed.import")
                     .replace("{msg}", &detail),
             );
@@ -517,7 +501,7 @@ impl EditorForm {
         } else {
             t("backup.import.done")
         };
-        nwg::modal_info_message(&self.window, "LockNote", &done);
+        self.inform("LockNote", &done);
     }
 
     /// Bring in the data of another LockNote file (an older exe): read what
@@ -558,9 +542,7 @@ impl EditorForm {
         };
         if same {
             crate::features::import_log::note("import_exe: refused reason=same_file");
-            nwg::modal_info_message(
-                &self.window,
-                "LockNote",
+            self.inform("LockNote",
                 &t("import_exe.same_file"),
             );
             return;
@@ -569,9 +551,7 @@ impl EditorForm {
         match std::fs::metadata(&path) {
             Ok(md) if md.len() > backup::MAX_FILE_SIZE => {
                 crate::features::import_log::note("import_exe: refused reason=too_large");
-                nwg::modal_info_message(
-                    &self.window,
-                    "LockNote",
+                self.inform("LockNote",
                     &t("backup.import.too_large"),
                 );
                 return;
@@ -579,9 +559,7 @@ impl EditorForm {
             Ok(_) => {}
             Err(e) => {
                 crate::features::import_log::note("import_exe: refused reason=read");
-                nwg::modal_info_message(
-                    &self.window,
-                    "LockNote",
+                self.inform("LockNote",
                     &t("backup.import.read_error")
                         .replace("{msg}", &e.to_string()),
                 );
@@ -600,18 +578,14 @@ impl EditorForm {
             Ok(Some(payload)) => payload,
             Ok(None) => {
                 crate::features::import_log::note("import_exe: refused reason=no_data");
-                nwg::modal_info_message(
-                    &self.window,
-                    "LockNote",
+                self.inform("LockNote",
                     &t("import_exe.no_data"),
                 );
                 return;
             }
             Err(e) => {
                 crate::features::import_log::note("import_exe: refused reason=pending_unreadable");
-                nwg::modal_info_message(
-                    &self.window,
-                    "LockNote",
+                self.inform("LockNote",
                     &t("backup.import.read_error").replace("{msg}", &e),
                 );
                 return;
