@@ -118,6 +118,35 @@ pub fn decompress(input: &str) -> String {
 mod tests {
     use super::*;
 
+    /// Known answer (computed with flate2 on miniz_oxide, its default
+    /// backend, before the dependency update of 2026-11-26): the bytes
+    /// written before every save and backup must not change with a crate
+    /// update (zip's "deflate" feature switched flate2 to zlib-rs).
+    #[test]
+    fn compressed_output_is_pinned() {
+        let mut input = String::new();
+        for i in 0..40 {
+            input.push_str(&format!("line {} \u{e9}t\u{e9} LockNote vault entry {} password=Xy{}z\n", i, i * 7 % 13, i * i % 97));
+        }
+        let out = compress(&input);
+        assert_eq!(out.len(), PAD_BLOCK, "padded to one block");
+        let payload = out.trim_end_matches('.');
+        assert_eq!(payload, "LNGZ:H4sIAAAAAAAA/42VTU7DQAyF95wiR4jt+V1wA8SabQVZIKIGtQFUbtRz9GIUaWzNbKy3jj7Zfv48Wd+PyzRPt+t+u05P2+vH87Yv0/fha92n5bifLvePn4fz+Wc7vT2+XObfh/WfII/IPUGNYI+gngiNEI8oPVEbETyCh65SQ6KH1B7h2JDkIdIjolWyO/yQcNBhiseEHkmaWHXLDCEX3Qu5y4/DOIq426chaNbeyBUgDRFkZQQWM7MyAVbTkAi7KRZbgu1MVifDflaVjQosqNh+Kmxo1oPmGVeUdCAm2NGozTHjkla9HxZY0qDCccAtrfZKRdxSmyjBllZrLsOWRltRgTUtilTcUjVOZthS1kMVgi0t2pswbGm0X4LglrJaKgG2tOjjKxG3NKk8kvCn1NLOuKVkhQpsadETkgpbmu7MH7r6pd4YCAAA");
+        assert_eq!(decompress(&out), input);
+    }
+
+    /// The zip crate must not bring flate2's zlib-rs backend (its "deflate"
+    /// feature does since zip 9): only "deflate-flate2", so the gzip above
+    /// keeps flate2's default backend (miniz_oxide).
+    #[test]
+    fn zip_keeps_the_default_gzip_backend() {
+        let toml = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml")).unwrap();
+        let zip = toml.lines().find(|l| l.starts_with("zip = ")).expect("zip dependency");
+        assert!(zip.contains(r#"features = ["deflate-flate2"]"#) && zip.contains("default-features = false"), "{}", zip);
+        let flate2 = toml.lines().find(|l| l.starts_with("flate2 = ")).expect("flate2 dependency");
+        assert_eq!(flate2.trim(), r#"flate2 = "1""#, "flate2 with its default (rust) backend");
+    }
+
     #[test]
     fn test_roundtrip() {
         let original = "Hello, world! This is a test of compression.";

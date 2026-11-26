@@ -48,7 +48,14 @@ clipboard-win = "5"
 ureq = { version = "3", features = ["platform-verifier"] }
 serde_json = "1"
 winreg = "0.56"
-zip = { version = "9", default-features = false, features = ["deflate"] }
+# Reading the release zip only. Not "deflate": since zip 9 it enables
+# flate2/zlib-rs, which would switch the gzip of every save
+# (features/compression) from miniz_oxide and change the bytes written
+# (compression::tests::compressed_output_is_pinned; the feature list is
+# pinned by zip_keeps_the_default_gzip_backend). Cargo.lock still lists
+# zlib-rs (a weak feature of flate2) but it is not built:
+# `cargo tree -i zlib-rs` prints nothing.
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 
 # SSH keys (issue 054): OpenSSH key format, passphrase encryption
 # (bcrypt-pbkdf + aes256-ctr), Ed25519 / ECDSA / RSA generation.
