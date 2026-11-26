@@ -89,37 +89,11 @@ impl TimerGate {
     }
 }
 
-/// What a tick does with a lock or a close requested while dialogs were
-/// open. Pass 4: there is no "run it under the dialog" any more: a lock
-/// inside a dialog's nested loop wiped stores its caller still used.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) enum PendingStep {
-    /// The dialogs are closing: check again at the next tick.
-    Wait,
-    /// Still open after `RECANCEL_EVERY`: ask them to close again.
-    CancelAgain,
-    /// No dialog left: run it now, from the application's own loop, once
-    /// every dialog has returned.
-    Run,
-}
-
-/// A lock still waiting after this is reported as an ERROR (once), with
-/// what is still open.
+/// A lock still waiting after this shows the curtain (WARN once, with what
+/// is still open).
 pub(super) const LOCK_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
 /// How often the dialogs that did not close are asked again.
 pub(super) const RECANCEL_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
-
-/// The step of a pending request; `since_cancel` is the time since the
-/// dialogs were last asked to close.
-pub(super) fn pending_step(modal_open: bool, since_cancel: std::time::Duration) -> PendingStep {
-    if !modal_open {
-        PendingStep::Run
-    } else if since_cancel >= RECANCEL_EVERY {
-        PendingStep::CancelAgain
-    } else {
-        PendingStep::Wait
-    }
-}
 
 /// What a tick does with a pending lock (pass 5, owner decision): past
 /// `LOCK_DEADLINE` with a dialog still open, a curtain hides the note on
@@ -158,6 +132,33 @@ pub(super) fn merged_manual(pending_manual: bool, new_manual: bool) -> bool {
 /// an automatic one only if the inactivity is still there (`still_due`).
 pub(super) fn lock_goes_on(manual: bool, still_due: bool) -> bool {
     manual || still_due
+}
+
+/// How long a close waits for a dialog that does not close before LockNote
+/// offers to close without saving (pass 6: tray Quit hung silently on a
+/// busy dialog).
+pub(super) const CLOSE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// What a pending close does on a tick.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum CloseStep {
+    Wait,
+    CancelAgain,
+    /// Ask once: keep waiting, or close without saving.
+    Offer,
+    Run,
+}
+
+pub(super) fn close_step(modal_open: bool, since_cancel: std::time::Duration, waited: std::time::Duration, asked: bool, curtain: bool) -> CloseStep {
+    if !modal_open {
+        CloseStep::Run
+    } else if waited >= CLOSE_WAIT && !asked && !curtain {
+        CloseStep::Offer
+    } else if since_cancel >= RECANCEL_EVERY {
+        CloseStep::CancelAgain
+    } else {
+        CloseStep::Wait
+    }
 }
 
 /// The curtain over the note (pass 5/6): the lock screen while the note is
@@ -309,16 +310,22 @@ impl EditorForm {
             }
         }
         if let Some(mut p) = self.close_pending.get() {
-            match pending_step(self.modal_open(), p.last_cancel.elapsed()) {
-                PendingStep::Wait => {}
-                PendingStep::CancelAgain => {
+            let curtain = self.curtain.get() != Curtain::None;
+            match close_step(self.modal_open(), p.last_cancel.elapsed(), p.since.elapsed(), p.error_logged, curtain) {
+                CloseStep::Wait => {}
+                CloseStep::CancelAgain => {
                     if !self.lock_in_progress.get() {
                         cancel_open_dialogs();
                     }
                     p.last_cancel = std::time::Instant::now();
                     self.close_pending.set(Some(p));
                 }
-                PendingStep::Run => {
+                CloseStep::Offer => {
+                    p.error_logged = true;
+                    self.close_pending.set(Some(p));
+                    self.offer_close_without_saving();
+                }
+                CloseStep::Run => {
                     self.close_pending.set(None);
                     if self.on_close() {
                         nwg::stop_thread_dispatch();
@@ -326,6 +333,35 @@ impl EditorForm {
                 }
             }
         }
+    }
+
+    /// A close stuck behind a dialog that does not close: say which, and
+    /// offer to close without saving (never a silent hang, pass 6). That
+    /// exit runs from inside the stuck dialog's loop, so it is the one of
+    /// the end of a session (nothing saved, keys removed, stores wiped,
+    /// pending save promoted), then the process ends.
+    fn offer_close_without_saving(&self) {
+        let window = first_dialog_title();
+        eprintln!("WARN close: still waiting for \"{}\" after {} s", window, CLOSE_WAIT.as_secs());
+        let msg = t("close.stuck").replace("{window}", if window.is_empty() { "?" } else { &window });
+        let answer = {
+            let _modal = self.modal();
+            crate::ui::dialogs::close_confirm::SaveFailedDialog::show_with(
+                Some(self.window.handle), &msg, &t("close.keep_waiting"), &t("close.close_unsaved"),
+            )
+        };
+        if !crate::ui::dialogs::close_confirm::closes_without_saving(answer) {
+            eprintln!("INFO close: the user keeps waiting");
+            return;
+        }
+        eprintln!("WARN close: closing without saving while \"{}\" is stuck (user choice)", window);
+        use super::end_session::EndSessionSteps;
+        let mut steps = super::end_session::FormEndSessionSteps { form: self };
+        steps.mark_exiting();
+        steps.unload_agent_keys();
+        steps.wipe();
+        steps.finish_exit();
+        std::process::exit(0);
     }
 
     fn execute_lock(&self, manual: bool) {
@@ -608,6 +644,20 @@ mod tests {
         assert!(lock_goes_on(false, true));
     }
 
+    /// Pass 6: a close waiting for a dialog that stays open offers, once and
+    /// never under the curtain, to close without saving.
+    #[test]
+    fn a_close_stuck_behind_a_dialog_offers_to_close_without_saving() {
+        use std::time::Duration;
+        let s = Duration::from_millis;
+        assert_eq!(close_step(false, s(0), s(0), false, false), CloseStep::Run);
+        assert_eq!(close_step(true, s(100), s(500), false, false), CloseStep::Wait);
+        assert_eq!(close_step(true, RECANCEL_EVERY, s(2000), false, false), CloseStep::CancelAgain);
+        assert_eq!(close_step(true, s(100), CLOSE_WAIT, false, false), CloseStep::Offer);
+        assert_eq!(close_step(true, RECANCEL_EVERY, CLOSE_WAIT, true, false), CloseStep::CancelAgain, "asked once");
+        assert_eq!(close_step(true, s(100), CLOSE_WAIT, false, true), CloseStep::Wait, "not under the curtain");
+    }
+
     /// Owner decision on #30: the lock is not postponed by a dialog.
     #[test]
     fn a_due_lock_cancels_the_dialogs_then_locks() {
@@ -616,11 +666,11 @@ mod tests {
         assert_eq!(lock_request(true), LockRequest::CancelDialogsThenLock);
         // The dialogs close within a tick or two: then the lock runs, only
         // once no modal is left (the stack has unwound).
-        assert_eq!(pending_step(true, Duration::from_millis(200)), PendingStep::Wait);
-        assert_eq!(pending_step(false, Duration::from_millis(400)), PendingStep::Run);
+        assert_eq!(lock_step(true, Duration::from_millis(200), Duration::from_millis(200), false), LockStep::Wait);
+        assert_eq!(lock_step(false, Duration::from_millis(400), Duration::from_millis(400), false), LockStep::Run);
         // Pass 4: never run under a dialog that stays open; ask it again.
-        assert_eq!(pending_step(true, RECANCEL_EVERY), PendingStep::CancelAgain);
-        assert_eq!(pending_step(true, Duration::from_secs(60)), PendingStep::CancelAgain);
+        assert_eq!(lock_step(true, RECANCEL_EVERY, Duration::from_millis(1000), false), LockStep::CancelAgain);
+        assert_eq!(lock_step(true, Duration::from_secs(60), Duration::from_secs(60), true), LockStep::CancelAgain);
     }
 
     /// Auto-save stays suspended under a dialog.

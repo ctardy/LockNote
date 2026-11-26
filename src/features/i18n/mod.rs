@@ -800,6 +800,8 @@ fn build_en() -> Dict {
     m.insert("close.save_failed", "LockNote could not save:\n{error}\n\nYour unsaved changes are still in the window. Keep LockNote open to try again or copy your text; closing without saving loses them.");
     m.insert("close.keep_open", "Keep LockNote open");
     m.insert("close.close_unsaved", "Close without saving");
+    m.insert("close.stuck", "LockNote cannot close yet: it waits for \"{window}\" to close.\n\nKeep waiting, or close without saving: the unsaved changes are then lost.");
+    m.insert("close.keep_waiting", "Keep waiting");
     m.insert("endsession.blocked", "LockNote could not save your notes ({error}). Cancel, then save or copy your text.");
     m.insert("close.remember_not_saved", "Your choice was not remembered: LockNote keeps its settings inside the note, and the note is not saved. To stop this question, choose \"{onclose} {never}\" in {menu}, then save.");
 
@@ -1455,6 +1457,8 @@ fn build_fr() -> Dict {
     m.insert("close.save_failed", "LockNote n'a pas pu enregistrer :\n{error}\n\nVos modifications non enregistr\u{00e9}es sont toujours dans la fen\u{00ea}tre. Gardez LockNote ouvert pour r\u{00e9}essayer ou copier votre texte ; si vous fermez sans enregistrer, elles seront perdues.");
     m.insert("close.keep_open", "Garder LockNote ouvert");
     m.insert("close.close_unsaved", "Fermer sans enregistrer");
+    m.insert("close.stuck", "LockNote ne peut pas encore se fermer : il attend la fermeture de \u{00ab} {window} \u{00bb}.\n\nContinuez d'attendre, ou fermez sans enregistrer : les modifications non enregistr\u{00e9}es seront alors perdues.");
+    m.insert("close.keep_waiting", "Continuer d'attendre");
     m.insert("endsession.blocked", "LockNote n'a pas pu enregistrer vos notes ({error}). Annulez, puis enregistrez ou copiez votre texte.");
     m.insert("close.remember_not_saved", "Votre choix n'a pas \u{00e9}t\u{00e9} m\u{00e9}moris\u{00e9} : LockNote garde ses param\u{00e8}tres dans la note, et la note n'est pas enregistr\u{00e9}e. Pour ne plus \u{00ea}tre questionn\u{00e9}, choisissez \u{00ab} {onclose} {never} \u{00bb} dans {menu}, puis enregistrez.");
 
@@ -2111,6 +2115,8 @@ fn build_es() -> Dict {
     m.insert("close.save_failed", "LockNote no pudo guardar:\n{error}\n\nSus cambios sin guardar siguen en la ventana. Mantenga LockNote abierto para reintentar o copiar su texto; si cierra sin guardar, se perder\u{00e1}n.");
     m.insert("close.keep_open", "Mantener LockNote abierto");
     m.insert("close.close_unsaved", "Cerrar sin guardar");
+    m.insert("close.stuck", "LockNote a\u{00fa}n no puede cerrarse: espera a que se cierre \u{00ab}{window}\u{00bb}.\n\nSiga esperando, o cierre sin guardar: entonces se perder\u{00e1}n los cambios sin guardar.");
+    m.insert("close.keep_waiting", "Seguir esperando");
     m.insert("endsession.blocked", "LockNote no pudo guardar sus notas ({error}). Cancele y luego guarde o copie su texto.");
     m.insert("close.remember_not_saved", "No se ha recordado su elecci\u{00f3}n: LockNote guarda sus ajustes dentro de la nota, y la nota no se guarda. Para no ver m\u{00e1}s esta pregunta, elija \u{00ab}{onclose} {never}\u{00bb} en {menu} y guarde.");
 
@@ -2767,6 +2773,8 @@ fn build_de() -> Dict {
     m.insert("close.save_failed", "LockNote konnte nicht speichern:\n{error}\n\nIhre ungespeicherten \u{00c4}nderungen sind noch im Fenster. Lassen Sie LockNote ge\u{00f6}ffnet, um es erneut zu versuchen oder Ihren Text zu kopieren; Schlie\u{00df}en ohne Speichern verwirft sie.");
     m.insert("close.keep_open", "LockNote offen lassen");
     m.insert("close.close_unsaved", "Ohne Speichern schlie\u{00df}en");
+    m.insert("close.stuck", "LockNote kann sich noch nicht schlie\u{00df}en: es wartet, bis \u{201e}{window}\u{201c} geschlossen ist.\n\nWarten Sie weiter oder schlie\u{00df}en Sie ohne Speichern: die ungespeicherten \u{00c4}nderungen gehen dann verloren.");
+    m.insert("close.keep_waiting", "Weiter warten");
     m.insert("endsession.blocked", "LockNote konnte Ihre Notizen nicht speichern ({error}). Brechen Sie ab und speichern oder kopieren Sie dann Ihren Text.");
     m.insert("close.remember_not_saved", "Ihre Wahl wurde nicht gemerkt: LockNote speichert seine Einstellungen in der Notiz, und die Notiz wird nicht gespeichert. Um diese Frage nicht mehr zu sehen, w\u{00e4}hlen Sie \u{201e}{onclose} {never}\u{201c} unter {menu} und speichern Sie.");
 
