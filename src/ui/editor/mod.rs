@@ -62,6 +62,12 @@ pub struct EditorForm {
     menu_edit_sep2: nwg::MenuSeparator,
     menu_edit_duplicate_line: nwg::MenuItem,
     menu_edit_delete_line: nwg::MenuItem,
+    menu_edit_lines: nwg::Menu,
+    menu_edit_lines_sort_asc: nwg::MenuItem,
+    menu_edit_lines_sort_desc: nwg::MenuItem,
+    menu_edit_lines_dedup: nwg::MenuItem,
+    menu_edit_lines_join: nwg::MenuItem,
+    menu_edit_lines_trim: nwg::MenuItem,
     menu_edit_select_all: nwg::MenuItem,
     menu_edit_insert_timestamp: nwg::MenuItem,
 
@@ -469,6 +475,7 @@ mod lists;
 mod palette_ops;
 mod heading_flow;
 mod compare_flow;
+mod line_ops;
 
 #[allow(unused_imports)]
 use self::helpers::*;

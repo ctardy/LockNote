@@ -255,6 +255,49 @@ impl EditorForm {
             .build(&mut menu_edit_delete_line)
             .expect("Failed to build Delete Line menu item");
 
+        // Edit > Lines: on the selected lines, or the whole tab (line_ops.rs).
+        let mut menu_edit_lines = nwg::Menu::default();
+        nwg::Menu::builder()
+            .text(&t("menu.edit.lines"))
+            .parent(&menu_edit)
+            .build(&mut menu_edit_lines)
+            .expect("Failed to build Lines submenu");
+
+        let mut menu_edit_lines_sort_asc = nwg::MenuItem::default();
+        nwg::MenuItem::builder()
+            .text(&t("menu.edit.lines.sortasc"))
+            .parent(&menu_edit_lines)
+            .build(&mut menu_edit_lines_sort_asc)
+            .expect("Failed to build Sort Lines Ascending menu item");
+
+        let mut menu_edit_lines_sort_desc = nwg::MenuItem::default();
+        nwg::MenuItem::builder()
+            .text(&t("menu.edit.lines.sortdesc"))
+            .parent(&menu_edit_lines)
+            .build(&mut menu_edit_lines_sort_desc)
+            .expect("Failed to build Sort Lines Descending menu item");
+
+        let mut menu_edit_lines_dedup = nwg::MenuItem::default();
+        nwg::MenuItem::builder()
+            .text(&t("menu.edit.lines.dedup"))
+            .parent(&menu_edit_lines)
+            .build(&mut menu_edit_lines_dedup)
+            .expect("Failed to build Remove Duplicate Lines menu item");
+
+        let mut menu_edit_lines_join = nwg::MenuItem::default();
+        nwg::MenuItem::builder()
+            .text(&t("menu.edit.lines.join"))
+            .parent(&menu_edit_lines)
+            .build(&mut menu_edit_lines_join)
+            .expect("Failed to build Join Lines menu item");
+
+        let mut menu_edit_lines_trim = nwg::MenuItem::default();
+        nwg::MenuItem::builder()
+            .text(&t("menu.edit.lines.trim"))
+            .parent(&menu_edit_lines)
+            .build(&mut menu_edit_lines_trim)
+            .expect("Failed to build Trim Trailing Whitespace menu item");
+
         let mut menu_edit_select_all = nwg::MenuItem::default();
         nwg::MenuItem::builder()
             .text(&t("menu.edit.selectall"))
@@ -1382,6 +1425,12 @@ impl EditorForm {
             menu_edit_sep2,
             menu_edit_duplicate_line,
             menu_edit_delete_line,
+            menu_edit_lines,
+            menu_edit_lines_sort_asc,
+            menu_edit_lines_sort_desc,
+            menu_edit_lines_dedup,
+            menu_edit_lines_join,
+            menu_edit_lines_trim,
             menu_edit_select_all,
             menu_edit_insert_timestamp,
             // View menu

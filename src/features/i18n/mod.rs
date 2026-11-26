@@ -263,6 +263,14 @@ fn build_en() -> Dict {
     m.insert("menu.edit.goto", "&Go to Line...\tCtrl+G");
     m.insert("menu.edit.dupline", "&Duplicate Line\tCtrl+D");
     m.insert("menu.edit.delline", "De&lete Line\tCtrl+Shift+K");
+    m.insert("menu.edit.lines", "Li&nes");
+    m.insert("menu.edit.lines.sortasc", "Sort Lines &Ascending");
+    m.insert("menu.edit.lines.sortdesc", "Sort Lines &Descending");
+    m.insert("menu.edit.lines.dedup", "Remove D&uplicate Lines");
+    m.insert("menu.edit.lines.join", "&Join Lines");
+    m.insert("menu.edit.lines.trim", "&Trim Trailing Whitespace");
+    m.insert("lines.error.title", "Lines");
+    m.insert("lines.error.sort", "The lines were not sorted: {msg}");
     m.insert("menu.edit.selectall", "Select &All\tCtrl+A");
     m.insert("menu.edit.timestamp", "Insert &Timestamp\tF5");
 
@@ -971,6 +979,14 @@ fn build_fr() -> Dict {
     m.insert("menu.edit.goto", "&Aller \u{00e0} la ligne...\tCtrl+G");
     m.insert("menu.edit.dupline", "&Dupliquer la ligne\tCtrl+D");
     m.insert("menu.edit.delline", "Supprimer la &ligne\tCtrl+Shift+K");
+    m.insert("menu.edit.lines", "Lig&nes");
+    m.insert("menu.edit.lines.sortasc", "Trier par ordre &croissant");
+    m.insert("menu.edit.lines.sortdesc", "Trier par ordre &d\u{00e9}croissant");
+    m.insert("menu.edit.lines.dedup", "Supprimer les lignes en d&ouble");
+    m.insert("menu.edit.lines.join", "&Joindre les lignes");
+    m.insert("menu.edit.lines.trim", "Supprimer les &espaces de fin");
+    m.insert("lines.error.title", "Lignes");
+    m.insert("lines.error.sort", "Les lignes n'ont pas \u{00e9}t\u{00e9} tri\u{00e9}es : {msg}");
     m.insert("menu.edit.selectall", "&Tout s\u{00e9}lectionner\tCtrl+A");
     m.insert("menu.edit.timestamp", "Ins\u{00e9}rer un &horodatage\tF5");
 
@@ -1656,6 +1672,14 @@ fn build_es() -> Dict {
     m.insert("menu.edit.goto", "&Ir a la l\u{00ed}nea...\tCtrl+G");
     m.insert("menu.edit.dupline", "&Duplicar l\u{00ed}nea\tCtrl+D");
     m.insert("menu.edit.delline", "E&liminar l\u{00ed}nea\tCtrl+Shift+K");
+    m.insert("menu.edit.lines", "L\u{00ed}&neas");
+    m.insert("menu.edit.lines.sortasc", "Ordenar l\u{00ed}neas &ascendente");
+    m.insert("menu.edit.lines.sortdesc", "Ordenar l\u{00ed}neas &descendente");
+    m.insert("menu.edit.lines.dedup", "Eliminar l\u{00ed}neas du&plicadas");
+    m.insert("menu.edit.lines.join", "&Unir l\u{00ed}neas");
+    m.insert("menu.edit.lines.trim", "Quitar espacios &finales");
+    m.insert("lines.error.title", "L\u{00ed}neas");
+    m.insert("lines.error.sort", "No se ordenaron las l\u{00ed}neas: {msg}");
     m.insert("menu.edit.selectall", "Seleccionar &todo\tCtrl+A");
     m.insert("menu.edit.timestamp", "Insertar marca de &tiempo\tF5");
 
@@ -2342,6 +2366,14 @@ fn build_de() -> Dict {
     m.insert("menu.edit.goto", "&Gehe zu Zeile...\tStrg+G");
     m.insert("menu.edit.dupline", "Zeile &duplizieren\tStrg+D");
     m.insert("menu.edit.delline", "Zeile &l\u{00f6}schen\tStrg+Umschalt+K");
+    m.insert("menu.edit.lines", "Ze&ilen");
+    m.insert("menu.edit.lines.sortasc", "&Aufsteigend sortieren");
+    m.insert("menu.edit.lines.sortdesc", "Ab&steigend sortieren");
+    m.insert("menu.edit.lines.dedup", "&Doppelte Zeilen entfernen");
+    m.insert("menu.edit.lines.join", "Zeilen &verbinden");
+    m.insert("menu.edit.lines.trim", "&Leerzeichen am Zeilenende entfernen");
+    m.insert("lines.error.title", "Zeilen");
+    m.insert("lines.error.sort", "Die Zeilen wurden nicht sortiert: {msg}");
     m.insert("menu.edit.selectall", "Alles aus&w\u{00e4}hlen\tStrg+A");
     m.insert("menu.edit.timestamp", "&Zeitstempel einf\u{00fc}gen\tF5");
 
@@ -3090,6 +3122,37 @@ mod tests {
                 assert!(d.contains_key(key), "{key} missing for {lang:?}");
             }
             assert!(d["compare.too_large"].contains("{}"), "{lang:?}");
+        }
+    }
+
+    // Edit > Lines (feature A3): its access key is free in the Edit menu and
+    // its items have distinct keys, in every language.
+    #[test]
+    fn lines_menu_access_keys_are_unique_in_every_language() {
+        let key_of = |label: &str| -> Option<char> {
+            let i = label.find('&')?;
+            label[i + 1..].chars().next().map(|c| c.to_lowercase().next().unwrap_or(c))
+        };
+        let edit = [
+            "menu.edit.cut", "menu.edit.copy", "menu.edit.paste", "menu.edit.pasteplain", "menu.edit.find",
+            "menu.edit.replace", "menu.edit.goto", "menu.edit.dupline", "menu.edit.delline",
+            "menu.edit.selectall", "menu.edit.timestamp",
+        ];
+        let lines = [
+            "menu.edit.lines.sortasc", "menu.edit.lines.sortdesc", "menu.edit.lines.dedup",
+            "menu.edit.lines.join", "menu.edit.lines.trim",
+        ];
+        for lang in [Language::English, Language::French, Language::Spanish, Language::German] {
+            let d = dict_for(lang);
+            let mine = key_of(d["menu.edit.lines"]).unwrap_or_else(|| panic!("no access key {lang:?}"));
+            for item in edit {
+                assert_ne!(key_of(d[item]), Some(mine), "{item} of {lang:?} uses the key of Lines");
+            }
+            let keys: Vec<Option<char>> = lines.iter().map(|k| key_of(d[k])).collect();
+            for (i, k) in keys.iter().enumerate() {
+                assert!(k.is_some(), "{} of {lang:?} has no access key", lines[i]);
+                assert!(!keys[..i].contains(k), "{} of {lang:?} repeats an access key", lines[i]);
+            }
         }
     }
 

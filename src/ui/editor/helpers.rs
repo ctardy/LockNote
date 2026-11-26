@@ -718,6 +718,25 @@ pub(super) fn plain_key_action(vk: u32) -> Option<PlainKey> {
     }
 }
 
+/// What a key pressed with Alt only (WM_SYSKEYDOWN) does in `handle_shortcut`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum AltKey {
+    /// Alt+Up: move the current / selected lines up.
+    MoveLinesUp,
+    /// Alt+Down: move them down.
+    MoveLinesDown,
+}
+
+/// The action of a key pressed with Alt only, `None` when it is not a
+/// shortcut (the key goes on to the system: menu access keys...).
+pub(super) fn alt_key_action(vk: u32) -> Option<AltKey> {
+    match vk {
+        0x26 => Some(AltKey::MoveLinesUp),   // Alt+Up
+        0x28 => Some(AltKey::MoveLinesDown), // Alt+Down
+        _ => None,
+    }
+}
+
 /// The menu label of a tab colour: `color.<name>` in the current language.
 /// The stored name (`theme::TAB_COLORS`, "blue"...) is not translated.
 pub(super) fn tab_color_label(name: &str) -> String {

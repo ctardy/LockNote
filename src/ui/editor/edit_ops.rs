@@ -185,6 +185,14 @@ impl EditorForm {
                 _ => {}
             }
         } else if !ctrl && !shift {
+            // Alt+key arrives as WM_SYSKEYDOWN (events.rs), only for these keys.
+            if alt {
+                match alt_key_action(vk) {
+                    Some(AltKey::MoveLinesUp) => { self.on_move_lines(true); return true; }
+                    Some(AltKey::MoveLinesDown) => { self.on_move_lines(false); return true; }
+                    None => {}
+                }
+            }
             match plain_key_action(vk) {
                 Some(PlainKey::InsertTimestamp) => { self.on_insert_timestamp(); return true; }
                 Some(PlainKey::Escape) => { self.on_escape(); return true; }

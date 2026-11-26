@@ -52,6 +52,18 @@ impl EditorForm {
                         if let Some(id) = f.command_for_menu(handle) {
                             f.run_command(id);
                         }
+                        // Edit > Lines
+                        else if handle == f.menu_edit_lines_sort_asc.handle {
+                            f.on_line_op(crate::features::line_ops::LineOp::SortAscending);
+                        } else if handle == f.menu_edit_lines_sort_desc.handle {
+                            f.on_line_op(crate::features::line_ops::LineOp::SortDescending);
+                        } else if handle == f.menu_edit_lines_dedup.handle {
+                            f.on_line_op(crate::features::line_ops::LineOp::RemoveDuplicates);
+                        } else if handle == f.menu_edit_lines_join.handle {
+                            f.on_line_op(crate::features::line_ops::LineOp::Join);
+                        } else if handle == f.menu_edit_lines_trim.handle {
+                            f.on_line_op(crate::features::line_ops::LineOp::TrimTrailing);
+                        }
                         // Context menu
                         else if handle == f.ctx_cut.handle {
                             f.on_cut();
@@ -447,6 +459,14 @@ impl EditorForm {
                         return Some(0);
                     }
                 }
+                // WM_SYSKEYDOWN = 0x0104: Alt+key. Only the Alt shortcuts go
+                // to handle_shortcut; the rest stays with the system (menu
+                // access keys, Alt+F4).
+                if msg == 0x0104 && alt_key_action(w_param as u32).is_some() {
+                    if f2.handle_shortcut(w_param as u32) {
+                        return Some(0);
+                    }
+                }
 
                 // WM_COMMAND = 0x0111 — handle RichEdit notifications
                 // nwg doesn't route EN_CHANGE for "RICHEDIT50W" (only "Edit"),
@@ -750,6 +770,16 @@ impl EditorForm {
                             if vk == 0x0D && ctrl {
                                 CTRL_ENTER_SUPPRESS_CHAR.store(true, SuppressOrd::SeqCst);
                             }
+                            return Some(0);
+                        }
+                    }
+                    // WM_SYSKEYDOWN: Alt+key, see the main window handler.
+                    0x0104 => {
+                        if f_ed.input_blocked() {
+                            return Some(0);
+                        }
+                        let vk = w_param as u32;
+                        if alt_key_action(vk).is_some() && f_ed.handle_shortcut(vk) {
                             return Some(0);
                         }
                     }

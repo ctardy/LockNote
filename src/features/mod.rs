@@ -6,6 +6,9 @@ pub mod markers;
 
 pub mod tabs;
 
+// Edit > Lines: sort, remove duplicates, join, trim (pure transforms).
+pub mod line_ops;
+
 pub mod vault;
 
 // Stored prompts, copied from the Prompts panel (issue 058).
