@@ -1689,6 +1689,8 @@ Save():
 
 ### Exit / Swap
 
+**Close flow** (`ui/editor/close_flow.rs`, issue #22): `on_close` captures the window state, then `run_close` decides (pure, tested through the `CloseSteps` trait): with unsaved changes, `save_on_close` Always saves, Never declines, Ask shows the prompt (Cancel stays open); then the ssh-agent keys are unloaded and, unless the save was declined, a final save runs; only then are the password and the text wiped. **Any failed save stops the close** (`on_close` returns false, logged `WARN close: ... save failed, window stays open`): the text and the password stay, `on_save` has shown its error.
+
 `ui::run` calls `storage::promote_pending_on_exit` once, after the session, for every way out: window closed, closed while locked, too many wrong passwords on the lock overlay, create-password / unlock / TOTP dialog cancelled. `EditorForm::on_close` does not launch anything.
 
 ```

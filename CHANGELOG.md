@@ -7,6 +7,9 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
 ## [Unreleased]
 
 ### Fixed
+- **A failed save at close lost the changes**: the save error was shown,
+  then LockNote closed anyway. Now a save that fails while closing keeps
+  LockNote open with the text and the password, to retry or copy it (#22).
 - **F2 renames the tab**: the Tabs menu showed F2 next to "Rename Tab..."
   but the key did nothing. F2 in the vault tree still does nothing (#24).
 - **About box**: the crypto line said "PBKDF2 300k iterations"; it now

@@ -241,7 +241,9 @@ also stores the window position and the settings.
 **Auto-save.** See [section 17](#17-auto-lock-auto-save-and-clipboard-auto-clear).
 
 **Warning.** If a save fails, a "Save Error" message says why. Your changes are
-still in the window: try again before closing.
+still in the window: try again before closing. A save that fails while
+closing (Yes at the prompt, Always save, or the last save) stops the close:
+LockNote stays open with your text, so you can retry or copy it.
 
 ## 7. Tabs
 

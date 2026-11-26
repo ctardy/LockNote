@@ -263,7 +263,9 @@ et les paramètres.
 
 **Attention.** Si un enregistrement échoue, un message « Save Error » en donne
 la raison. Vos modifications sont toujours dans la fenêtre : réessayez avant de
-fermer.
+fermer. Un enregistrement qui échoue pendant la fermeture (Oui à la question,
+Toujours enregistrer, ou le dernier enregistrement) arrête la fermeture :
+LockNote reste ouvert avec votre texte, pour réessayer ou le copier.
 
 ## 7. Onglets
 
