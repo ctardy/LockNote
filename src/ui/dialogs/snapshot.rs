@@ -241,7 +241,7 @@ fn dialog_snapshots() {
     shot!("ssh_agent", super::ssh_keygen::SshAgentDialog::show(&["deploy key".to_string()]));
     shot!("totp_manager", super::totp_manager::TotpManagerDialog::show(&[]));
     shot!("totp_setup", super::totp_setup::TotpSetupDialog::show("Mail", None));
-    shot!("totp_add_key", super::totp_setup::TotpSetupDialog::show_add_key("Mail"));
+    shot!("totp_add_key", super::totp_setup::TotpSetupDialog::show_add_key("Mail", &mut None));
     shot!("totp_verify", super::totp_verify::TotpVerifyDialog::show("JBSWY3DPEHPK3PXP"));
     // The unlock popup (shared card of ui::lock_card, not the shared dialog pass).
     shot!("unlock", super::unlock::UnlockDialog::show(&[0u8; 4]));

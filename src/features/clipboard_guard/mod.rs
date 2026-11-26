@@ -151,9 +151,54 @@ pub fn exclude_current_clipboard_entry_from_history() {
 #[cfg(not(windows))]
 pub fn exclude_current_clipboard_entry_from_history() {}
 
+/// What the auto-clear does with what it read from the clipboard.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ClearStep {
+    /// Still our copy: empty the clipboard.
+    Clear,
+    /// The clipboard could not be read (another application holds it): keep
+    /// the guard armed and try again at the next tick.
+    Retry,
+    /// The user copied something else: nothing to clear.
+    Done,
+}
+
+/// The auto-clear decision (pass 3: a failed read disarmed the guard and
+/// left the secret on the clipboard).
+pub fn clear_step(read: Result<&str, ()>, snapshot: &str) -> ClearStep {
+    match read {
+        Ok(current) if current == snapshot => ClearStep::Clear,
+        Ok(_) => ClearStep::Done,
+        Err(()) => ClearStep::Retry,
+    }
+}
+
+/// Whether the `failures`-th failed read in a row is logged: the first, then
+/// one in 60 (the timer ticks every 5 s), so a held clipboard does not fill
+/// the log.
+pub fn warn_read_failure(failures: u32) -> bool {
+    failures == 1 || (failures > 0 && failures % 60 == 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failed_read_keeps_the_guard_armed() {
+        assert_eq!(clear_step(Ok("secret"), "secret"), ClearStep::Clear);
+        assert_eq!(clear_step(Ok("something else"), "secret"), ClearStep::Done);
+        assert_eq!(clear_step(Err(()), "secret"), ClearStep::Retry);
+    }
+
+    #[test]
+    fn read_failures_are_logged_without_spam() {
+        assert!(warn_read_failure(1));
+        assert!(!warn_read_failure(2));
+        assert!(!warn_read_failure(59));
+        assert!(warn_read_failure(60));
+        assert!(!warn_read_failure(61));
+    }
 
     #[test]
     fn default_is_30_seconds() {

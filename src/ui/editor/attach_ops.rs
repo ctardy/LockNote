@@ -440,7 +440,12 @@ impl EditorForm {
             &self.window.handle, &t("totp.add.title"), &t("totp.add.prompt"),
         ) {
             if !name.is_empty() {
-                if let Some(entry) = crate::ui::dialogs::totp_setup::TotpSetupDialog::show_add_key(&name) {
+                let mut copied = None;
+                let added = crate::ui::dialogs::totp_setup::TotpSetupDialog::show_add_key(&name, &mut copied);
+                // A secret copied with the dialog's Copy button is cleared
+                // like any other copy (pass 3).
+                self.arm_clipboard_guard(copied);
+                if let Some(entry) = added {
                     // Add to settings
                     let settings_entry = crate::settings::TotpEntry {
                         name: entry.name.clone(),

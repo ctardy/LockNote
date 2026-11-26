@@ -35,15 +35,30 @@ impl EditorForm {
         // header docs this behaviour — without the check, a user who
         // copied another value (a URL, a code from a different app) in
         // the meantime would silently lose it when the timer fires.
-        let snapshot_matches_clipboard = {
+        use crate::features::clipboard_guard::{clear_step, warn_read_failure, ClearStep};
+        let step = {
             let guard = self.clipboard_guard.borrow();
-            match (guard.should_clear(), clipboard_win::get_clipboard_string().ok()) {
-                (Some(snap), Some(current)) => snap == current,
-                _ => false,
+            let Some(snap) = guard.should_clear() else { return };
+            match clipboard_win::get_clipboard_string() {
+                Ok(current) => clear_step(Ok(&current), snap),
+                Err(e) => {
+                    // Another application holds the clipboard: the secret may
+                    // still be there, keep the guard armed (pass 3).
+                    let n = self.clipboard_read_failures.get() + 1;
+                    self.clipboard_read_failures.set(n);
+                    if warn_read_failure(n) {
+                        eprintln!("WARN clipboard: auto-clear cannot read the clipboard, retried failures={} err={}", n, e);
+                    }
+                    clear_step(Err(()), snap)
+                }
             }
         };
+        if step == ClearStep::Retry {
+            return;
+        }
+        self.clipboard_read_failures.set(0);
 
-        if snapshot_matches_clipboard {
+        if step == ClearStep::Clear {
             let cleared = unsafe {
                 use windows::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard};
                 match OpenClipboard(None) {

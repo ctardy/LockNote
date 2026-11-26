@@ -51,7 +51,7 @@ impl TotpSetupDialog {
     /// `existing_secret` pre-fills if Some, otherwise generates a new one.
     /// Returns Some(entry) on confirmed + verified, None on Cancel.
     pub fn show(name: &str, existing_secret: Option<&str>) -> Option<TotpEntry> {
-        Self::show_mode(name, existing_secret, Mode::Generate)
+        Self::show_mode(name, existing_secret, Mode::Generate).0
     }
 
     /// Add Key of the TOTP panel: the field holds a new secret, which the user
@@ -60,11 +60,16 @@ impl TotpSetupDialog {
     /// once it is valid, without the verification step: the site, not an
     /// authenticator app, is waiting for LockNote's code. A refused secret is
     /// explained and never stored.
-    pub fn show_add_key(name: &str) -> Option<TotpEntry> {
-        Self::show_mode(name, None, Mode::AddKey)
+    ///
+    /// `copied` receives the secret last copied with the Copy button (OK or
+    /// Cancel), so the caller arms the clipboard guard (pass 3).
+    pub fn show_add_key(name: &str, copied: &mut Option<String>) -> Option<TotpEntry> {
+        let (entry, last_copied) = Self::show_mode(name, None, Mode::AddKey);
+        *copied = last_copied;
+        entry
     }
 
-    fn show_mode(name: &str, existing_secret: Option<&str>, mode: Mode) -> Option<TotpEntry> {
+    fn show_mode(name: &str, existing_secret: Option<&str>, mode: Mode) -> (Option<TotpEntry>, Option<String>) {
         let add = mode == Mode::AddKey;
         // Add Key starts EMPTY (pass 2): a pre-filled random secret took a
         // paste without select-all as a longer valid secret, and a forgotten
@@ -265,6 +270,8 @@ impl TotpSetupDialog {
         let verified: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
         let window_handle = window.handle;
         let result_clone = result.clone();
+        let copied: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        let copied_clone = copied.clone();
         let verified_clone = verified.clone();
         let secret_for_verify = secret.clone();
         let secret_for_confirm = secret.clone();
@@ -290,6 +297,9 @@ impl TotpSetupDialog {
                         // Copy secret to clipboard
                         let secret_text = txt_secret.text();
                         let result = set_clipboard_text(&secret_text);
+                        if result.is_ok() {
+                            *copied_clone.borrow_mut() = Some(secret_text.clone());
+                        }
                         lbl_status.set_text(&crate::ui::copy_feedback(&result, &t("totp.secret.copied")));
                     } else if handle == btn_verify.handle {
                         let code = txt_code.text();
@@ -363,7 +373,8 @@ impl TotpSetupDialog {
         nwg::unbind_event_handler(&handler);
 
         let val = result.borrow_mut().take();
-        val
+        let last_copied = copied.borrow_mut().take();
+        (val, last_copied)
     }
 }
 

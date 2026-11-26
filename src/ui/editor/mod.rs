@@ -155,6 +155,8 @@ pub struct EditorForm {
     /// The Windows session ended (issue #29, pass 3): every save and every
     /// command is refused, the loop is stopping.
     exiting: Cell<bool>,
+    /// Failed clipboard reads in a row of the auto-clear (log rate limit).
+    clipboard_read_failures: Cell<u32>,
 
     // ── Tray icon ──
     tray_icon: nwg::TrayNotification,
