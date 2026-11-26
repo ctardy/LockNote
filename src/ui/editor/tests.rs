@@ -660,6 +660,30 @@
         assert!(estimated_gutter_digit_px(6.0) > 0);
     }
 
+    /// The gutter repaints on every scroll and caret move: the digit width
+    /// is measured once per (family, size), a failure is never remembered.
+    #[test]
+    fn gutter_digit_width_is_measured_once_per_font() {
+        let memo = DigitWidthMemo::default();
+        let calls = std::cell::Cell::new(0);
+        let measure = |px: Result<i32, String>| {
+            let calls = &calls;
+            move || {
+                calls.set(calls.get() + 1);
+                px
+            }
+        };
+        assert_eq!(memo.get("Consolas", 11.0, measure(Ok(9))), Ok(9));
+        assert_eq!(memo.get("Consolas", 11.0, measure(Ok(99))), Ok(9), "same font: remembered");
+        assert_eq!(calls.get(), 1);
+        assert_eq!(memo.get("Consolas", 12.0, measure(Ok(10))), Ok(10), "another size: measured");
+        assert_eq!(memo.get("Courier New", 12.0, measure(Ok(11))), Ok(11), "another family: measured");
+        assert_eq!(calls.get(), 3);
+        assert_eq!(memo.get("Consolas", 13.0, measure(Err("no dc".into()))), Err("no dc".to_string()));
+        assert_eq!(memo.get("Consolas", 13.0, measure(Ok(12))), Ok(12), "a failure is measured again");
+        assert_eq!(calls.get(), 5);
+    }
+
     /// Width in px of `text` in the gutter font (the parameters of
     /// paint_gutter), measured independently of the code under test.
     fn gutter_text_px(family: &str, pt: f64, text: &str) -> i32 {

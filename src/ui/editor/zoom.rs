@@ -373,9 +373,7 @@ mod tests {
     fn body_of(file: &str, fun: &str) -> String {
         let src = source(file);
         let start = src.find(fun).unwrap_or_else(|| panic!("{fun} in {file}"));
-        let end = src[start..].find("
-    }
-").map_or(src.len(), |e| start + e);
+        let end = src[start..].find("\n    }\n").map_or(src.len(), |e| start + e);
         src[start..end].to_string()
     }
 

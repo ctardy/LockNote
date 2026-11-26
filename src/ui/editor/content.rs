@@ -77,7 +77,10 @@ static WARNED_GUTTER_DIGIT: std::sync::atomic::AtomicBool = std::sync::atomic::A
 /// numbers are never cut on the left whatever the family and the zoom. If
 /// the font cannot be measured, the estimate is used and reported once.
 pub(super) fn gutter_digit_px(family: &str, font_pt: f64) -> i32 {
-    match measure_gutter_digit(family, font_pt) {
+    thread_local! {
+        static MEMO: DigitWidthMemo = DigitWidthMemo::default();
+    }
+    match MEMO.with(|memo| memo.get(family, font_pt, || measure_gutter_digit(family, font_pt))) {
         Ok(px) => px,
         Err(e) => {
             let estimate = estimated_gutter_digit_px(font_pt);
@@ -86,6 +89,32 @@ pub(super) fn gutter_digit_px(family: &str, font_pt: f64) -> i32 {
             }
             estimate
         }
+    }
+}
+
+/// The last measured digit width and the font it is for: the gutter asks on
+/// every repaint (scroll, caret move) and the layout on every resize, while
+/// it only changes with the family or the size. A failure is not kept.
+#[derive(Default)]
+pub(super) struct DigitWidthMemo {
+    last: std::cell::RefCell<Option<(String, f64, i32)>>,
+}
+
+impl DigitWidthMemo {
+    pub(super) fn get(
+        &self,
+        family: &str,
+        font_pt: f64,
+        measure: impl FnOnce() -> Result<i32, String>,
+    ) -> Result<i32, String> {
+        if let Some((f, pt, px)) = self.last.borrow().as_ref() {
+            if f == family && *pt == font_pt {
+                return Ok(*px);
+            }
+        }
+        let px = measure()?;
+        *self.last.borrow_mut() = Some((family.to_string(), font_pt, px));
+        Ok(px)
     }
 }
 

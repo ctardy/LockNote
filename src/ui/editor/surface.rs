@@ -44,7 +44,9 @@ use windows::Win32::Graphics::Gdi::{
     TEXTMETRICW,
 };
 use windows::core::Interface;
-use windows::Win32::UI::Controls::RichEdit::{ITextDocument, EM_GETOLEINTERFACE, tomResume, tomSuspend};
+use windows::Win32::UI::Controls::RichEdit::{
+    ITextDocument, EM_GETOLEINTERFACE, tomResume, tomSelStartActive, tomSuspend,
+};
 use windows::Win32::UI::Controls::SetWindowTheme;
 use windows::Win32::UI::Shell::DefSubclassProc;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -224,9 +226,14 @@ enum Spacing {
     /// After a font change (`set_font`): the caller suspended the undo
     /// history, so nothing is emptied (that would drop the redo steps), and
     /// the view goes back to the text that was at its top
-    /// (`first_visible_char`), which selecting the whole text scrolled away.
-    FontChange { first_visible_char: usize },
+    /// (`first_visible_char`) and to its horizontal position (`scroll_x`,
+    /// EM_GETSCROLLPOS), which selecting the whole text scrolled away, and
+    /// the selection keeps its active end (`start_active`).
+    FontChange { first_visible_char: usize, scroll_x: i32, start_active: bool },
 }
+
+const EM_GETSCROLLPOS: u32 = 0x04DD;
+const EM_SETSCROLLPOS: u32 = 0x04DE;
 
 fn spread_line_spacing(hwnd: HWND, why: Spacing) -> Result<(), String> {
     let could_undo = send(hwnd, EM_CANUNDO, 0, 0) != 0;
@@ -240,13 +247,30 @@ fn spread_line_spacing(hwnd: HWND, why: Spacing) -> Result<(), String> {
     send(hwnd, EM_SETSEL, 0, -1);
     let mut pf = line_spacing_paraformat();
     let applied = send(hwnd, EM_SETPARAFORMAT, 0, pf.as_mut_ptr() as isize);
-    send(hwnd, EM_EXSETSEL, 0, &selection as *const _ as isize);
-    if let Spacing::FontChange { first_visible_char } = why {
+    match why {
+        // EM_EXSETSEL puts the active end at `max`; EM_SETSEL(anchor, active)
+        // keeps a backwards selection backwards.
+        Spacing::FontChange { start_active: true, .. } => {
+            send(hwnd, EM_SETSEL, selection.max.max(0) as usize, selection.min as isize);
+        }
+        _ => {
+            send(hwnd, EM_EXSETSEL, 0, &selection as *const _ as isize);
+        }
+    }
+    if let Spacing::FontChange { first_visible_char, scroll_x, .. } = why {
         // Same text on top as before; the line index moves with the wrap.
         let target = send(hwnd, EM_LINEFROMCHAR, first_visible_char, 0);
         let delta = target - send(hwnd, EM_GETFIRSTVISIBLELINE, 0, 0);
         if delta != 0 {
             send(hwnd, EM_LINESCROLL, 0, delta);
+        }
+        // Same column on the left (word wrap off); the vertical position
+        // just restored is kept.
+        let mut now = windows::Win32::Foundation::POINT::default();
+        send(hwnd, EM_GETSCROLLPOS, 0, &mut now as *mut _ as isize);
+        if now.x != scroll_x {
+            let back = windows::Win32::Foundation::POINT { x: scroll_x, y: now.y };
+            send(hwnd, EM_SETSCROLLPOS, 0, &back as *const _ as isize);
         }
     }
     send(hwnd, WM_SETREDRAW, 1, 0);
@@ -291,31 +315,43 @@ pub(super) fn set_font(hwnd: HWND, hfont: isize) -> Result<(), String> {
     let event_mask = send(hwnd, EM_GETEVENTMASK, 0, 0);
     let first_line = send(hwnd, EM_GETFIRSTVISIBLELINE, 0, 0);
     let first_visible_char = send(hwnd, EM_LINEINDEX, first_line as usize, 0).max(0) as usize;
+    let mut scroll = windows::Win32::Foundation::POINT::default();
+    send(hwnd, EM_GETSCROLLPOS, 0, &mut scroll as *mut _ as isize);
+    let start_active = selection_start_active(&doc);
     send(hwnd, EM_SETEVENTMASK, 0, event_mask & !ENM_CHANGE);
     // No redraw here: the spacing pass repaints the whole control.
     send(hwnd, WM_SETFONT, hfont as usize, 0);
-    apply_editor_colors(hwnd);
+    set_palette_colors(hwnd, theme::current());
     // WM_SETFONT made the colour of every character automatic, not only the
     // default one: the existing text gets the theme colour back.
     let mut cf = text_color_charformat(theme::current().editor_text);
     if send(hwnd, EM_SETCHARFORMAT, SCF_ALL, cf.as_mut_ptr() as isize) == 0 {
         eprintln!("WARN editor_surface: EM_SETCHARFORMAT refused the text colour after a font change");
     }
-    if let Err(e) = spread_line_spacing(hwnd, Spacing::FontChange { first_visible_char }) {
+    let view = Spacing::FontChange { first_visible_char, scroll_x: scroll.x, start_active };
+    if let Err(e) = spread_line_spacing(hwnd, view) {
         warn_once(&WARNED_SPACING, &format!("{e}; the text keeps single spacing"));
     }
     // EM_SETCHARFORMAT raises the modified flag: a font is not an edit.
     send(hwnd, EM_SETMODIFY, usize::from(was_modified), 0);
     send(hwnd, EM_SETEVENTMASK, 0, event_mask);
-    // A history left suspended would make every later edit impossible to
-    // undo: one retry, then the failure is reported.
-    if let Err(first) = unsafe { doc.Undo(tomResume.0) } {
-        eprintln!("WARN editor_surface: tomResume failed after a font change ({first}), retrying");
-        if let Err(e) = unsafe { doc.Undo(tomResume.0) } {
-            eprintln!("ERROR editor_surface: the undo history could not be resumed after a font change ({e}); edits may not be undoable");
+    resume_undo(&doc, "a font change");
+    Ok(())
+}
+
+static WARNED_SELECTION_DIRECTION: AtomicBool = AtomicBool::new(false);
+
+/// Whether the start of the selection is its active end (the user extended
+/// it backwards). EM_EXGETSEL only gives `(min, max)`; TOM tells the side.
+/// Unreadable: the end is taken as active, reported once.
+fn selection_start_active(doc: &ITextDocument) -> bool {
+    match unsafe { doc.GetSelection() }.and_then(|s| unsafe { s.GetFlags() }) {
+        Ok(flags) => flags & tomSelStartActive.0 != 0,
+        Err(e) => {
+            warn_once(&WARNED_SELECTION_DIRECTION, &format!("selection direction unreadable ({e}); a zoom may reverse it"));
+            false
         }
     }
-    Ok(())
 }
 
 /// The TOM document of the editor (EM_GETOLEINTERFACE; no OleInitialize
@@ -623,11 +659,58 @@ pub(super) fn text_color_charformat(color: Color) -> [u8; CF_SIZE] {
 }
 
 /// Background and default text colour of the editor for the current theme.
-/// Only control state changes: the text, its modified flag, the undo stack
-/// and the selection are untouched (no `EN_CHANGE` is raised by these two
-/// messages). A refusal is reported, never ignored.
+/// Only control state changes: the text, its modified flag, the undo stack,
+/// the selection and the EN_CHANGE notification are left as they were. A
+/// refusal is reported, never ignored.
 pub(super) fn apply_editor_colors(hwnd: HWND) {
-    let pal = theme::current();
+    apply_palette(hwnd, theme::current());
+}
+
+/// `apply_editor_colors` for a given palette. Once `set_font` has given every
+/// run the text colour, RichEdit records a change of the default colour as an
+/// edit (undo step, modified flag): the history is suspended meanwhile and
+/// the flag and the notification mask are put back
+/// (`live_theme_switch_after_set_font_recolours_every_run`).
+fn apply_palette(hwnd: HWND, pal: &ThemePalette) {
+    let doc = match text_document(hwnd) {
+        Ok(doc) => match unsafe { doc.Undo(tomSuspend.0) } {
+            Ok(_) => Some(doc),
+            Err(e) => {
+                eprintln!("ERROR theme: the undo history could not be suspended ({e}); the colour change may be undoable");
+                None
+            }
+        },
+        Err(e) => {
+            eprintln!("ERROR theme: {e}; the colour change may be undoable");
+            None
+        }
+    };
+    let was_modified = send(hwnd, EM_GETMODIFY, 0, 0) != 0;
+    let event_mask = send(hwnd, EM_GETEVENTMASK, 0, 0);
+    send(hwnd, EM_SETEVENTMASK, 0, event_mask & !ENM_CHANGE);
+    set_palette_colors(hwnd, pal);
+    send(hwnd, EM_SETMODIFY, usize::from(was_modified), 0);
+    send(hwnd, EM_SETEVENTMASK, 0, event_mask);
+    if let Some(doc) = doc {
+        resume_undo(&doc, "a colour change");
+    }
+}
+
+/// Resume an undo history suspended for presentation (`why`). A history left
+/// suspended would make every later edit impossible to undo: one retry, then
+/// the failure is reported.
+fn resume_undo(doc: &ITextDocument, why: &str) {
+    if let Err(first) = unsafe { doc.Undo(tomResume.0) } {
+        eprintln!("WARN editor_surface: tomResume failed after {why} ({first}), retrying");
+        if let Err(e) = unsafe { doc.Undo(tomResume.0) } {
+            eprintln!("ERROR editor_surface: the undo history could not be resumed after {why} ({e}); edits may not be undoable");
+        }
+    }
+}
+
+/// The two colour messages themselves, with no undo or flag bookkeeping
+/// (`apply_palette`, or `set_font` inside its own suspension).
+fn set_palette_colors(hwnd: HWND, pal: &ThemePalette) {
     send(hwnd, EM_SETBKGNDCOLOR, 0, pal.editor_background.to_colorref() as isize);
     let mut cf = text_color_charformat(pal.editor_text);
     let applied = send(hwnd, EM_SETCHARFORMAT, SCF_DEFAULT, cf.as_mut_ptr() as isize);
@@ -909,6 +992,11 @@ mod tests {
         }
 
         fn make(font_height: i32) -> Rich {
+            make_with(font_height, 0)
+        }
+
+        /// `make` with more window styles (`extra`) on the editor.
+        fn make_with(font_height: i32, extra: u32) -> Rich {
             unsafe {
                 LoadLibraryW(w!("msftedit.dll")).expect("msftedit.dll");
                 let top = CreateWindowExW(
@@ -918,7 +1006,7 @@ mod tests {
                 // ES_MULTILINE | ES_AUTOVSCROLL | ES_NOHIDESEL, as the editor.
                 let ed = CreateWindowExW(
                     WINDOW_EX_STYLE(0), w!("RICHEDIT50W"), None,
-                    WS_CHILD | WS_VISIBLE | WINDOW_STYLE(0x0004 | 0x0040 | 0x0100), 0, 0, 380, 280, Some(top), None, None, None,
+                    WS_CHILD | WS_VISIBLE | WINDOW_STYLE(0x0004 | 0x0040 | 0x0100 | extra), 0, 0, 380, 280, Some(top), None, None, None,
                 )
                 .expect("RICHEDIT50W");
                 let font = CreateFontW(
@@ -1134,6 +1222,93 @@ mod tests {
             let natural = natural_line_height(r.ed).expect("text metrics");
             let t = tops(r.ed);
             assert_eq!(t[1] - t[0], line_pitch(natural), "the highlighted line took the new size");
+        }
+
+        /// Text colour of the whole text: `(mask has CFM_COLOR, automatic, colorref)`.
+        fn colour_of_all(ed: HWND) -> (bool, bool, u32) {
+            const SCF_SELECTION: usize = 1;
+            const CFE_AUTOCOLOR: u32 = 0x4000_0000;
+            send(ed, EM_SETSEL, 0, -1);
+            let mut cf = [0u8; CF_SIZE];
+            cf[0..4].copy_from_slice(&(CF_SIZE as u32).to_le_bytes());
+            send(ed, EM_GETCHARFORMAT, SCF_SELECTION, cf.as_mut_ptr() as isize);
+            let u32_at = |o: usize| u32::from_le_bytes(cf[o..o + 4].try_into().expect("4 bytes"));
+            (u32_at(4) & CFM_COLOR != 0, u32_at(8) & CFE_AUTOCOLOR != 0, u32_at(CF_OFFSET_TEXT_COLOR))
+        }
+
+        /// A theme switch after a font change (the preferences apply the
+        /// font, then the theme; or a zoom, later a theme switch) recolours
+        /// the existing text and what is typed afterwards, without an undo
+        /// step or the modified flag: once set_font gave every run its
+        /// colour, RichEdit recorded the default-colour change as an edit.
+        #[test]
+        fn live_theme_switch_after_set_font_recolours_every_run() {
+            let (from, to) = (theme::get_palette(ThemeMode::Light), theme::get_palette(ThemeMode::Dark));
+            let r = make(-15);
+            set_text(r.ed, "abc\r\ndef");
+            apply_palette(r.ed, from);
+            set_font(r.ed, consolas(-35)).expect("font");
+            // set_font paints with the current palette: put the "before" one back.
+            apply_palette(r.ed, from);
+            send(r.ed, EM_EMPTYUNDOBUFFER, 0, 0);
+            send(r.ed, EM_SETMODIFY, 0, 0);
+
+            apply_palette(r.ed, to);
+
+            assert_eq!(colour_of_all(r.ed), (true, false, to.editor_text.to_colorref()), "existing text");
+            assert_eq!(send(r.ed, EM_CANUNDO, 0, 0), 0, "a theme switch is not an undo step");
+            assert_eq!(send(r.ed, EM_GETMODIFY, 0, 0), 0, "nor an edit");
+            send(r.ed, EM_SETSEL, 7, 7);
+            let x: Vec<u16> = "X".encode_utf16().chain(std::iter::once(0)).collect();
+            send(r.ed, EM_REPLACESEL, 1, x.as_ptr() as isize);
+            assert_eq!(colour_of_all(r.ed), (true, false, to.editor_text.to_colorref()), "typed afterwards");
+        }
+
+        /// A zoom keeps which end of the selection is active: Shift+arrow
+        /// after a zoom goes on growing it the same way.
+        #[test]
+        fn live_set_font_keeps_the_selection_direction() {
+            let start_active = |ed: HWND| {
+                let sel = unsafe { text_document(ed).expect("TOM").GetSelection() }.expect("selection");
+                unsafe { sel.GetFlags() }.expect("flags") & tomSelStartActive.0 != 0
+            };
+            let r = make(-15);
+            send(r.ed, EM_SETSEL, 8, 2);
+            assert!(start_active(r.ed), "precondition: anchor 8, active end 2");
+            set_font(r.ed, consolas(-35)).expect("font");
+            assert_eq!(selection_of(r.ed), (2, 8));
+            assert!(start_active(r.ed), "zoom in: the start is still the active end");
+
+            send(r.ed, EM_SETSEL, 2, 8);
+            set_font(r.ed, consolas(-21)).expect("font");
+            assert_eq!(selection_of(r.ed), (2, 8));
+            assert!(!start_active(r.ed), "zoom out: the end is still the active end");
+        }
+
+        const EM_SETTARGETDEVICE: u32 = 0x0448;
+
+        fn scroll_pos(ed: HWND) -> windows::Win32::Foundation::POINT {
+            let mut p = windows::Win32::Foundation::POINT::default();
+            send(ed, EM_GETSCROLLPOS, 0, &mut p as *mut _ as isize);
+            p
+        }
+
+        /// Word wrap off: a zoom does not snap the view back to the caret's
+        /// column.
+        #[test]
+        fn live_set_font_keeps_the_horizontal_scroll() {
+            // WS_HSCROLL | WS_VSCROLL | ES_AUTOHSCROLL, as nwg builds the editor.
+            let r = make_with(-15, 0x0010_0000 | 0x0020_0000 | 0x0080);
+            send(r.ed, EM_SETTARGETDEVICE, 0, 1); // no wrap
+            set_text(r.ed, &"x".repeat(400));
+            send(r.ed, EM_SETSEL, 0, 0);
+            let right = windows::Win32::Foundation::POINT { x: 600, y: 0 };
+            send(r.ed, EM_SETSCROLLPOS, 0, &right as *const _ as isize);
+            let before = scroll_pos(r.ed).x;
+            assert!(before > 0, "precondition: scrolled right ({before})");
+            set_font(r.ed, consolas(-35)).expect("font");
+            assert_eq!(scroll_pos(r.ed).x, before, "the view stayed where it was");
+            assert_eq!(selection_of(r.ed), (0, 0), "the caret did not move");
         }
 
         /// The redo history survives a font change, and so does undo for
