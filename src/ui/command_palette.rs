@@ -1,5 +1,6 @@
 // Command palette (Ctrl+Shift+P): one filter field over every menu command,
-// every tab ("Tab: <name>") and every vault secret ("Vault: <name>").
+// every tab ("Tab: <name>"), every vault secret ("Vault: <name>") and every
+// prompt ("Prompt: <name>", inserted into the note).
 //
 // This module holds the pure parts: the command table shared by the menus
 // and the palette, the menu-label parsing, the fuzzy scorer and the flow of
@@ -162,6 +163,9 @@ pub enum PaletteTarget {
     Tab { index: usize, name: String },
     /// Copy the secret at `index` (named `name` when the palette opened).
     Secret { index: usize, name: String },
+    /// Insert the prompt at `index` into the note, variables expanded
+    /// (named `name` when the palette opened).
+    Prompt { index: usize, name: String },
 }
 
 /// One row of the palette.
@@ -285,9 +289,12 @@ pub trait PaletteSteps {
     fn tab_name(&self, index: usize) -> Option<String>;
     /// Name of the secret at `index` now, `None` if there is none.
     fn secret_name(&self, index: usize) -> Option<String>;
+    /// Name of the prompt at `index` now, `None` if there is none.
+    fn prompt_name(&self, index: usize) -> Option<String>;
     fn run_command(&self, id: CommandId);
     fn switch_to_tab(&self, index: usize);
     fn copy_secret(&self, index: usize);
+    fn insert_prompt(&self, index: usize);
 }
 
 /// How a palette run ended.
@@ -296,14 +303,14 @@ pub enum PaletteOutcome {
     Cancelled,
     /// A lock (or the curtain) came while the palette was open.
     DroppedByLock,
-    /// The chosen tab or secret was removed, moved or renamed meanwhile
+    /// The chosen tab, secret or prompt was removed, moved or renamed meanwhile
     /// (the main window stays usable while the palette is open).
     Stale,
     Ran(PaletteTarget),
 }
 
 /// One palette run: show, then act on the choice only if no lock came in
-/// between and the chosen tab or secret is still the one listed.
+/// between and the chosen tab, secret or prompt is still the one listed.
 pub fn run_palette(steps: &impl PaletteSteps, entries: &[PaletteEntry]) -> PaletteOutcome {
     let epoch = steps.lock_epoch();
     let Some(chosen) = steps.show(entries) else { return PaletteOutcome::Cancelled };
@@ -324,6 +331,12 @@ pub fn run_palette(steps: &impl PaletteSteps, entries: &[PaletteEntry]) -> Palet
                 return PaletteOutcome::Stale;
             }
             steps.copy_secret(*index);
+        }
+        PaletteTarget::Prompt { index, name } => {
+            if steps.prompt_name(*index).as_deref() != Some(name.as_str()) {
+                return PaletteOutcome::Stale;
+            }
+            steps.insert_prompt(*index);
         }
     }
     PaletteOutcome::Ran(entry.target.clone())
@@ -500,10 +513,12 @@ mod tests {
                 let (text, _) = menu_label_parts(raw);
                 assert!(!text.trim().is_empty() && !text.contains('&') && !text.contains('\t'), "{}: {:?}", c.label_key, text);
             }
-            for key in ["palette.title", "palette.tab", "palette.vault"] {
+            for key in ["palette.title", "palette.tab", "palette.vault", "palette.prompt"] {
                 assert!(!get(key).starts_with('['), "{key} missing in {lang:?}");
             }
-            assert!(get("palette.tab").contains("{name}") && get("palette.vault").contains("{name}"), "{lang:?}");
+            for key in ["palette.tab", "palette.vault", "palette.prompt"] {
+                assert!(get(key).contains("{name}"), "{key} of {lang:?}");
+            }
         }
         set_language(Language::English);
     }
@@ -518,7 +533,9 @@ mod tests {
         lock_while_open: bool,
         tabs: RefCell<Vec<String>>,
         secrets: RefCell<Vec<String>>,
+        prompts: RefCell<Vec<String>>,
         rename_tab_while_open: Option<(usize, String)>,
+        drop_prompt_while_open: Option<usize>,
         drop_secret_while_open: Option<usize>,
         log: RefCell<Vec<String>>,
     }
@@ -543,6 +560,9 @@ mod tests {
             if let Some(i) = self.drop_secret_while_open {
                 self.secrets.borrow_mut().remove(i);
             }
+            if let Some(i) = self.drop_prompt_while_open {
+                self.prompts.borrow_mut().remove(i);
+            }
             self.choice
         }
         fn tab_name(&self, index: usize) -> Option<String> {
@@ -550,6 +570,9 @@ mod tests {
         }
         fn secret_name(&self, index: usize) -> Option<String> {
             self.secrets.borrow().get(index).cloned()
+        }
+        fn prompt_name(&self, index: usize) -> Option<String> {
+            self.prompts.borrow().get(index).cloned()
         }
         fn run_command(&self, id: CommandId) {
             self.log.borrow_mut().push(format!("run {:?}", id));
@@ -560,6 +583,9 @@ mod tests {
         fn copy_secret(&self, index: usize) {
             self.log.borrow_mut().push(format!("copy {}", index));
         }
+        fn insert_prompt(&self, index: usize) {
+            self.log.borrow_mut().push(format!("insert {}", index));
+        }
     }
 
     fn entries() -> Vec<PaletteEntry> {
@@ -568,6 +594,7 @@ mod tests {
             PaletteEntry { label: "Tab: a".into(), shortcut: None, target: PaletteTarget::Tab { index: 0, name: "a".into() } },
             PaletteEntry { label: "Tab: b".into(), shortcut: None, target: PaletteTarget::Tab { index: 1, name: "b".into() } },
             PaletteEntry { label: "Vault: k".into(), shortcut: None, target: PaletteTarget::Secret { index: 1, name: "k".into() } },
+            PaletteEntry { label: "Prompt: q".into(), shortcut: None, target: PaletteTarget::Prompt { index: 1, name: "q".into() } },
         ]
     }
 
@@ -576,6 +603,7 @@ mod tests {
             choice,
             tabs: RefCell::new(vec!["a".into(), "b".into()]),
             secrets: RefCell::new(vec!["j".into(), "k".into()]),
+            prompts: RefCell::new(vec!["p".into(), "q".into()]),
             ..Default::default()
         }
     }
@@ -584,14 +612,14 @@ mod tests {
     fn a_command_runs_after_the_epoch_was_taken_before_the_dialog() {
         let f = fake(Some(0));
         assert_eq!(run_palette(&f, &entries()), PaletteOutcome::Ran(PaletteTarget::Command(CommandId::Save)));
-        assert_eq!(*f.log.borrow(), ["epoch", "show 4", "still_valid", "run Save"]);
+        assert_eq!(*f.log.borrow(), ["epoch", "show 5", "still_valid", "run Save"]);
     }
 
     #[test]
     fn esc_runs_nothing() {
         let f = fake(None);
         assert_eq!(run_palette(&f, &entries()), PaletteOutcome::Cancelled);
-        assert_eq!(*f.log.borrow(), ["epoch", "show 4"]);
+        assert_eq!(*f.log.borrow(), ["epoch", "show 5"]);
     }
 
     #[test]
@@ -647,9 +675,30 @@ mod tests {
     }
 
     #[test]
+    fn a_prompt_is_inserted_through_its_index_when_unchanged() {
+        let f = fake(Some(4));
+        assert_eq!(run_palette(&f, &entries()), PaletteOutcome::Ran(PaletteTarget::Prompt { index: 1, name: "q".into() }));
+        assert_eq!(*f.log.borrow(), ["epoch", "show 5", "still_valid", "insert 1"]);
+    }
+
+    #[test]
+    fn a_prompt_deleted_while_open_or_a_lock_inserts_nothing() {
+        // Deleting "p" moves "q" to index 0: never the wrong prompt.
+        let mut f = fake(Some(4));
+        f.drop_prompt_while_open = Some(0);
+        assert_eq!(run_palette(&f, &entries()), PaletteOutcome::Stale);
+        assert!(!f.log.borrow().iter().any(|l| l.starts_with("insert")));
+
+        let mut f = fake(Some(4));
+        f.lock_while_open = true;
+        assert_eq!(run_palette(&f, &entries()), PaletteOutcome::DroppedByLock);
+        assert!(!f.log.borrow().iter().any(|l| l.starts_with("insert")));
+    }
+
+    #[test]
     fn an_out_of_range_choice_runs_nothing() {
         let f = fake(Some(99));
         assert_eq!(run_palette(&f, &entries()), PaletteOutcome::Cancelled);
-        assert!(!f.log.borrow().iter().any(|l| l.starts_with("run") || l.starts_with("tab") || l.starts_with("copy")));
+        assert!(!f.log.borrow().iter().any(|l| l.starts_with("run") || l.starts_with("tab") || l.starts_with("copy") || l.starts_with("insert")));
     }
 }

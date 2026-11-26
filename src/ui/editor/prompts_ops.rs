@@ -2,7 +2,8 @@
 // Part of the EditorForm implementation. State and pure helpers live in
 // `ui::prompts_panel`, the edit dialog in `ui::dialogs::prompt_edit`.
 //
-// Logs: `prompts: add|edit|delete|copy count=N`, never a prompt text.
+// Logs: `prompts: add|edit|delete|copy|insert count=N`, never a prompt text,
+// a clipboard text or a tab name.
 
 #[allow(unused_imports)]
 use super::*;
@@ -111,6 +112,7 @@ impl EditorForm {
         self.prompts_btn_edit.set_enabled(has);
         self.prompts_btn_delete.set_enabled(has);
         self.prompts_btn_copy.set_enabled(has);
+        self.prompts_btn_insert.set_enabled(has);
     }
 
     /// Categories offered by the dialog: the translated default, then those
@@ -202,12 +204,13 @@ impl EditorForm {
         );
     }
 
-    /// Copy the selected prompt (button or click on its row). A prompt is not a
-    /// secret: no clipboard guard, the copy stays until replaced.
+    /// Copy the selected prompt (button or click on its row), variables
+    /// expanded. A prompt is not a secret: no clipboard guard, the copy stays
+    /// until replaced.
     pub(super) fn on_prompts_copy(&self) {
         let Some(index) = self.selected_prompt() else { return };
         let Some(prompt) = self.prompts_panel.get(index) else { return };
-        let text = panel::to_crlf(&prompt.text);
+        let text = panel::expanded_text(&FormPromptSteps { form: self }, &prompt.text);
         match clipboard_win::set_clipboard(clipboard_win::formats::Unicode, &text) {
             Ok(()) => {
                 eprintln!("INFO prompts: copy count={}", self.prompts_panel.count());
@@ -220,6 +223,29 @@ impl EditorForm {
         }
     }
 
+    /// "Insert into note" button: the selected prompt, variables expanded,
+    /// replaces the editor selection.
+    pub(super) fn on_prompts_insert(&self) {
+        let Some(index) = self.selected_prompt() else { return };
+        self.insert_prompt_at(index);
+    }
+
+    /// Insert the prompt at storage index `index` (button or palette). The
+    /// status line of the panel says which prompt went in.
+    pub(super) fn insert_prompt_at(&self, index: usize) {
+        match panel::insert_prompt(&FormPromptSteps { form: self }, index) {
+            panel::InsertOutcome::Inserted(name) => {
+                eprintln!("INFO prompts: insert count={}", self.prompts_panel.count());
+                self.mark_modified();
+                self.prompts_status.set_text(&panel::copied_message(&t("prompts.inserted.named"), &name));
+            }
+            panel::InsertOutcome::Blocked => eprintln!("INFO prompts: insert dropped, the note is locked"),
+            panel::InsertOutcome::Gone => {
+                eprintln!("WARN prompts: insert dropped, no prompt at index={} count={}", index, self.prompts_panel.count());
+            }
+        }
+    }
+
     /// Lock: drop the prompts (PromptEntry is ZeroizeOnDrop) and empty the
     /// list, the preview and the search. Unlock reloads them from disk.
     pub(super) fn clear_prompts_for_lock(&self) {
@@ -228,5 +254,107 @@ impl EditorForm {
         self.prompts_preview.set_text("");
         self.prompts_search.set_text("");
         self.prompts_status.set_text("");
+    }
+}
+
+/// `PromptSteps` on the real window.
+struct FormPromptSteps<'a> {
+    form: &'a EditorForm,
+}
+
+impl panel::PromptSteps for FormPromptSteps<'_> {
+    fn blocked(&self) -> bool {
+        self.form.input_blocked()
+    }
+
+    fn prompt(&self, index: usize) -> Option<crate::features::prompts::PromptEntry> {
+        self.form.prompts_panel.get(index)
+    }
+
+    /// The clock and the format of Insert Timestamp (F5): UTC.
+    fn now(&self) -> String {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        format_timestamp(secs)
+    }
+
+    fn active_tab_name(&self) -> String {
+        self.form.tab_bar.borrow().active_tab().name.clone()
+    }
+
+    /// No text on the clipboard (empty, an image, held by another program)
+    /// expands to nothing, as the variable is documented; the reason is
+    /// logged, never the clipboard content.
+    fn clipboard_text(&self) -> String {
+        match clipboard_win::get_clipboard_string() {
+            Ok(text) => text,
+            Err(e) => {
+                eprintln!("INFO prompts: no clipboard text for {{clipboard}} err={}", e);
+                String::new()
+            }
+        }
+    }
+
+    /// One EM_REPLACESEL: one undo step. EM_STOPGROUPTYPING first, so the
+    /// typing just before is not merged into it.
+    fn insert(&self, text: &str) {
+        self.form.editor.set_focus();
+        self.form.send_editor_message(0x0458, 0, 0); // EM_STOPGROUPTYPING = WM_USER + 88
+        self.form.replace_selection_utf16(text);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    fn source(file: &str) -> String {
+        crate::read_source(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor").join(file))
+    }
+
+    fn body<'a>(src: &'a str, head: &str) -> &'a str {
+        let start = src.find(head).unwrap_or_else(|| panic!("{head}"));
+        let end = src[start..].find("
+    }
+").unwrap_or_else(|| panic!("end of {head}"));
+        &src[start..start + end]
+    }
+
+    /// Copy and Insert give the same expanded text (B6).
+    #[test]
+    fn copy_and_insert_expand_the_variables() {
+        let ops = source("prompts_ops.rs");
+        assert!(body(&ops, "pub(super) fn on_prompts_copy(").contains("panel::expanded_text(&FormPromptSteps { form: self }, &prompt.text)"));
+        assert!(body(&ops, "pub(super) fn insert_prompt_at(").contains("panel::insert_prompt(&FormPromptSteps { form: self }, index)"));
+    }
+
+    /// The insertion is one undoable EM_REPLACESEL, never a rebuild of the
+    /// whole text (`set_text` loses the undo history).
+    #[test]
+    fn insert_is_one_undoable_replace_selection() {
+        let ops = source("prompts_ops.rs");
+        let insert = body(&ops, "    fn insert(&self, text: &str)");
+        assert_eq!(insert.matches("replace_selection_utf16(").count(), 1);
+        assert!(!insert.contains("set_text"));
+        let ed = source("edit_ops.rs");
+        assert!(body(&ed, "pub(super) fn replace_selection_utf16(").contains("self.send_editor_message(0x00C2, 1,"));
+    }
+
+    /// `{date}`/`{time}` follow Insert Timestamp: the same UTC formatter.
+    #[test]
+    fn the_clock_is_the_insert_timestamp_one() {
+        let ops = source("prompts_ops.rs");
+        assert!(body(&ops, "    fn now(&self)").contains("format_timestamp(secs)"));
+        let ed = source("edit_ops.rs");
+        assert!(body(&ed, "pub(super) fn on_insert_timestamp(").contains("format_timestamp(secs)"));
+    }
+
+    #[test]
+    fn the_insert_button_is_wired() {
+        let ev = source("events.rs");
+        assert!(ev.contains("} else if handle == f_pr.prompts_btn_insert.handle {
+                            f_pr.on_prompts_insert();"));
+        let build = source("build.rs");
+        assert!(build.contains(".text(&t(\"prompts.btn.insert\"))"));
     }
 }

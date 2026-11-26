@@ -5,8 +5,8 @@
 // The menus and the palette run a command through `run_command`: one
 // dispatch, so a command does the same from both.
 //
-// Logs: `palette: open entries=N`, `palette: ran <kind>`, never a secret
-// or a tab name.
+// Logs: `palette: open entries=N`, `palette: ran <kind>`, never a secret,
+// a tab name or a prompt.
 
 #[allow(unused_imports)]
 use super::*;
@@ -129,8 +129,9 @@ impl EditorForm {
         }
     }
 
-    /// The palette rows, built now from the menus, the tabs and the vault
-    /// (names only: no secret value, no borrow kept).
+    /// The palette rows, built now from the menus, the tabs, the vault and
+    /// the prompts (names only: no secret value, no prompt text, no borrow
+    /// kept).
     fn palette_entries(&self) -> Vec<PaletteEntry> {
         let (save_mod, save_key) = {
             let s = self.settings.borrow();
@@ -163,6 +164,14 @@ impl EditorForm {
                 target: PaletteTarget::Secret { index, name },
             });
         }
+        let prompt_label = t("palette.prompt");
+        for (index, name) in self.prompts_panel.names().into_iter().enumerate() {
+            entries.push(PaletteEntry {
+                label: prompt_label.replace("{name}", &name),
+                shortcut: None,
+                target: PaletteTarget::Prompt { index, name },
+            });
+        }
         entries
     }
 
@@ -174,12 +183,13 @@ impl EditorForm {
         match &outcome {
             PaletteOutcome::Cancelled => {}
             PaletteOutcome::DroppedByLock => eprintln!("INFO palette: choice dropped, the note locked meanwhile"),
-            PaletteOutcome::Stale => eprintln!("INFO palette: choice dropped, the tab or secret changed meanwhile"),
+            PaletteOutcome::Stale => eprintln!("INFO palette: choice dropped, the tab, secret or prompt changed meanwhile"),
             PaletteOutcome::Ran(target) => {
                 let kind = match target {
                     PaletteTarget::Command(id) => format!("command {:?}", id),
                     PaletteTarget::Tab { .. } => "tab".to_string(),
                     PaletteTarget::Secret { .. } => "secret".to_string(),
+                    PaletteTarget::Prompt { .. } => "prompt".to_string(),
                 };
                 eprintln!("INFO palette: ran {}", kind);
             }
@@ -230,6 +240,10 @@ impl PaletteSteps for FormPaletteSteps<'_> {
         self.form.vault_panel.names().get(index).cloned()
     }
 
+    fn prompt_name(&self, index: usize) -> Option<String> {
+        self.form.prompts_panel.names().get(index).cloned()
+    }
+
     fn run_command(&self, id: CommandId) {
         self.form.editor.set_focus();
         self.form.run_command(id);
@@ -242,6 +256,12 @@ impl PaletteSteps for FormPaletteSteps<'_> {
 
     fn copy_secret(&self, index: usize) {
         self.form.copy_vault_secret_from_palette(index);
+    }
+
+    /// The panel's own insertion (`insert_prompt_at`): same expansion, same
+    /// lock check, one undo step.
+    fn insert_prompt(&self, index: usize) {
+        self.form.insert_prompt_at(index);
     }
 }
 
@@ -315,6 +335,16 @@ mod tests {
         assert!(show.contains("let _modal = self.form.modal();") && show.contains("CommandPaletteDialog::show(entries)"));
         let open = body(&ops, "pub(super) fn on_command_palette(");
         assert!(open.contains("run_palette(&FormPaletteSteps { form: self }, &entries)"));
+    }
+
+    /// A prompt row inserts through the panel's path, never a second one.
+    #[test]
+    fn a_prompt_is_inserted_through_the_panel_path() {
+        let ops = source("palette_ops.rs");
+        let insert = body(&ops, "    fn insert_prompt(&self, index: usize)");
+        assert!(insert.contains("self.form.insert_prompt_at(index);"));
+        let entries = body(&ops, "    fn palette_entries(&self)");
+        assert!(entries.contains("self.prompts_panel.names()") && !entries.contains("get_prompts"), "names only, no prompt text");
     }
 
     #[test]

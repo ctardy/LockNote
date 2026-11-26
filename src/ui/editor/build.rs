@@ -1063,6 +1063,16 @@ impl EditorForm {
             .build(&mut prompts_btn_copy)
             .expect("Failed to build prompts Copy button");
 
+        let mut prompts_btn_insert = nwg::Button::default();
+        nwg::Button::builder()
+            .text(&t("prompts.btn.insert"))
+            .parent(&prompts_frame)
+            .position((256, 434))
+            .size((58, 26))
+            .enabled(false)
+            .build(&mut prompts_btn_insert)
+            .expect("Failed to build prompts Insert button");
+
         let mut prompts_status = nwg::Label::default();
         nwg::Label::builder()
             .text("")
@@ -1450,6 +1460,7 @@ impl EditorForm {
             prompts_btn_edit,
             prompts_btn_delete,
             prompts_btn_copy,
+            prompts_btn_insert,
             prompts_status,
             // TOTP panel
             totp_panel: crate::ui::totp_panel::TotpPanel::new(),

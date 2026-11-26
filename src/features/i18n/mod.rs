@@ -580,6 +580,9 @@ fn build_en() -> Dict {
     // Prompts panel (issue 058)
     m.insert("menu.toggle.prompts", "Prompts");
     m.insert("menu.tools.prompts", "P&rompts");
+    m.insert("palette.prompt", "Prompt: {name}");
+    m.insert("prompts.btn.insert", "Insert");
+    m.insert("prompts.inserted.named", "Inserted: {name}");
     m.insert("palette.title", "Command Palette");
     m.insert("palette.tab", "Tab: {name}");
     m.insert("palette.vault", "Vault: {name}");
@@ -1249,6 +1252,9 @@ fn build_fr() -> Dict {
     // Prompts panel (issue 058)
     m.insert("menu.toggle.prompts", "Prompts");
     m.insert("menu.tools.prompts", "P&rompts");
+    m.insert("palette.prompt", "Prompt : {name}");
+    m.insert("prompts.btn.insert", "Ins\u{00e9}rer");
+    m.insert("prompts.inserted.named", "Ins\u{00e9}r\u{00e9} : {name}");
     m.insert("palette.title", "Palette de commandes");
     m.insert("palette.tab", "Onglet : {name}");
     m.insert("palette.vault", "Coffre : {name}");
@@ -1911,6 +1917,9 @@ fn build_es() -> Dict {
     // Prompts panel (issue 058)
     m.insert("menu.toggle.prompts", "Prompts");
     m.insert("menu.tools.prompts", "&Prompts");
+    m.insert("palette.prompt", "Prompt: {name}");
+    m.insert("prompts.btn.insert", "Insertar");
+    m.insert("prompts.inserted.named", "Insertado: {name}");
     m.insert("palette.title", "Paleta de comandos");
     m.insert("palette.tab", "Pesta\u{00f1}a: {name}");
     m.insert("palette.vault", "B\u{00f3}veda: {name}");
@@ -2574,6 +2583,9 @@ fn build_de() -> Dict {
     // Prompts panel (issue 058)
     m.insert("menu.toggle.prompts", "Prompts");
     m.insert("menu.tools.prompts", "P&rompts");
+    m.insert("palette.prompt", "Prompt: {name}");
+    m.insert("prompts.btn.insert", "Einf\u{00fc}g.");
+    m.insert("prompts.inserted.named", "Eingef\u{00fc}gt: {name}");
     m.insert("palette.title", "Befehlspalette");
     m.insert("palette.tab", "Tab: {name}");
     m.insert("palette.vault", "Tresor: {name}");
@@ -2954,11 +2966,11 @@ mod tests {
                 assert!(dict_for(Language::English).contains_key(key), "{key} of {lang:?} missing in English");
             }
             let count = d.keys().filter(|k| k.starts_with("prompts.")).count();
-            assert_eq!(count, 25, "{lang:?}");
+            assert_eq!(count, 27, "{lang:?}");
             for key in ["backup.import.confirm", "import_exe.confirm"] {
                 assert!(d[key].contains("{prompts}"), "{key} of {lang:?}");
             }
-            for key in ["prompts.copied.named", "prompts.delete.confirm"] {
+            for key in ["prompts.copied.named", "prompts.inserted.named", "prompts.delete.confirm"] {
                 assert!(d[key].contains("{name}"), "{key} of {lang:?}");
             }
             assert!(d["prompts.err.toolong"].contains("{max}"), "{lang:?}");

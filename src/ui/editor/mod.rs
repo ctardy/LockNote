@@ -217,6 +217,8 @@ pub struct EditorForm {
     prompts_btn_edit: nwg::Button,
     prompts_btn_delete: nwg::Button,
     prompts_btn_copy: nwg::Button,
+    /// "Insert into note": the selected prompt, expanded, at the caret.
+    prompts_btn_insert: nwg::Button,
     /// Count, "Copied: <name>", or why the list cannot be shown.
     prompts_status: nwg::Label,
 

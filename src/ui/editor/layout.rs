@@ -212,10 +212,18 @@ impl EditorForm {
                 self.prompts_preview.set_position(8, preview_y);
                 self.prompts_preview.set_size(inner_w, preview_h);
                 let btn_y = preview_y + preview_h as i32 + 8;
-                self.prompts_btn_add.set_position(8, btn_y);
-                self.prompts_btn_edit.set_position(70, btn_y);
-                self.prompts_btn_delete.set_position(132, btn_y);
-                self.prompts_btn_copy.set_position(194, btn_y);
+                let buttons = [
+                    &self.prompts_btn_add,
+                    &self.prompts_btn_edit,
+                    &self.prompts_btn_delete,
+                    &self.prompts_btn_copy,
+                    &self.prompts_btn_insert,
+                ];
+                let btn_w = crate::ui::prompts_panel::button_width(inner_w, buttons.len() as u32);
+                for (i, btn) in buttons.iter().enumerate() {
+                    btn.set_position(8 + i as i32 * (btn_w + crate::ui::prompts_panel::BUTTON_GAP) as i32, btn_y);
+                    btn.set_size(btn_w, 26);
+                }
                 self.prompts_status.set_position(8, btn_y + 30);
                 self.prompts_status.set_size(inner_w, 18);
             } else {

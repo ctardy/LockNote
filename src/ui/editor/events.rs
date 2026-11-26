@@ -946,6 +946,8 @@ impl EditorForm {
                             f_pr.on_prompts_delete();
                         } else if handle == f_pr.prompts_btn_copy.handle {
                             f_pr.on_prompts_copy();
+                        } else if handle == f_pr.prompts_btn_insert.handle {
+                            f_pr.on_prompts_insert();
                         }
                     }
                     nwg::Event::OnListBoxSelect if handle == f_pr.prompts_list.handle => {

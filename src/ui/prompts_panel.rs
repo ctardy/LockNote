@@ -59,6 +59,11 @@ impl PromptsPanel {
         self.prompts.borrow().get(index).cloned()
     }
 
+    /// Names in storage order (the palette: no prompt text is copied).
+    pub fn names(&self) -> Vec<String> {
+        self.prompts.borrow().iter().map(|p| p.name.clone()).collect()
+    }
+
     /// Append a prompt; returns its storage index.
     pub fn add(&self, entry: PromptEntry) -> usize {
         let mut prompts = self.prompts.borrow_mut();
@@ -171,6 +176,23 @@ pub fn list_label(entry: &PromptEntry) -> String {
     format!("{} \u{00b7} {}", entry.category, entry.name)
 }
 
+/// Space between two buttons of the panel's button row.
+pub const BUTTON_GAP: u32 = 4;
+/// Width of a button at the default panel width (the row of 2.1).
+const BUTTON_MAX_W: u32 = 58;
+/// Narrowest button: the label stays readable in a narrowed panel.
+const BUTTON_MIN_W: u32 = 30;
+
+/// Width of each of the `count` buttons sharing a row `inner_w` wide (gaps
+/// of `BUTTON_GAP`), between `BUTTON_MIN_W` and `BUTTON_MAX_W`.
+pub fn button_width(inner_w: u32, count: u32) -> u32 {
+    if count == 0 {
+        return BUTTON_MAX_W;
+    }
+    let gaps = BUTTON_GAP * (count - 1);
+    (inner_w.saturating_sub(gaps) / count).clamp(BUTTON_MIN_W, BUTTON_MAX_W)
+}
+
 /// Row a click landed on, from the `LB_ITEMFROMPOINT` result (row in the low
 /// word, non-zero high word when the point is past the last row). `None`
 /// when the click hit no row: a click on the empty part copies nothing.
@@ -214,6 +236,127 @@ where
     let mut out = vec![default.to_string()];
     out.extend(used);
     Ok(out)
+}
+
+/// A variable of a prompt text, expanded when the prompt is copied or
+/// inserted into the note (nothing is stored: the text keeps `{date}`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PromptVar {
+    /// `{date}`: YYYY-MM-DD.
+    Date,
+    /// `{time}`: HH:MM:SS.
+    Time,
+    /// `{datetime}`: "YYYY-MM-DD HH:MM:SS".
+    DateTime,
+    /// `{clipboard}`: the clipboard text, empty if none.
+    Clipboard,
+    /// `{tab}`: the name of the active tab.
+    Tab,
+}
+
+/// The variables as written in a prompt, braces included.
+const PROMPT_VARS: &[(&str, PromptVar)] = &[
+    ("{date}", PromptVar::Date),
+    ("{time}", PromptVar::Time),
+    ("{datetime}", PromptVar::DateTime),
+    ("{clipboard}", PromptVar::Clipboard),
+    ("{tab}", PromptVar::Tab),
+];
+
+/// `text` with every variable replaced by `value(var)`. "{{" and "}}" give
+/// a literal brace; any other brace, and an unknown `{xyz}`, is kept as is.
+/// The values are not scanned again (a clipboard holding "{date}" stays).
+pub fn expand_variables(text: &str, value: &mut dyn FnMut(PromptVar) -> String) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    'scan: while let Some(c) = rest.chars().next() {
+        if rest.starts_with("{{") || rest.starts_with("}}") {
+            out.push(c);
+            rest = &rest[2..];
+            continue;
+        }
+        if c == '{' {
+            for (name, var) in PROMPT_VARS {
+                if let Some(after) = rest.strip_prefix(name) {
+                    out.push_str(&value(*var));
+                    rest = after;
+                    continue 'scan;
+                }
+            }
+        }
+        out.push(c);
+        rest = &rest[c.len_utf8()..];
+    }
+    out
+}
+
+/// Date and time of a "YYYY-MM-DD HH:MM:SS" timestamp (`format_timestamp`,
+/// the Insert Timestamp format). A text without a space is all date.
+pub fn split_datetime(datetime: &str) -> (&str, &str) {
+    datetime.split_once(' ').unwrap_or((datetime, ""))
+}
+
+/// What expanding and inserting a prompt needs from the window, real or
+/// fake (sequence tests).
+pub trait PromptSteps {
+    /// Locked or under the curtain: nothing may change the note.
+    fn blocked(&self) -> bool;
+    fn prompt(&self, index: usize) -> Option<PromptEntry>;
+    /// Now as "YYYY-MM-DD HH:MM:SS", UTC (the Insert Timestamp convention).
+    fn now(&self) -> String;
+    fn active_tab_name(&self) -> String;
+    /// The clipboard text, empty if there is none.
+    fn clipboard_text(&self) -> String;
+    /// Replace the editor selection with `text` (one undo step).
+    fn insert(&self, text: &str);
+}
+
+/// The text of a prompt as copied or inserted: variables expanded, lines
+/// ending with `\r\n`. The clock is read once (so `{date}` and `{time}`
+/// agree) and the clipboard only when the text uses it, once.
+pub fn expanded_text(steps: &dyn PromptSteps, text: &str) -> String {
+    let mut now: Option<String> = None;
+    let mut clipboard: Option<String> = None;
+    let mut tab: Option<String> = None;
+    let expanded = expand_variables(text, &mut |var| {
+        match var {
+            PromptVar::Date | PromptVar::Time | PromptVar::DateTime => {
+                let now = now.get_or_insert_with(|| steps.now());
+                let (date, time) = split_datetime(now);
+                match var {
+                    PromptVar::Date => date.to_string(),
+                    PromptVar::Time => time.to_string(),
+                    _ => now.clone(),
+                }
+            }
+            PromptVar::Clipboard => clipboard.get_or_insert_with(|| steps.clipboard_text()).clone(),
+            PromptVar::Tab => tab.get_or_insert_with(|| steps.active_tab_name()).clone(),
+        }
+    });
+    to_crlf(&expanded)
+}
+
+/// How an "Insert into note" ended.
+#[derive(Debug, PartialEq, Eq)]
+pub enum InsertOutcome {
+    /// Locked or under the curtain: nothing inserted.
+    Blocked,
+    /// No prompt at that index any more: nothing inserted.
+    Gone,
+    /// Inserted; the name of the prompt.
+    Inserted(String),
+}
+
+/// "Insert into note": the prompt at `index`, expanded, replaces the
+/// editor selection.
+pub fn insert_prompt(steps: &dyn PromptSteps, index: usize) -> InsertOutcome {
+    if steps.blocked() {
+        return InsertOutcome::Blocked;
+    }
+    let Some(prompt) = steps.prompt(index) else { return InsertOutcome::Gone };
+    let text = expanded_text(steps, &prompt.text);
+    steps.insert(&text);
+    InsertOutcome::Inserted(prompt.name.clone())
 }
 
 /// Text as Windows controls and the clipboard expect it: every line ends
@@ -388,6 +531,174 @@ mod tests {
     fn list_label_and_copied_message() {
         assert_eq!(list_label(&p("Fix", "t", "Code")), "Code · Fix");
         assert_eq!(copied_message("Copied: {name}", "Fix"), "Copied: Fix");
+    }
+
+    #[test]
+    fn five_buttons_share_the_row() {
+        // Default panel (320 wide, 300 inside): the five fit.
+        let w = button_width(300, 5);
+        assert!(5 * w + 4 * BUTTON_GAP <= 300, "{w}");
+        assert_eq!(w, 56);
+        // Wide panel: the width of 2.1, no wider.
+        assert_eq!(button_width(1000, 5), 58);
+        // Narrowest panel (220 wide, 200 inside) and below: a floor.
+        assert_eq!(button_width(200, 5), 36);
+        assert_eq!(button_width(0, 5), 30);
+        assert_eq!(button_width(300, 0), 58);
+    }
+
+    // ── variables (B6) ──
+
+    fn fixed(var: PromptVar) -> String {
+        match var {
+            PromptVar::Date => "2026-11-26".into(),
+            PromptVar::Time => "09:05:07".into(),
+            PromptVar::DateTime => "2026-11-26 09:05:07".into(),
+            PromptVar::Clipboard => "clip".into(),
+            PromptVar::Tab => "Work".into(),
+        }
+    }
+
+    fn exp(text: &str) -> String {
+        expand_variables(text, &mut fixed)
+    }
+
+    #[test]
+    fn every_variable_is_expanded() {
+        assert_eq!(exp("{date}"), "2026-11-26");
+        assert_eq!(exp("{time}"), "09:05:07");
+        assert_eq!(exp("{datetime}"), "2026-11-26 09:05:07");
+        assert_eq!(exp("{clipboard}"), "clip");
+        assert_eq!(exp("{tab}"), "Work");
+        assert_eq!(exp("On {date} at {time} in {tab}: {clipboard}{clipboard}"), "On 2026-11-26 at 09:05:07 in Work: clipclip");
+        assert_eq!(exp("no variable"), "no variable");
+        assert_eq!(exp(""), "");
+    }
+
+    #[test]
+    fn doubled_braces_are_literal_braces() {
+        assert_eq!(exp("{{date}}"), "{date}");
+        assert_eq!(exp("{{"), "{");
+        assert_eq!(exp("}}"), "}");
+        assert_eq!(exp("{{{date}}}"), "{2026-11-26}");
+        assert_eq!(exp("fn f() {{ x }}"), "fn f() { x }");
+    }
+
+    #[test]
+    fn unknown_variables_and_lone_braces_stay_as_they_are() {
+        assert_eq!(exp("{xyz}"), "{xyz}");
+        assert_eq!(exp("{Date}"), "{Date}", "names are lower case");
+        assert_eq!(exp("{ date }"), "{ date }");
+        assert_eq!(exp("{date"), "{date");
+        assert_eq!(exp("a { b } c"), "a { b } c");
+        assert_eq!(exp("{"), "{");
+        assert_eq!(exp("}"), "}");
+        assert_eq!(exp("{x{date}}"), "{x2026-11-26}");
+        assert_eq!(exp("{date}}"), "2026-11-26}");
+    }
+
+    #[test]
+    fn values_are_not_expanded_again() {
+        let mut v = |var: PromptVar| if var == PromptVar::Clipboard { "{date} {{".to_string() } else { fixed(var) };
+        assert_eq!(expand_variables("[{clipboard}]", &mut v), "[{date} {{]");
+    }
+
+    #[test]
+    fn non_ascii_text_around_variables() {
+        assert_eq!(exp("é{date}😀{tab}ü"), "é2026-11-26😀Workü");
+        assert_eq!(exp("😀{"), "😀{");
+        assert_eq!(exp("{😀}"), "{😀}");
+        let mut v = |var: PromptVar| if var == PromptVar::Tab { "Café ☕".to_string() } else { fixed(var) };
+        assert_eq!(expand_variables("« {tab} »", &mut v), "« Café ☕ »");
+    }
+
+    #[test]
+    fn datetime_splits_into_date_and_time() {
+        assert_eq!(split_datetime("2026-11-26 09:05:07"), ("2026-11-26", "09:05:07"));
+        assert_eq!(split_datetime("2026-11-26"), ("2026-11-26", ""));
+        assert_eq!(split_datetime(""), ("", ""));
+    }
+
+    // ── expand and insert (sequence, with a fake window) ──
+
+    #[derive(Default)]
+    struct Fake {
+        blocked: bool,
+        prompts: Vec<PromptEntry>,
+        clipboard: String,
+        log: RefCell<Vec<String>>,
+    }
+
+    impl PromptSteps for Fake {
+        fn blocked(&self) -> bool {
+            self.log.borrow_mut().push("blocked?".into());
+            self.blocked
+        }
+        fn prompt(&self, index: usize) -> Option<PromptEntry> {
+            self.log.borrow_mut().push(format!("prompt {index}"));
+            self.prompts.get(index).cloned()
+        }
+        fn now(&self) -> String {
+            self.log.borrow_mut().push("now".into());
+            "2026-11-26 09:05:07".into()
+        }
+        fn active_tab_name(&self) -> String {
+            self.log.borrow_mut().push("tab".into());
+            "Work".into()
+        }
+        fn clipboard_text(&self) -> String {
+            self.log.borrow_mut().push("clipboard".into());
+            self.clipboard.clone()
+        }
+        fn insert(&self, text: &str) {
+            self.log.borrow_mut().push(format!("insert {text:?}"));
+        }
+    }
+
+    #[test]
+    fn insert_expands_then_inserts_once() {
+        let f = Fake { prompts: vec![p("Log", "{date} {time}\n{tab}: ", "c")], ..Default::default() };
+        assert_eq!(insert_prompt(&f, 0), InsertOutcome::Inserted("Log".into()));
+        let log = f.log.borrow();
+        assert_eq!(log.first().map(String::as_str), Some("blocked?"));
+        assert_eq!(log.last().map(String::as_str), Some("insert \"2026-11-26 09:05:07\\r\\nWork: \""));
+        assert_eq!(log.iter().filter(|l| l.starts_with("insert")).count(), 1, "one insertion, one undo step");
+        assert_eq!(log.iter().filter(|l| *l == "now").count(), 1, "the clock is read once");
+        assert!(!log.iter().any(|l| l == "clipboard"), "the clipboard is read only when used");
+    }
+
+    #[test]
+    fn the_clipboard_is_read_once_when_used() {
+        let f = Fake { prompts: vec![p("C", "{clipboard}|{clipboard}", "c")], clipboard: "x".into(), ..Default::default() };
+        assert_eq!(insert_prompt(&f, 0), InsertOutcome::Inserted("C".into()));
+        let log = f.log.borrow();
+        assert_eq!(log.iter().filter(|l| *l == "clipboard").count(), 1);
+        assert!(!log.iter().any(|l| l == "now" || l == "tab"), "{log:?}");
+        assert_eq!(log.last().map(String::as_str), Some("insert \"x|x\""));
+    }
+
+    #[test]
+    fn an_empty_clipboard_expands_to_nothing() {
+        let f = Fake { prompts: vec![p("C", "[{clipboard}]", "c")], ..Default::default() };
+        insert_prompt(&f, 0);
+        assert_eq!(f.log.borrow().last().map(String::as_str), Some("insert \"[]\""));
+    }
+
+    #[test]
+    fn nothing_is_inserted_when_locked_or_gone() {
+        let f = Fake { blocked: true, prompts: vec![p("a", "t", "c")], ..Default::default() };
+        assert_eq!(insert_prompt(&f, 0), InsertOutcome::Blocked);
+        assert_eq!(*f.log.borrow(), ["blocked?"]);
+        let f = Fake { prompts: vec![p("a", "t", "c")], ..Default::default() };
+        assert_eq!(insert_prompt(&f, 1), InsertOutcome::Gone);
+        assert!(!f.log.borrow().iter().any(|l| l.starts_with("insert")));
+    }
+
+    #[test]
+    fn expanded_text_is_what_copy_puts_on_the_clipboard() {
+        let f = Fake { clipboard: "old".into(), ..Default::default() };
+        assert_eq!(expanded_text(&f, "a\n{{tab}} {tab}\n{clipboard}"), "a\r\n{tab} Work\r\nold");
+        assert_eq!(expanded_text(&f, "plain"), "plain");
     }
 
     #[test]
