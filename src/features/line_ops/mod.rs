@@ -25,27 +25,45 @@ pub fn sort_lines<E>(
     descending: bool,
     cmp: impl Fn(&str, &str) -> Result<Ordering, E>,
 ) -> Result<Vec<String>, E> {
-    let mut sorted: Vec<&str> = lines.to_vec();
-    let mut failure: Option<E> = None;
-    // sort_by is a stable merge sort. Once a comparison failed, the rest
-    // answer Equal so the sort ends; the error is returned below.
-    sorted.sort_by(|a, b| {
-        if failure.is_some() {
-            return Ordering::Equal;
-        }
-        let r = if descending { cmp(b, a) } else { cmp(a, b) };
-        match r {
-            Ok(o) => o,
-            Err(e) => {
-                failure = Some(e);
-                Ordering::Equal
+    let sorted = merge_sort(lines, |a, b| if descending { cmp(b, a) } else { cmp(a, b) })?;
+    Ok(sorted.into_iter().map(str::to_string).collect())
+}
+
+/// Stable bottom-up merge sort with a fallible comparison, O(n log n). No
+/// slice::sort_by: it may panic on a comparator that stops being a total
+/// order (Rust 1.81+), and release builds abort on panic. The first error
+/// stops the sort and is returned.
+fn merge_sort<'a, E>(
+    items: &[&'a str],
+    cmp: impl Fn(&str, &str) -> Result<Ordering, E>,
+) -> Result<Vec<&'a str>, E> {
+    let n = items.len();
+    let mut src: Vec<&str> = items.to_vec();
+    let mut dst: Vec<&str> = items.to_vec();
+    let mut width = 1;
+    while width < n {
+        let mut lo = 0;
+        while lo < n {
+            let mid = (lo + width).min(n);
+            let hi = (lo + 2 * width).min(n);
+            let (mut i, mut j) = (lo, mid);
+            for slot in dst[lo..hi].iter_mut() {
+                // The right run wins only when strictly smaller: stable.
+                let take_right = i >= mid || (j < hi && cmp(src[j], src[i])? == Ordering::Less);
+                if take_right {
+                    *slot = src[j];
+                    j += 1;
+                } else {
+                    *slot = src[i];
+                    i += 1;
+                }
             }
+            lo = hi;
         }
-    });
-    match failure {
-        Some(e) => Err(e),
-        None => Ok(sorted.into_iter().map(str::to_string).collect()),
+        std::mem::swap(&mut src, &mut dst);
+        width *= 2;
     }
+    Ok(src)
 }
 
 /// Drop every line that already appeared above (exact match, case and
@@ -134,6 +152,46 @@ mod tests {
     fn sort_returns_the_comparison_error() {
         let failing = |_: &str, _: &str| -> Result<Ordering, String> { Err("boom".into()) };
         assert_eq!(sort_lines(&["b", "a"], false, failing), Err("boom".to_string()));
+    }
+
+    #[test]
+    fn sort_stops_on_a_late_comparison_error_without_panicking() {
+        // 200 distinct lines; the comparison fails from its 301st call on.
+        let owned_lines: Vec<String> = (0..200).map(|i| format!("{:03}", (i * 7) % 200)).collect();
+        let lines: Vec<&str> = owned_lines.iter().map(String::as_str).collect();
+        let calls = std::cell::Cell::new(0usize);
+        let flaky = |a: &str, b: &str| -> Result<Ordering, String> {
+            calls.set(calls.get() + 1);
+            if calls.get() > 300 { Err("boom".into()) } else { Ok(a.cmp(b)) }
+        };
+        assert_eq!(sort_lines(&lines, false, flaky), Err("boom".to_string()));
+        // The sort stopped at the first error.
+        assert_eq!(calls.get(), 301);
+    }
+
+    #[test]
+    fn sort_of_many_lines_is_ordered_and_stable() {
+        // Keys 0..9 repeated, tagged with their original position.
+        let owned_lines: Vec<String> = (0..500).map(|i| format!("{}-{:03}", (i * 7) % 10, i)).collect();
+        let lines: Vec<&str> = owned_lines.iter().map(String::as_str).collect();
+        let key = |a: &str, b: &str| -> Result<Ordering, String> { Ok(a[..1].cmp(&b[..1])) };
+        let mut expected = owned_lines.clone();
+        expected.sort_by(|a, b| a[..1].cmp(&b[..1]));
+        assert_eq!(sort_lines(&lines, false, key), Ok(expected.clone()));
+        let mut expected_desc = owned_lines.clone();
+        expected_desc.sort_by(|a, b| b[..1].cmp(&a[..1]));
+        assert_eq!(sort_lines(&lines, true, key), Ok(expected_desc));
+    }
+
+    #[test]
+    fn sort_does_not_use_the_std_sort_with_a_fallible_comparison() {
+        // slice::sort_by may panic on a comparator that stops being a total
+        // order (Rust 1.81+), and release builds abort on panic.
+        let src = crate::read_source(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/features/line_ops/mod.rs"),
+        );
+        let code = &src[..src.find("#[cfg(test)]").expect("test module")];
+        assert!(!code.contains(".sort_by("), "sort_lines must not call sort_by");
     }
 
     #[test]

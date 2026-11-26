@@ -783,12 +783,16 @@ impl EditorForm {
                     }
                     // WM_SYSKEYDOWN: Alt+key, see the main window handler.
                     0x0104 => {
-                        if f_ed.input_blocked() {
-                            return Some(0);
-                        }
+                        // Only the Alt shortcuts: Alt+F4 and the menu keys
+                        // stay with the system, even when input is blocked.
                         let vk = w_param as u32;
-                        if alt_key_action(vk).is_some() && f_ed.handle_shortcut(vk) {
-                            return Some(0);
+                        if alt_key_action(vk).is_some() {
+                            if f_ed.input_blocked() {
+                                return Some(0);
+                            }
+                            if f_ed.handle_shortcut(vk) {
+                                return Some(0);
+                            }
                         }
                     }
                     // WM_CHAR — swallow the 0x0D that TranslateMessage queues

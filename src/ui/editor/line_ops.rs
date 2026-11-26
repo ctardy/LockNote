@@ -46,6 +46,20 @@ pub(super) fn line_ranges(text: &str) -> Vec<(usize, usize)> {
     lines
 }
 
+/// RichEdit position of byte offset `b` (a char boundary) of `text`, counted
+/// as `build_utf16_offset_map` does ("\r\n" = 1) without building the map.
+fn position_of(text: &str, b: usize) -> u32 {
+    let bytes = text.as_bytes();
+    let mut pos = 0u32;
+    for (i, ch) in text[..b].char_indices() {
+        if ch == '\n' && i > 0 && bytes[i - 1] == b'\r' {
+            continue;
+        }
+        pos += ch.len_utf16() as u32;
+    }
+    pos
+}
+
 /// Index of the line holding byte offset `b` (the last line starting at or
 /// before it).
 fn line_of(lines: &[(usize, usize)], b: usize) -> usize {
@@ -93,21 +107,22 @@ pub(super) fn move_lines_edit(text: &str, sel: (u32, u32), up: bool) -> Option<L
         v.extend(block);
         (v, line(b))
     };
-    let shift = utf16_len(other) as u32 + 1;
-    let offsets = build_utf16_offset_map(text);
-    let (lo, hi) = (sel.0.min(sel.1), sel.0.max(sel.1));
-    let new_sel = if up { (lo - shift, hi - shift) } else { (lo + shift, hi + shift) };
+    let shift = position_of(other, other.len()) + 1;
+    // Both ends lie in the moved block: same shift, direction kept.
+    let new_sel = if up { (sel.0 - shift, sel.1 - shift) } else { (sel.0 + shift, sel.1 + shift) };
     Some(LineEdit {
-        start: offsets[lines[a].0] as u32,
-        end: offsets[lines[b].1] as u32,
+        start: position_of(text, lines[a].0),
+        end: position_of(text, lines[b].1),
         text: order.join("\n"),
         sel: new_sel,
     })
 }
 
 /// Edit > Lines: apply `op` to the lines touched by the selection when it
-/// spans 2 lines or more, to the whole tab otherwise. `Ok(None)` when the
-/// lines would not change; the replaced lines end up selected.
+/// spans 2 lines or more, to the whole tab otherwise. The whole tab leaves
+/// out the empty line after a final break, as a Ctrl+A selection does
+/// (column-0 rule). `Ok(None)` when the lines would not change; the
+/// replaced lines end up selected.
 pub(super) fn line_op_edit<E>(
     text: &str,
     sel: (u32, u32),
@@ -117,20 +132,25 @@ pub(super) fn line_op_edit<E>(
     let lines = line_ranges(text);
     let (first, last) = match touched_lines(text, &lines, sel) {
         (f, l) if l > f => (f, l),
-        _ => (0, lines.len() - 1),
+        _ => {
+            let mut last = lines.len() - 1;
+            if last > 0 && lines[last].0 == lines[last].1 {
+                last -= 1;
+            }
+            (0, last)
+        }
     };
     let block: Vec<&str> = (first..=last).map(|i| &text[lines[i].0..lines[i].1]).collect();
     let result = line_ops::apply(op, &block, cmp)?;
     if result.iter().map(String::as_str).eq(block.iter().copied()) {
         return Ok(None);
     }
-    let offsets = build_utf16_offset_map(text);
-    let start = offsets[lines[first].0] as u32;
+    let start = position_of(text, lines[first].0);
     let replacement = result.join("\n");
     let end_sel = start + utf16_len(&replacement) as u32;
     Ok(Some(LineEdit {
         start,
-        end: offsets[lines[last].1] as u32,
+        end: position_of(text, lines[last].1),
         text: replacement,
         sel: (start, end_sel),
     }))
@@ -205,8 +225,17 @@ impl EditorForm {
         let Ok(changed) = r;
         eprintln!("DEBUG lines: move up={} changed={}", up, changed);
         if changed {
+            self.reset_occurrence_highlights();
             self.send_editor_message(0x00B7, 0, 0); // EM_SCROLLCARET
         }
+    }
+
+    /// EM_REPLACESEL formats the inserted lines like the start of the
+    /// replaced range, which may be a highlighted occurrence. Forgetting
+    /// the last term makes the next highlight tick clear and repaint all
+    /// (as theme_switch.rs does), even when the selected term is unchanged.
+    fn reset_occurrence_highlights(&self) {
+        *self.last_highlighted.borrow_mut() = "\0".to_string();
     }
 
     /// Edit > Lines > ...
@@ -218,6 +247,7 @@ impl EditorForm {
             Ok(changed) => {
                 eprintln!("INFO lines: op={:?} changed={}", op, changed);
                 if changed {
+                    self.reset_occurrence_highlights();
                     self.send_editor_message(0x00B7, 0, 0); // EM_SCROLLCARET
                 }
             }
@@ -346,7 +376,53 @@ pub(super) mod tests {
         assert_eq!(e.sel, (1, 1));
     }
 
+    #[test]
+    fn move_keeps_the_direction_of_a_backward_selection() {
+        // Anchor in "cc" (6), caret in "bb" (2), as after Shift+Up.
+        assert_eq!(move_lines_edit("a\r\nbb\r\ncc", (6, 2), true).expect("moves").sel, (4, 0));
+        assert_eq!(move_lines_edit("a\r\nbb\r\ncc\r\nd", (6, 2), true).expect("moves").sel, (4, 0));
+        assert_eq!(move_lines_edit("a\r\nbb\r\ncc\r\nd", (6, 2), false).expect("moves").sel, (8, 4));
+    }
+
+    #[test]
+    fn position_of_counts_like_the_offset_map() {
+        let t = "😀a\r\nb\rc\nd\r\n";
+        let map = build_utf16_offset_map(t);
+        for (b, _) in t.char_indices().chain(std::iter::once((t.len(), ' '))) {
+            assert_eq!(position_of(t, b), map[b] as u32, "byte {b}");
+        }
+    }
+
     // ── line_op_edit ──
+
+    #[test]
+    fn whole_tab_leaves_out_the_empty_line_after_a_final_break() {
+        let e = line_op_edit("b\r\na\r\n", (0, 0), LineOp::SortAscending, ci).unwrap().expect("changes");
+        assert_eq!(e, LineEdit { start: 0, end: 3, text: "a\nb".into(), sel: (0, 3) });
+        let e = line_op_edit("a\r\nb\r\n", (0, 0), LineOp::Join, ci).unwrap().expect("changes");
+        assert_eq!((e.start, e.end, e.text.as_str()), (0, 3, "a b"));
+        let e = line_op_edit("a\r\n\r\nb\r\n", (0, 0), LineOp::RemoveDuplicates, ci);
+        assert_eq!(e, Ok(None), "the only empty line is the trailing one: no duplicate");
+        // A tab made of one break alone: nothing to do.
+        assert_eq!(line_op_edit("\r\n", (0, 0), LineOp::Join, ci), Ok(None));
+    }
+
+    #[test]
+    fn whole_tab_and_select_all_give_the_same_edit() {
+        let ops = [
+            LineOp::SortAscending,
+            LineOp::SortDescending,
+            LineOp::RemoveDuplicates,
+            LineOp::Join,
+            LineOp::TrimTrailing,
+        ];
+        for t in ["b \r\na\r\nb \r\n", "b\r\na", "x\r\n\r\n", "c\r\nb\r\na\r\n\r\n"] {
+            let all = (0, utf16_len(t) as u32);
+            for op in ops {
+                assert_eq!(line_op_edit(t, (0, 0), op, ci), line_op_edit(t, all, op, ci), "{t:?} {op:?}");
+            }
+        }
+    }
 
     #[test]
     fn op_on_a_single_line_selection_covers_the_whole_tab() {
@@ -483,6 +559,13 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn sequence_sort_of_a_tab_ending_with_a_break_keeps_the_break() {
+        let f = Fake::new("b\r\na\r\n", (0, 0));
+        assert_eq!(run_line_edit(&f, |t, s| line_op_edit(t, s, LineOp::SortAscending, ci)), Ok(true));
+        assert_eq!(*f.text.borrow(), "a\r\nb\r\n");
+    }
+
+    #[test]
     fn sequence_sort_then_dedup_on_a_selection() {
         let f = Fake::new("keep\r\nb\r\na\r\nb\r\nlast", (5, 11));
         run_line_edit(&f, |t, s| line_op_edit(t, s, LineOp::SortAscending, ci)).unwrap();
@@ -511,10 +594,32 @@ pub(super) mod tests {
         // and only the Alt shortcuts.
         assert!(events.contains("if msg == 0x0104 && alt_key_action(w_param as u32).is_some()"), "main window");
         assert!(events.contains("0x0104 => {"), "editor subclass");
-        assert!(events.contains("if alt_key_action(vk).is_some() && f_ed.handle_shortcut(vk)"), "editor subclass");
+        // In the editor subclass, only the Alt shortcuts are swallowed while
+        // input is blocked: Alt+F4 and the menu keys stay with the system.
+        let arm = &events[events.find("0x0104 => {").expect("editor subclass")..];
+        let arm = &arm[..arm.find("0x0102 =>").expect("next arm")];
+        let filter = arm.find("if alt_key_action(vk).is_some() {").expect("alt filter in the editor subclass");
+        let blocked = arm.find("f_ed.input_blocked()").expect("blocked check");
+        assert!(filter < blocked, "input_blocked must sit inside the alt_key_action check");
+        assert!(arm.contains("if f_ed.handle_shortcut(vk)"), "editor subclass");
         let shortcut = src("edit_ops.rs");
         assert!(shortcut.contains("alt_key_action(vk)"));
         assert!(shortcut.contains("self.on_move_lines(true)") && shortcut.contains("self.on_move_lines(false)"));
+    }
+
+    #[test]
+    fn line_edits_reset_the_occurrence_highlights() {
+        // EM_REPLACESEL may carry a highlight background over the inserted
+        // lines; forgetting the last term makes the next tick repaint them.
+        let code = src("line_ops.rs");
+        let code = &code[..code.find("#[cfg(test)]").expect("test module")];
+        for f in ["fn on_move_lines", "fn on_line_op"] {
+            let body = &code[code.find(f).unwrap_or_else(|| panic!("{f}"))..];
+            let body = &body[..body.find("\n    }\n").expect("end of fn")];
+            assert!(body.contains("self.reset_occurrence_highlights()"), "{f}");
+        }
+        let reset = &code[code.find("fn reset_occurrence_highlights").expect("reset fn")..];
+        assert!(reset.contains("*self.last_highlighted.borrow_mut() = \"\\0\".to_string()"));
     }
 
     #[test]
