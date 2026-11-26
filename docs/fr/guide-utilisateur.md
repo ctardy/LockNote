@@ -760,10 +760,13 @@ cet enregistrement échoue, LockNote ne se verrouille pas et réessaie après un
 nouvelle période. Une nouvelle valeur s'applique tout de suite.
 
 Tant qu'une fenêtre ou un message de LockNote est ouvert sur la fenêtre
-principale (une boîte de dialogue, la question de fermeture…), ni le
-verrouillage auto ni la sauvegarde auto ne s'exécutent ; les deux délais
-repartent à sa fermeture. Le bouton Verrouiller attend aussi la fermeture de
-la boîte de dialogue. Pendant le verrouillage, les menus n'offrent que
+principale (une boîte de dialogue, la question de fermeture…), la sauvegarde
+auto attend et son délai repart à sa fermeture. Le verrouillage auto
+n'attend pas : son délai écoulé, les fenêtres ouvertes de LockNote sont
+annulées (ce que vous y aviez tapé est perdu, vos notes non), puis LockNote
+se verrouille. Le bouton Verrouiller fait de même, et fermer LockNote
+(Quitter de la zone de notification) annule d'abord les fenêtres ouvertes,
+puis ferme comme d'habitude. Pendant le verrouillage, les menus n'offrent que
 Fichier > Quitter et Aide > À propos.
 
 ### Sauvegarde auto

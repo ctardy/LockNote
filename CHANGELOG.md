@@ -24,12 +24,13 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   exits as on a normal close (ssh-agent keys removed, pending save
   promoted). A failed save blocks the shutdown with the reason instead of
   losing the text (#29).
-- **Auto-save and auto-lock under an open dialog**: they kept running while
-  a dialog or a message of LockNote was open (auto-save could write changes
-  then declined, auto-lock could wipe the password under the close
-  prompt). Both now wait and restart their delays when it closes. The Lock
-  button waits for the dialog, and while locked the menus only allow Quit
-  and About (#30).
+- **Auto-save and auto-lock under an open dialog**: auto-save kept running
+  while a dialog or a message of LockNote was open (it could write changes
+  then declined); it now waits and restarts its delay when the dialog
+  closes. Auto-lock could wipe the password under an open dialog: it still
+  locks on time, but first cancels the open LockNote dialogs (their input
+  is lost, the notes are not). The Lock button and Quit do the same, and
+  while locked the menus only allow Quit and About (#30).
 - **"Copied" shown after a failed copy**: the TOTP panel and dialogs and
   the vault said "Copied" even when Windows refused the clipboard write.
   Now a failed copy says "Copy failed: ..." and "Copied" appears only after

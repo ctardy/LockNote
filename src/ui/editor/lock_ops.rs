@@ -147,13 +147,9 @@ impl EditorForm {
         if *self.is_locked.borrow() {
             return;
         }
-        // Issue #30: the toolbar stays clickable under a dialog; locking then
-        // would wipe what that dialog is about to apply.
-        if self.modal_open() {
-            eprintln!("INFO lock: refused while a modal dialog is open");
-            return;
-        }
-        self.on_autolock();
+        // Under a dialog the toolbar stays clickable: as the auto-lock, the
+        // open dialogs are cancelled first (owner decision on #30).
+        self.request_lock(true);
     }
 
     /// Show the lock overlay, covering the entire window with a themed curtain.

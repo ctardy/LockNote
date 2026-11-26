@@ -49,8 +49,11 @@ impl EditorForm {
         // A modal dialog runs its own message loop: closing now would wipe
         // the password and the text, then stop that loop instead of the
         // application's, leaving an empty editor that cannot save.
+        // Closing now would stop that dialog's loop, not the application's:
+        // the dialogs are cancelled and the close runs once they are gone
+        // (run_pending_requests).
         if self.modal_open() {
-            eprintln!("INFO close: refused while a modal dialog is open");
+            self.request_close_after_dialogs();
             return false;
         }
 

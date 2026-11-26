@@ -244,36 +244,15 @@ impl EditorForm {
                             f.update_occurrence_highlights();
                             f.repaint_gutter_if_caret_moved();
                         }
-                        if handle == f.autolock_timer.handle {
-                            use super::modal_guard::TimerTick;
-                            // Issue #30: nothing under an open modal; the
-                            // delay restarts once it closes.
-                            let locked = *f.is_locked.borrow();
-                            let tick = f.autolock_gate.tick(f.modal_open(), locked);
-                            if tick == TimerTick::RestartDelay {
-                                f.autolock.borrow_mut().reset();
-                            }
-                            if tick == TimerTick::Run {
-                                use crate::features::autolock::LockDecision;
-                                let decision = f.autolock.borrow().lock_decision();
-                                match decision {
-                                    LockDecision::Wait => {}
-                                    LockDecision::LockNow => f.on_autolock(),
-                                    LockDecision::SaveThenLock => {
-                                        // Try to save first. If the save
-                                        // succeeds we lock; if it fails we
-                                        // keep the data visible and reset
-                                        // the inactivity timer so the user
-                                        // gets another cycle to react.
-                                        match f.on_save() {
-                                            Ok(()) => f.on_autolock(),
-                                            Err(msg) => {
-                                                f.autolock.borrow_mut().reset();
-                                                eprintln!("autolock: skip due to save failure: {}", msg);
-                                            }
-                                        }
-                                    }
-                                }
+                        if handle == f.highlight_timer.handle {
+                            f.run_pending_requests();
+                        }
+                        if handle == f.autolock_timer.handle && !*f.is_locked.borrow() {
+                            // Never postponed by a dialog (owner decision on
+                            // #30): open dialogs are cancelled, then it locks.
+                            let due = !matches!(f.autolock.borrow().lock_decision(), crate::features::autolock::LockDecision::Wait);
+                            if due {
+                                f.request_lock(false);
                             }
                         }
                         if handle == f.autosave_timer.handle {

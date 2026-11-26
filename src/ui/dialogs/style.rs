@@ -173,6 +173,11 @@ pub fn open_dialog_count() -> usize {
     STATES.with(|s| s.borrow().len())
 }
 
+/// The windows of the LockNote dialogs open on this thread.
+pub fn registered_dialogs() -> Vec<isize> {
+    STATES.with(|s| s.borrow().keys().copied().collect())
+}
+
 /// Register a freshly built dialog and queue its styling pass.
 pub fn register(window: &nwg::Window) {
     let Some(hwnd) = hwnd_of(window.handle) else {

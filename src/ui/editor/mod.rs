@@ -141,7 +141,11 @@ pub struct EditorForm {
     modal_depth: self::modal_guard::ModalDepth,
     /// Auto-save and auto-lock ticks wait while a modal is open.
     autosave_gate: self::modal_guard::TimerGate,
-    autolock_gate: self::modal_guard::TimerGate,
+    /// A lock due while dialogs were open: (since, manual), run once they
+    /// are cancelled (owner decision on #30).
+    lock_pending: Cell<Option<(std::time::Instant, bool)>>,
+    /// A close requested while dialogs were open.
+    close_pending: Cell<Option<std::time::Instant>>,
     /// A failed save blocked the shutdown (issue #29): the reason is removed
     /// at WM_ENDSESSION.
     shutdown_blocked: Cell<bool>,

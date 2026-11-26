@@ -700,9 +700,11 @@ first; if that save fails, LockNote does not lock and tries again after another
 period. A new value applies at once.
 
 While a LockNote window or message is open over the main window (a dialog,
-the close question...), neither auto-lock nor auto-save runs; both delays
-start again when it closes. The Lock button also waits for the dialog to be
-closed. While LockNote is locked, the menus only offer File > Quit and
+the close question...), auto-save waits and its delay starts again when it
+closes. Auto-lock does not wait: when its delay is over, the open LockNote
+windows are cancelled (what you typed in them is lost, your notes are not),
+then LockNote locks. The Lock button does the same, and closing LockNote
+(tray Quit) cancels the open windows first, then closes as usual. While LockNote is locked, the menus only offer File > Quit and
 Help > About.
 
 ### Auto-save

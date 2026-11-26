@@ -1417,7 +1417,8 @@ impl EditorForm {
             status_path_pressed: Cell::new(false),
             modal_depth: Default::default(),
             autosave_gate: Default::default(),
-            autolock_gate: Default::default(),
+            lock_pending: Cell::new(None),
+            close_pending: Cell::new(None),
             shutdown_blocked: Cell::new(false),
             wipe_pending: Cell::new(false),
             // Tray
