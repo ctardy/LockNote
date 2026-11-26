@@ -94,6 +94,10 @@ windows = { version = "0.62", features = [
     "Win32_System_Ole",
     # CompareStringEx: locale-aware vault tree sort (issue 048)
     "Win32_Globalization",
+    # TOM ITextDocument / ITextSelection of the editor: undo suspended
+    # around the occurrence highlights, selection direction (line ops)
+    "Win32_UI_Controls_RichEdit",
+    "Win32_System_Com",
 ] }
 
 [build-dependencies]

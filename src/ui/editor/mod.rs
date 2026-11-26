@@ -461,6 +461,7 @@ mod search_all_ops;
 mod ssh_ops;
 mod attach_ops;
 mod highlight;
+mod tom;
 mod close_flow;
 mod tab_ops;
 mod lock_ops;

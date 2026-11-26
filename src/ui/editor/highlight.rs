@@ -39,6 +39,18 @@ impl EditorForm {
         }
         *self.last_highlighted.borrow_mut() = search_term.to_string();
 
+        let Some(hwnd) = super::tom::hwnd_of(self.editor.handle) else {
+            return;
+        };
+        // The selection with its direction, put back as it was at the end.
+        let (anchor, active) = match super::tom::selection_ends(hwnd) {
+            Ok(ends) => ends,
+            Err(e) => {
+                eprintln!("ERROR highlight: occurrence highlights skipped, selection unreadable: {e}");
+                return;
+            }
+        };
+
         // Suppress change events and redraw while manipulating selections
         *self.suppress_change.borrow_mut() = true;
         self.send_editor_message(0x000B, 0, 0); // WM_SETREDRAW(FALSE)
@@ -48,34 +60,41 @@ impl EditorForm {
         // which causes a visible jump when redraw is re-enabled.
         let first_visible = self.get_first_visible_line();
 
-        // Clear all previous highlights (reset entire text to auto background)
-        let total_len = utf16_len(&text) as u32;
-        self.editor.set_selection(0..total_len);
-        self.apply_char_format_background(None); // auto background
+        // The backgrounds are presentation: with the undo on, each format
+        // change would be an undo step ahead of the user's last edit.
+        let painted = super::tom::without_undo(hwnd, || {
+            // Clear all previous highlights (reset entire text to auto background)
+            let total_len = utf16_len(&text) as u32;
+            self.editor.set_selection(0..total_len);
+            self.apply_char_format_background(None); // auto background
 
-        if !search_term.is_empty() {
-            let highlight_color = crate::theme::current().match_highlight.to_colorref();
+            if !search_term.is_empty() {
+                let highlight_color = crate::theme::current().match_highlight.to_colorref();
 
-            // Build a UTF-16 offset map for converting byte positions to UTF-16 positions.
-            let utf16_offsets = build_utf16_offset_map(&text);
+                // Build a UTF-16 offset map for converting byte positions to UTF-16 positions.
+                let utf16_offsets = build_utf16_offset_map(&text);
 
-            // Find all case-insensitive matches (byte positions in the original text).
-            let matches = find_all_case_insensitive(&text, search_term);
+                // Find all case-insensitive matches (byte positions in the original text).
+                let matches = find_all_case_insensitive(&text, search_term);
 
-            for (abs_byte, abs_byte_end) in matches {
-                let u16_start = utf16_offsets[abs_byte];
-                let u16_end = utf16_offsets[abs_byte_end];
+                for (abs_byte, abs_byte_end) in matches {
+                    let u16_start = utf16_offsets[abs_byte];
+                    let u16_end = utf16_offsets[abs_byte_end];
 
-                // Don't highlight the current selection itself
-                if u16_start != utf16_start || u16_end != utf16_end {
-                    self.editor.set_selection(u16_start as u32..u16_end as u32);
-                    self.apply_char_format_background(Some(highlight_color));
+                    // Don't highlight the current selection itself
+                    if u16_start != utf16_start || u16_end != utf16_end {
+                        self.editor.set_selection(u16_start as u32..u16_end as u32);
+                        self.apply_char_format_background(Some(highlight_color));
+                    }
                 }
             }
+        });
+        if let Err(e) = painted {
+            eprintln!("ERROR highlight: occurrence highlights not painted: {e}");
         }
 
-        // Restore original selection
-        self.editor.set_selection(sel.start..sel.end);
+        // Restore original selection, active end included (EM_SETSEL)
+        self.send_editor_message(0x00B1, anchor as usize, active as isize);
 
         // Restore the viewport to the line that was visible before we started.
         // EM_LINESCROLL (0x00B6): lParam = signed delta in lines (positive = down).

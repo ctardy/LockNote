@@ -156,6 +156,16 @@ pub(super) fn line_op_edit<E>(
     }))
 }
 
+/// `line_op_edit` with the user's locale order (CompareStringEx), as the
+/// Edit > Lines menu runs it.
+pub(super) fn user_locale_line_op_edit(
+    text: &str,
+    sel: (u32, u32),
+    op: LineOp,
+) -> Result<Option<LineEdit>, crate::ui::vault_panel::VaultTreeError> {
+    line_op_edit(text, sel, op, crate::ui::vault_panel::compare_names_user_locale)
+}
+
 /// What applying a `LineEdit` does to the editor, so the sequence can be
 /// tested with a fake.
 pub(super) trait LineEditSteps {
@@ -199,10 +209,22 @@ impl LineEditSteps for EditorLineSteps<'_> {
     fn text(&self) -> String {
         self.0.get_content()
     }
+    /// (anchor, active end) through TOM: EM_GETSEL loses the direction.
     fn selection(&self) -> (u32, u32) {
-        let sel = self.0.editor.selection();
-        (sel.start, sel.end)
+        let ends = super::tom::hwnd_of(self.0.editor.handle)
+            .ok_or_else(|| "no editor window".to_string())
+            .and_then(super::tom::selection_ends);
+        match ends {
+            Ok(ends) => ends,
+            Err(e) => {
+                // Only the direction is lost: the positions are the same.
+                eprintln!("WARN lines: selection direction unreadable, kept forward: {e}");
+                let sel = self.0.editor.selection();
+                (sel.start, sel.end)
+            }
+        }
     }
+    /// EM_SETSEL(start, end): `end` is the active end, even before `start`.
     fn select(&self, start: u32, end: u32) {
         self.0.editor.set_selection(start..end);
     }
@@ -234,15 +256,16 @@ impl EditorForm {
     /// replaced range, which may be a highlighted occurrence. Forgetting
     /// the last term makes the next highlight tick clear and repaint all
     /// (as theme_switch.rs does), even when the selected term is unchanged.
+    /// An empty term means nothing is highlighted: no pass is needed.
     fn reset_occurrence_highlights(&self) {
-        *self.last_highlighted.borrow_mut() = "\0".to_string();
+        if !self.last_highlighted.borrow().is_empty() {
+            *self.last_highlighted.borrow_mut() = "\0".to_string();
+        }
     }
 
     /// Edit > Lines > ...
     pub(super) fn on_line_op(&self, op: LineOp) {
-        let r = run_line_edit(&EditorLineSteps(self), |text, sel| {
-            line_op_edit(text, sel, op, crate::ui::vault_panel::compare_names_user_locale)
-        });
+        let r = run_line_edit(&EditorLineSteps(self), |text, sel| user_locale_line_op_edit(text, sel, op));
         match r {
             Ok(changed) => {
                 eprintln!("INFO lines: op={:?} changed={}", op, changed);
@@ -465,6 +488,19 @@ pub(super) mod tests {
         assert_eq!(line_op_edit("b\r\na", (0, 0), LineOp::SortDescending, failing), Err("x".to_string()));
     }
 
+    #[test]
+    fn whole_tab_sort_of_100k_lines_in_the_user_locale_stays_fast() {
+        // About 1.7M CompareStringEx calls, each re-encoding its two lines
+        // to UTF-16: about 1.2 s in a debug build, kept under a budget.
+        let t: Vec<String> = (0..100_000).map(|n| format!("line{}", 100_000 - n)).collect();
+        let t = t.join("\r\n");
+        let started = std::time::Instant::now();
+        let e = user_locale_line_op_edit(&t, (0, 0), LineOp::SortAscending).expect("sorts").expect("changes");
+        let took = started.elapsed();
+        assert_eq!(e.text.split('\n').next(), Some("line1"));
+        assert!(took < std::time::Duration::from_secs(2), "took {took:?}");
+    }
+
     // ── run_line_edit: the sequence, with a fake editor ──
 
     /// A fake RichEdit: a text with "\r\n" breaks (as WM_GETTEXT returns
@@ -619,7 +655,29 @@ pub(super) mod tests {
             assert!(body.contains("self.reset_occurrence_highlights()"), "{f}");
         }
         let reset = &code[code.find("fn reset_occurrence_highlights").expect("reset fn")..];
-        assert!(reset.contains("*self.last_highlighted.borrow_mut() = \"\\0\".to_string()"));
+        let reset = &reset[..reset.find("\n    }\n").expect("end of fn")];
+        // Only when something is highlighted: an empty term keeps the early
+        // return of the highlight tick, so no whole-text pass per Alt+Up.
+        let guard = reset.find("if !self.last_highlighted.borrow().is_empty() {").expect("empty-term guard");
+        let set = reset.find("*self.last_highlighted.borrow_mut() = \"\\0\".to_string()").expect("reset");
+        assert!(guard < set);
+    }
+
+    #[test]
+    fn highlight_pass_formats_with_the_undo_suspended() {
+        // Every background change of the pass is inside without_undo, so it
+        // never becomes an undo step ahead of a line op (one Ctrl+Z).
+        let code = src("highlight.rs");
+        let body = &code[code.find("fn update_occurrence_highlights").expect("pass")..];
+        let body = &body[..body.find("\n    }\n").expect("end of fn")];
+        let wrapped = body.find("super::tom::without_undo(hwnd, || {").expect("undo suspended");
+        let end = wrapped + body[wrapped..].find("\n        });").expect("end of closure");
+        let formats: Vec<usize> = body.match_indices("apply_char_format_background").map(|(i, _)| i).collect();
+        assert_eq!(formats.len(), 2);
+        assert!(formats.iter().all(|&i| wrapped < i && i < end), "format change outside without_undo");
+        // The selection comes back with its direction (TOM, then EM_SETSEL).
+        assert!(body.contains("super::tom::selection_ends(hwnd)"));
+        assert!(body[end..].contains("self.send_editor_message(0x00B1, anchor as usize, active as isize)"));
     }
 
     #[test]
@@ -688,6 +746,13 @@ pub(super) mod tests {
             }
         }
 
+        impl Rich {
+            /// Shift+Right: the active end moves one character right.
+            fn select_with_shift_right(&self) {
+                crate::ui::editor::tom::extend_selection_right(self.ed).expect("MoveRight");
+            }
+        }
+
         impl LineEditSteps for Rich {
             fn text(&self) -> String {
                 unsafe {
@@ -697,10 +762,9 @@ pub(super) mod tests {
                     String::from_utf16(&buf[..n]).expect("utf-16")
                 }
             }
+            /// (anchor, active end), as EditorLineSteps reads it.
             fn selection(&self) -> (u32, u32) {
-                let (mut a, mut b) = (0u32, 0u32);
-                send(self.ed, 0x00B0, &mut a as *mut u32 as usize, &mut b as *mut u32 as isize); // EM_GETSEL
-                (a, b)
+                crate::ui::editor::tom::selection_ends(self.ed).expect("TOM selection")
             }
             fn select(&self, start: u32, end: u32) {
                 send(self.ed, 0x00B1, start as usize, end as isize); // EM_SETSEL
@@ -732,6 +796,71 @@ pub(super) mod tests {
             assert_eq!(r.text(), "two😀\r\none\r\nthree");
             send(r.ed, 0x00C7, 0, 0); // EM_UNDO: the move
             assert_eq!(r.text(), "one\r\ntwo😀\r\nthree");
+        }
+
+        /// What the clear step of update_occurrence_highlights sends: the
+        /// whole text back to the auto background (EM_SETCHARFORMAT).
+        fn clear_backgrounds(r: &Rich) {
+            let len = utf16_len(&r.text()) as u32;
+            r.select(0, len);
+            let mut buf = [0u8; 116];
+            buf[0..4].copy_from_slice(&116u32.to_le_bytes());
+            buf[4..8].copy_from_slice(&0x04000000u32.to_le_bytes()); // CFM_BACKCOLOR
+            buf[8..12].copy_from_slice(&0x04000000u32.to_le_bytes()); // CFE_AUTOBACKCOLOR
+            send(r.ed, 0x0444, 1, buf.as_mut_ptr() as isize); // EM_SETCHARFORMAT, SCF_SELECTION
+        }
+
+        #[test]
+        fn live_a_background_change_alone_is_an_undo_step() {
+            // Why the highlight pass suspends the undo: in rich-text mode
+            // the clear pass is recorded, and one Ctrl+Z undoes it instead
+            // of the sort.
+            let r = make("b\r\nc\r\na");
+            assert_eq!(run_line_edit(&r, |t, s| line_op_edit(t, s, LineOp::SortAscending, ci)), Ok(true));
+            clear_backgrounds(&r);
+            send(r.ed, 0x00C7, 0, 0); // EM_UNDO
+            assert_eq!(r.text(), "a\r\nb\r\nc", "the format change took the undo");
+        }
+
+        #[test]
+        fn live_highlight_pass_after_a_line_op_keeps_one_undo_step() {
+            // The highlight tick that follows a line op clears the
+            // backgrounds over the whole text, undo suspended as
+            // update_occurrence_highlights does; one Ctrl+Z still undoes
+            // the op itself.
+            use crate::ui::editor::tom::without_undo;
+            let r = make("b\r\nc\r\na");
+            assert_eq!(run_line_edit(&r, |t, s| line_op_edit(t, s, LineOp::SortAscending, ci)), Ok(true));
+            assert_eq!(r.text(), "a\r\nb\r\nc");
+            without_undo(r.ed, || clear_backgrounds(&r)).expect("undo suspended");
+            send(r.ed, 0x00C7, 0, 0); // EM_UNDO
+            assert_eq!(r.text(), "b\r\nc\r\na");
+
+            let r = make("one\r\ntwo");
+            r.select(5, 5);
+            assert_eq!(run_line_edit(&r, |t, s| Ok::<_, ()>(move_lines_edit(t, s, true))), Ok(true));
+            without_undo(r.ed, || clear_backgrounds(&r)).expect("undo suspended");
+            send(r.ed, 0x00C7, 0, 0); // EM_UNDO
+            assert_eq!(r.text(), "one\r\ntwo");
+            // The undo is back on after the pass: the next edit is undoable.
+            r.select(0, 0);
+            r.replace_selection("x");
+            send(r.ed, 0x00C7, 0, 0); // EM_UNDO
+            assert_eq!(r.text(), "one\r\ntwo");
+        }
+
+        #[test]
+        fn live_move_keeps_a_backward_selection_backward() {
+            // Shift+Up from inside "cc" to inside "bb": anchor 6, active 2.
+            let r = make("a\r\nbb\r\ncc\r\nd");
+            r.select(6, 2);
+            assert_eq!(r.selection(), (6, 2), "TOM gives the active end first");
+            assert_eq!(run_line_edit(&r, |t, s| Ok::<_, ()>(move_lines_edit(t, s, true))), Ok(true));
+            assert_eq!(r.text(), "bb\r\ncc\r\na\r\nd");
+            assert_eq!(r.selection(), (4, 0), "the active end stays at the top");
+            // Shift+Right moves the active end: the top one.
+            r.select_with_shift_right();
+            assert_eq!(r.selection(), (4, 1));
         }
     }
 }
