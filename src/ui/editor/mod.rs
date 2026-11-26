@@ -142,6 +142,9 @@ pub struct EditorForm {
     /// Auto-save and auto-lock ticks wait while a modal is open.
     autosave_gate: self::modal_guard::TimerGate,
     autolock_gate: self::modal_guard::TimerGate,
+    /// A failed save blocked the shutdown (issue #29): the reason is removed
+    /// at WM_ENDSESSION.
+    shutdown_blocked: Cell<bool>,
 
     // ── Tray icon ──
     tray_icon: nwg::TrayNotification,
@@ -427,6 +430,7 @@ mod theme_switch;
 mod toolbar;
 mod panel_grip;
 mod modal_guard;
+mod end_session;
 
 #[allow(unused_imports)]
 use self::helpers::*;

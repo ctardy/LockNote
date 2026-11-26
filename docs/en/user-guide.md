@@ -245,6 +245,14 @@ also stores the window position and the settings.
 
 **Auto-save.** See [section 17](#17-auto-lock-auto-save-and-clipboard-auto-clear).
 
+**Windows logoff or shutdown.** LockNote cannot ask anything then. It saves
+the notes, as if you had answered Save, unless On close is **Never save**
+(then unsaved changes are lost, as with a normal close); a locked LockNote
+was already saved when it locked. Then it closes as usual (SSH keys removed
+from ssh-agent, an update or a pending save applied). If the save fails,
+Windows shows "LockNote could not save your notes (...)" on its shutdown
+screen: cancel, then save or copy your text.
+
 **Warning.** If a save fails, a "Save Error" message says why. Your changes are
 still in the window: try again before closing. When a save fails while
 closing (**Save** at the prompt, Always save, or the last save), LockNote

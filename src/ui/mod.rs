@@ -37,19 +37,45 @@ fn t(key: &str) -> String {
 /// back: the user is told, before the swap lock is released.
 pub fn run(exe_path: PathBuf) {
     run_session(exe_path.clone());
-    let queued = crate::storage::promote_pending_on_exit(&exe_path);
-    if crate::storage::relaunch_requested() && !queued {
-        let log = crate::storage::staging_dir().join(crate::storage::SWAP_LOG_NAME);
-        eprintln!("WARN update: restart asked but no swap helper queued exe={}", exe_path.display());
-        nwg::message(&nwg::MessageParams {
-            title: "LockNote",
-            content: &t("update.restart.failed")
-                .replace("{log}", &log.display().to_string()),
-            buttons: nwg::MessageButtons::Ok,
-            icons: nwg::MessageIcons::Warning,
-        });
+    // `None`: the end of the Windows session already ran it (issue #29).
+    let _already_done = finish_exit_once(&exe_path, |queued| {
+        if crate::storage::relaunch_requested() && !queued {
+            let log = crate::storage::staging_dir().join(crate::storage::SWAP_LOG_NAME);
+            eprintln!("WARN update: restart asked but no swap helper queued exe={}", exe_path.display());
+            nwg::message(&nwg::MessageParams {
+                title: "LockNote",
+                content: &t("update.restart.failed")
+                    .replace("{log}", &log.display().to_string()),
+                buttons: nwg::MessageButtons::Ok,
+                icons: nwg::MessageIcons::Warning,
+            });
+        }
+    });
+}
+
+/// The end of every way out: promote the pending save over the exe, call
+/// `before_release(queued)` (whether a swap helper is queued), then release
+/// the swap lock. Run once: by `run` after the message loop, or at
+/// WM_ENDSESSION (issue #29), after which Windows ends the process and the
+/// loop may never return. `None` when it already ran.
+pub(crate) fn finish_exit_once(exe_path: &std::path::Path, before_release: impl FnOnce(bool)) -> Option<bool> {
+    run_once(&EXIT_DONE, || {
+        let queued = crate::storage::promote_pending_on_exit(exe_path);
+        before_release(queued);
+        crate::storage::release_swap_lock();
+        queued
+    })
+}
+
+static EXIT_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// `f()` the first time for this flag, `None` after.
+fn run_once<T>(done: &std::sync::atomic::AtomicBool, f: impl FnOnce() -> T) -> Option<T> {
+    if done.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        eprintln!("INFO exit: already done");
+        return None;
     }
-    crate::storage::release_swap_lock();
+    Some(f())
 }
 
 /// Text of the startup question when the .tmp and the exe do not hold the
@@ -280,6 +306,16 @@ use native_windows_gui as nwg;
 mod tests {
     use super::*;
     use std::path::Path;
+
+    /// Issue #29: the exit runs once, by the end of the session or by run.
+    #[test]
+    fn the_exit_runs_once() {
+        let flag = std::sync::atomic::AtomicBool::new(false);
+        let mut runs = 0;
+        assert_eq!(run_once(&flag, || { runs += 1; true }), Some(true));
+        assert_eq!(run_once(&flag, || { runs += 1; true }), None);
+        assert_eq!(runs, 1);
+    }
 
     /// Issue #31: "Copied" only after a successful copy.
     #[test]

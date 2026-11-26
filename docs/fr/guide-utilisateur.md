@@ -266,6 +266,16 @@ et les paramètres.
 
 **Sauvegarde auto.** Voir la [section 17](#17-verrouillage-auto-sauvegarde-auto-et-effacement-du-presse-papiers).
 
+**Fermeture de session ou arrêt de Windows.** LockNote ne peut alors rien
+demander. Il enregistre les notes, comme si vous aviez répondu Enregistrer,
+sauf si À la fermeture vaut **Ne jamais enregistrer** (les modifications non
+enregistrées sont alors perdues, comme pour une fermeture normale) ; un
+LockNote verrouillé a déjà enregistré au verrouillage. Puis il se ferme comme
+d'habitude (clés SSH retirées de ssh-agent, mise à jour ou enregistrement en
+attente appliqué). Si l'enregistrement échoue, Windows affiche « LockNote n'a
+pas pu enregistrer vos notes (…) » sur son écran d'arrêt : annulez, puis
+enregistrez ou copiez votre texte.
+
 **Attention.** Si un enregistrement échoue, un message « Erreur de
 sauvegarde » en donne la raison. Vos modifications sont toujours dans la
 fenêtre : réessayez avant de fermer. Quand un enregistrement échoue pendant la

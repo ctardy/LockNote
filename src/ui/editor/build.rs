@@ -1418,6 +1418,7 @@ impl EditorForm {
             modal_depth: Default::default(),
             autosave_gate: Default::default(),
             autolock_gate: Default::default(),
+            shutdown_blocked: Cell::new(false),
             // Tray
             tray_icon,
             tray_menu,

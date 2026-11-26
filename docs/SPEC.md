@@ -1707,7 +1707,9 @@ Save():
 
 ssh-agent ordering: the keys are unloaded after the prompt and before the final save, so the saved list matches the agent; when that unload shortens the list of an unmodified note, `unload_agent_keys` saves it with `save_note` (no box) and, on failure, marks the note modified, so the final save, or its single question, reports the problem once.
 
-`ui::run` calls `storage::promote_pending_on_exit` once, after the session, for every way out: window closed, closed while locked, too many wrong passwords on the lock overlay, create-password / unlock / TOTP dialog cancelled. `EditorForm::on_close` does not launch anything.
+**Logoff / shutdown** (`ui/editor/end_session.rs`, issue #29; no dialog may be shown): WM_QUERYENDSESSION runs `query_end_session`: `end_session_saves(locked, modified, save_on_close)` is true unless the note is locked (password wiped, saved at lock) or modified with `never`; Ask saves like Always, since no prompt is possible and losing the text is worse. The save is `save_note` (no box). On failure the shutdown is blocked: `ShutdownBlockReasonCreate` with `endsession.blocked` (translated, holds the reason) and FALSE returned (`WARN endsession: save failed, shutdown blocked`). WM_ENDSESSION with wParam TRUE runs `end_session`: `unload_agent_keys(false)` (logs only), wipe of the password and text, then `ui::finish_exit_once`, the same promote + swap-lock release as `ui::run` after a normal close; a flag makes it run once whichever comes first. wParam FALSE (cancelled) removes the block reason. Tested: decision table, block with reason, order unload → wipe → exit, run-once.
+
+`ui::run` calls `storage::promote_pending_on_exit` once (through `finish_exit_once`), after the session, for every way out: window closed, closed while locked, too many wrong passwords on the lock overlay, create-password / unlock / TOTP dialog cancelled. `EditorForm::on_close` does not launch anything.
 
 ```
 promote_pending_on_exit(exe):

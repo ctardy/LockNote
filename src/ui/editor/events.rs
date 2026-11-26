@@ -519,6 +519,16 @@ impl EditorForm {
                     }
                 }
 
+                // WM_QUERYENDSESSION = 0x0011 / WM_ENDSESSION = 0x0016:
+                // logoff or shutdown (issue #29), never a prompt.
+                if msg == 0x0011 {
+                    return Some(if f2.on_query_end_session() { 1 } else { 0 });
+                }
+                if msg == 0x0016 {
+                    f2.on_end_session(w_param != 0);
+                    return Some(0);
+                }
+
                 // WM_HOTKEY = 0x0312 (global hotkey)
                 if msg == crate::features::hotkey::WM_HOTKEY {
                     f2.on_global_hotkey();

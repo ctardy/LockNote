@@ -19,6 +19,11 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   setting, saved with the note and restored at the next start (#26).
 
 ### Fixed
+- **Windows logoff or shutdown lost unsaved changes**: LockNote now saves
+  the notes when the session ends (unless On close is "Never save"), then
+  exits as on a normal close (ssh-agent keys removed, pending save
+  promoted). A failed save blocks the shutdown with the reason instead of
+  losing the text (#29).
 - **Auto-save and auto-lock under an open dialog**: they kept running while
   a dialog or a message of LockNote was open (auto-save could write changes
   then declined, auto-lock could wipe the password under the close
