@@ -477,7 +477,7 @@ pub(in crate::ui) use self::helpers::format_timestamp;
 // Regex Find / Replace (ui/dialogs/regex_search.rs) maps its matches with it.
 pub(in crate::ui) use self::helpers::build_utf16_offset_map;
 // Search in all tabs (ui/search_all.rs) ignores case with the highlight's rule.
-pub(in crate::ui) use self::helpers::find_all_case_insensitive;
+pub(in crate::ui) use self::helpers::case_insensitive_matches;
 #[allow(unused_imports)]
 use self::content::*;
 #[allow(unused_imports)]

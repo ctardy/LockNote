@@ -6,17 +6,22 @@
 // holds it), the NAME and CATEGORY of the vault secrets — never their
 // values, which are not even copied — and the name and text of the prompts.
 // Without "Match case" the comparison ignores case the way the editor's
-// highlight does (`find_all_case_insensitive`), not accents.
+// highlight does (`case_insensitive_matches`), not accents.
 //
 // Tab matches carry RichEdit positions (UTF-16 code units, a line break of
-// one unit: `build_utf16_offset_map`), so the match can be selected once the
-// tab is shown. Matches do not overlap: the search goes on after the end of
-// each match, like Find Next.
+// one unit, as `build_utf16_offset_map` counts them), so the match can be
+// selected once the tab is shown. Matches do not overlap: the search goes on
+// after the end of each match, like Find Next.
+//
+// Cost: the search runs on the UI thread at every refresh, so it stops at
+// the cap (no tab is collected past it), counts lines and positions forward
+// from the previous match, and reads only around a match for its excerpt.
 
 use zeroize::Zeroizing;
 
 use crate::features::prompts::PromptEntry;
-use crate::ui::editor::{build_utf16_offset_map, find_all_case_insensitive};
+use crate::ui::prompts_panel::PromptsListError;
+use crate::ui::editor::case_insensitive_matches;
 
 /// Results shown at most; one more line says the rest is not shown.
 pub const MAX_RESULTS: usize = 1000;
@@ -67,16 +72,20 @@ pub struct Results {
     pub more: bool,
 }
 
-/// Byte ranges of the matches of `query` in `text`, without overlap.
-fn match_ranges(text: &str, query: &str, match_case: bool) -> Vec<(usize, usize)> {
+/// Byte ranges of the first `limit` matches of `query` in `text`, without
+/// overlap.
+fn match_ranges(text: &str, query: &str, match_case: bool, limit: usize) -> Vec<(usize, usize)> {
     if query.is_empty() {
         return Vec::new();
     }
     if match_case {
-        return text.match_indices(query).map(|(at, m)| (at, at + m.len())).collect();
+        return text.match_indices(query).take(limit).map(|(at, m)| (at, at + m.len())).collect();
     }
     let mut kept: Vec<(usize, usize)> = Vec::new();
-    for (start, end) in find_all_case_insensitive(text, query) {
+    for (start, end) in case_insensitive_matches(text, query) {
+        if kept.len() >= limit {
+            break;
+        }
         if kept.last().map_or(true, |&(_, last_end)| start >= last_end) {
             kept.push((start, end));
         }
@@ -91,8 +100,19 @@ fn contains(haystack: &str, query: &str, match_case: bool) -> bool {
     if match_case {
         haystack.contains(query)
     } else {
-        !find_all_case_insensitive(haystack, query).is_empty()
+        case_insensitive_matches(haystack, query).next().is_some()
     }
+}
+
+/// RichEdit positions (UTF-16 code units, `\r\n` as one) in `text[from..to]`,
+/// byte offsets on char boundaries: the count of `build_utf16_offset_map`.
+fn utf16_units(text: &str, from: usize, to: usize) -> usize {
+    let bytes = text.as_bytes();
+    text[from..to]
+        .char_indices()
+        .filter(|&(i, ch)| !(ch == '\n' && from + i > 0 && bytes[from + i - 1] == b'\r'))
+        .map(|(_, ch)| ch.len_utf16())
+        .sum()
 }
 
 /// Line breaks (`\r\n`, `\r` or `\n`, one each) in `bytes`.
@@ -108,21 +128,40 @@ fn line_breaks(bytes: &[u8]) -> usize {
 
 /// The line holding `start..end` (byte offsets on char boundaries), cut to
 /// `EXCERPT_CHARS` around the match, tabs as spaces, an ellipsis where it
-/// was cut.
+/// was cut. Reads at most `EXCERPT_BEFORE` chars before the match and
+/// `EXCERPT_CHARS` from there: a line may be megabytes long.
 fn excerpt(text: &str, start: usize, end: usize) -> String {
-    let line_start = text[..start].rfind(['\r', '\n']).map_or(0, |p| p + 1);
-    let line_end = text[end..].find(['\r', '\n']).map_or(text.len(), |p| end + p);
-    // EXCERPT_BEFORE chars back from the match, on a char boundary.
-    let from = text[line_start..start]
-        .char_indices()
-        .rev()
-        .take(EXCERPT_BEFORE)
-        .last()
-        .map_or(start, |(i, _)| line_start + i);
-    let cut_before = from > line_start;
-    let rest = &text[from..line_end];
-    let to = rest.char_indices().nth(EXCERPT_CHARS).map_or(line_end, |(i, _)| from + i);
-    let cut_after = to < line_end;
+    let is_break = |c: char| c == '\r' || c == '\n';
+    // Back from the match: EXCERPT_BEFORE chars at most, not past the line
+    // start. Cut when the line goes on before `from`.
+    let (mut from, mut taken) = (start, 0);
+    let mut back = text[..start].chars().rev();
+    let cut_before = loop {
+        match back.next() {
+            None => break false,
+            Some(c) if is_break(c) => break false,
+            Some(_) if taken == EXCERPT_BEFORE => break true,
+            Some(c) => {
+                from -= c.len_utf8();
+                taken += 1;
+            }
+        }
+    };
+    // Forward from `from`: EXCERPT_CHARS chars at most, up to the first line
+    // break after the match. Cut when the line goes on after `to`.
+    let (mut to, mut taken) = (from, 0);
+    let mut forward = text[from..].chars();
+    let cut_after = loop {
+        match forward.next() {
+            None => break false,
+            Some(c) if is_break(c) && to >= end => break false,
+            Some(_) if taken == EXCERPT_CHARS => break true,
+            Some(c) => {
+                to += c.len_utf8();
+                taken += 1;
+            }
+        }
+    };
     let mut out = String::new();
     if cut_before {
         out.push(ELLIPSIS);
@@ -153,23 +192,23 @@ pub fn search(src: &Sources, query: &str, match_case: bool, max: usize) -> Resul
     };
     for (tab, t) in src.tabs.iter().enumerate() {
         let text: &str = &t.text;
-        let ranges = match_ranges(text, query, match_case);
-        if ranges.is_empty() {
-            continue;
-        }
-        let u16_map = build_utf16_offset_map(text);
+        // One more than still fits: it tells that others exist.
+        let budget = max.saturating_sub(results.hits.len()).saturating_add(1);
+        let ranges = match_ranges(text, query, match_case, budget);
         let bytes = text.as_bytes();
-        let (mut counted_to, mut line) = (0usize, 1usize);
+        // Lines and positions counted forward from the previous match.
+        let (mut counted_to, mut line, mut u16_at) = (0usize, 1usize, 0usize);
         for (start, end) in ranges {
             line += line_breaks(&bytes[counted_to..start]);
+            u16_at += utf16_units(text, counted_to, start);
             counted_to = start;
             let hit = Hit::Tab {
                 tab,
                 name: t.name.clone(),
                 line,
                 excerpt: excerpt(text, start, end),
-                start: u16_map[start],
-                end: u16_map[end],
+                start: u16_at,
+                end: u16_at + utf16_units(text, start, end),
             };
             if !push(&mut results, hit) {
                 return results;
@@ -200,9 +239,50 @@ pub fn search(src: &Sources, query: &str, match_case: bool, max: usize) -> Resul
 pub fn hit_label(hit: &Hit, vault: &str, prompt: &str) -> String {
     match hit {
         Hit::Tab { name, line, excerpt, .. } => format!("{} : {} : {}", name, line, excerpt),
-        Hit::Vault { category, name, .. } => vault.replace("{category}", category).replace("{name}", name),
-        Hit::Prompt { name, .. } => prompt.replace("{name}", name),
+        Hit::Vault { category, name, .. } => fill(vault, &[("{category}", category), ("{name}", name)]),
+        Hit::Prompt { name, .. } => fill(prompt, &[("{name}", name)]),
     }
+}
+
+/// `template` with each placeholder replaced by its value, in one pass over
+/// the template: a value holding "{name}" is not filled again.
+fn fill(template: &str, values: &[(&str, &str)]) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    'scan: while let Some(open) = rest.find('{') {
+        out.push_str(&rest[..open]);
+        let tail = &rest[open..];
+        for (key, value) in values {
+            if tail.starts_with(key) {
+                out.push_str(value);
+                rest = &tail[key.len()..];
+                continue 'scan;
+            }
+        }
+        out.push('{');
+        rest = &tail[1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The query the dialog opens with: the editor's selection when it is on
+/// one line (the field has one line), empty otherwise.
+pub fn initial_query(selection: &str) -> &str {
+    if selection.contains(['\r', '\n']) {
+        ""
+    } else {
+        selection
+    }
+}
+
+/// Whether the prompts search `query` hides `entry` (the list's rule,
+/// `prompts_panel::matches`): only then is it cleared to show the result.
+pub fn prompt_search_hides<F>(entry: &PromptEntry, query: &str, contains: &F) -> Result<bool, PromptsListError>
+where
+    F: Fn(&str, &str) -> Result<bool, PromptsListError>,
+{
+    Ok(!crate::ui::prompts_panel::matches(entry, query, contains)?)
 }
 
 /// Whether the entry now at the result's index (`current`: name, category)
@@ -386,6 +466,95 @@ mod tests {
         assert_eq!(hit_label(&v, "Vault: {category} / {name}", ""), "Vault: Cloud / AWS");
         let p = Hit::Prompt { index: 0, category: "c".into(), name: "Review".into() };
         assert_eq!(hit_label(&p, "", "Prompt: {name}"), "Prompt: Review");
+    }
+
+    /// Placeholders are filled from the template only, never inside a value
+    /// already put in.
+    #[test]
+    fn labels_fill_the_template_in_one_pass() {
+        let v = Hit::Vault { index: 0, category: "{name} keys".into(), name: "AWS".into() };
+        assert_eq!(hit_label(&v, "Vault: {category} / {name}", ""), "Vault: {name} keys / AWS");
+        let v = Hit::Vault { index: 0, category: "Cloud".into(), name: "{category}".into() };
+        assert_eq!(hit_label(&v, "{name} ({category})", ""), "{category} (Cloud)");
+        let p = Hit::Prompt { index: 0, category: "c".into(), name: "{name}".into() };
+        assert_eq!(hit_label(&p, "", "Prompt: {name}"), "Prompt: {name}");
+        // Unknown or unclosed braces are kept as they are.
+        let p = Hit::Prompt { index: 0, category: "c".into(), name: "R".into() };
+        assert_eq!(hit_label(&p, "", "{x} {name} {"), "{x} R {");
+    }
+
+    /// One very long line (pasted base64): each excerpt reads only around
+    /// its match, not the whole line.
+    #[test]
+    fn very_long_line_stays_fast() {
+        let src = sources(vec![tab("A", &"a".repeat(5_000_000))]);
+        let t0 = std::time::Instant::now();
+        let r = search(&src, "a", true, MAX_RESULTS);
+        assert_eq!((r.hits.len(), r.more), (MAX_RESULTS, true));
+        assert!(t0.elapsed() < std::time::Duration::from_secs(2), "{:?}", t0.elapsed());
+    }
+
+    #[test]
+    fn excerpt_of_a_long_line_on_both_sides() {
+        let text = format!("{}KEY{}", "x".repeat(1000), "y".repeat(1000));
+        let want = format!("\u{2026}{}KEY{}\u{2026}", "x".repeat(EXCERPT_BEFORE), "y".repeat(EXCERPT_CHARS - EXCERPT_BEFORE - 3));
+        assert_eq!(excerpt(&text, 1000, 1003), want);
+        // The line edges inside the window.
+        assert_eq!(excerpt("ab\r\nxKEYy\r\ncd", 5, 8), "xKEYy");
+        assert_eq!(excerpt(&format!("{}\nKEY", "z".repeat(5000)), 5001, 5004), "KEY");
+        // Exactly EXCERPT_BEFORE chars before, from the line start: no cut.
+        let text = format!("q\n{}KEY", "x".repeat(EXCERPT_BEFORE));
+        assert_eq!(excerpt(&text, 2 + EXCERPT_BEFORE, 5 + EXCERPT_BEFORE), format!("{}KEY", "x".repeat(EXCERPT_BEFORE)));
+        // One more: cut.
+        let text = format!("q\n{}KEY", "x".repeat(EXCERPT_BEFORE + 1));
+        assert!(excerpt(&text, 3 + EXCERPT_BEFORE, 6 + EXCERPT_BEFORE).starts_with('\u{2026}'));
+        // Line exactly EXCERPT_CHARS long from `from`: no cut after.
+        let text = format!("KEY{}\nnext", "y".repeat(EXCERPT_CHARS - 3));
+        assert_eq!(excerpt(&text, 0, 3), &text[..EXCERPT_CHARS]);
+    }
+
+    /// The cap stops the search: the rest of a big tab is not collected and
+    /// later tabs, vault and prompts are not listed.
+    #[test]
+    fn the_cap_stops_the_search() {
+        for match_case in [true, false] {
+            let src = Sources {
+                tabs: vec![tab("A", &"x ".repeat(2_000_000)), tab("B", "x")],
+                vault: vec![VaultName { name: "x".into(), category: "General".into() }],
+                prompts: vec![PromptEntry::new("x", "t", "c")],
+            };
+            let t0 = std::time::Instant::now();
+            let r = search(&src, "x", match_case, MAX_RESULTS);
+            let elapsed = t0.elapsed();
+            assert_eq!((r.hits.len(), r.more), (MAX_RESULTS, true));
+            assert!(r.hits.iter().all(|h| matches!(h, Hit::Tab { tab: 0, .. })));
+            assert!(elapsed < std::time::Duration::from_secs(1), "match_case={} {:?}", match_case, elapsed);
+        }
+        // Positions stay RichEdit positions past line breaks and wide chars.
+        let r = search(&sources(vec![tab("A", "\u{1F600}x\r\nx\nx")]), "x", true, 2);
+        assert_eq!(tab_hits(&r), vec![(0, 1, 2, 3), (0, 2, 4, 5)]);
+        assert!(r.more);
+    }
+
+    #[test]
+    fn initial_query_only_from_a_single_line_selection() {
+        assert_eq!(initial_query("key"), "key");
+        assert_eq!(initial_query(""), "");
+        assert_eq!(initial_query("one\r\ntwo"), "");
+        assert_eq!(initial_query("one\rtwo"), "");
+        assert_eq!(initial_query("one\ntwo"), "");
+    }
+
+    #[test]
+    fn prompt_search_kept_when_it_shows_the_prompt() {
+        let contains = |h: &str, n: &str| -> Result<bool, PromptsListError> { Ok(h.to_lowercase().contains(&n.to_lowercase())) };
+        let review = PromptEntry::new("Review", "Find bugs", "Code");
+        assert!(!prompt_search_hides(&review, "rev", &contains).unwrap());
+        assert!(!prompt_search_hides(&review, "bugs", &contains).unwrap());
+        assert!(!prompt_search_hides(&review, "  ", &contains).unwrap());
+        assert!(prompt_search_hides(&review, "zzz", &contains).unwrap());
+        let failing = |_: &str, _: &str| -> Result<bool, PromptsListError> { Err(PromptsListError("cmp".into())) };
+        assert!(prompt_search_hides(&review, "rev", &failing).is_err());
     }
 
     #[test]

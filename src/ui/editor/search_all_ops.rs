@@ -81,8 +81,9 @@ impl SearchAllSteps for FormSearchAllSteps<'_> {
         self.form.search_all_sources()
     }
     fn show_dialog(&self, sources: Sources) -> Option<Hit> {
-        let initial = self.form.current_selection_text();
-        crate::ui::dialogs::search_all::SearchAllDialog::show(sources, &initial, Some(self.form.window.handle))
+        let selection = self.form.current_selection_text();
+        let initial = sa::initial_query(&selection);
+        crate::ui::dialogs::search_all::SearchAllDialog::show(sources, initial, Some(self.form.window.handle))
     }
     fn go_to_tab(&self, tab: usize, start: usize, end: usize) {
         self.form.search_all_go_to_tab(tab, start, end);
@@ -177,7 +178,8 @@ impl EditorForm {
         self.vault_tree.set_focus();
     }
 
-    /// Open the prompts panel on the prompt found. When the entry at that
+    /// Open the prompts panel on the prompt found; the search is kept unless
+    /// it hides it (as `show_vault_secret` does). When the entry at that
     /// index is no longer it, its name is searched instead.
     fn search_all_open_prompt(&self, index: usize, name: &str, category: &str) {
         if !self.prompts_panel.is_visible() {
@@ -185,7 +187,15 @@ impl EditorForm {
         }
         let current = self.prompts_panel.get(index);
         if sa::same_entry(current.as_ref().map(|p| (p.name.as_str(), p.category.as_str())), name, category) {
-            self.prompts_search.set_text("");
+            if let Some(entry) = current.as_ref() {
+                let query = self.prompts_search.text();
+                match sa::prompt_search_hides(entry, &query, &crate::ui::prompts_panel::contains_user_locale) {
+                    Ok(true) => self.prompts_search.set_text(""),
+                    Ok(false) => {}
+                    // The rebuild below meets the same failure and shows it.
+                    Err(e) => eprintln!("WARN search_all: prompts search check failed err={}", e.0),
+                }
+            }
             self.refresh_prompts_list(Some(index));
         } else {
             eprintln!("INFO search_all: prompt moved, its name is searched");

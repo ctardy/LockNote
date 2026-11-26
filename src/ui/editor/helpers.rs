@@ -385,33 +385,32 @@ pub(super) fn expand_word_selection(text: &str, start: usize, end: usize) -> Opt
 /// Returns byte-offset pairs `(start, end)` in the **original** `text`,
 /// so they can safely index into a UTF-16 offset map built from `text`.
 pub(in crate::ui) fn find_all_case_insensitive(text: &str, needle: &str) -> Vec<(usize, usize)> {
-    if needle.is_empty() {
-        return vec![];
-    }
-    let needle_lower: Vec<char> = needle.chars().flat_map(|c| c.to_lowercase()).collect();
-    let text_chars: Vec<(usize, char)> = text.char_indices().collect();
-    let mut results = vec![];
+    case_insensitive_matches(text, needle).collect()
+}
 
-    'outer: for i in 0..text_chars.len() {
+/// The occurrences of `find_all_case_insensitive`, found one at a time (a
+/// caller that needs only a few stops early). Overlapping, in text order.
+pub(in crate::ui) fn case_insensitive_matches<'a>(text: &'a str, needle: &str) -> impl Iterator<Item = (usize, usize)> + 'a {
+    let needle_lower: Vec<char> = needle.chars().flat_map(|c| c.to_lowercase()).collect();
+    // An empty needle finds nothing.
+    let starts = if needle_lower.is_empty() { 0 } else { usize::MAX };
+    text.char_indices().take(starts).filter_map(move |(start, _)| {
         let mut ni = 0; // index into needle_lower
-        let mut ti = i; // index into text_chars
-        while ni < needle_lower.len() && ti < text_chars.len() {
-            let lower_chars: Vec<char> = text_chars[ti].1.to_lowercase().collect();
-            for &lc in &lower_chars {
+        let mut end = start;
+        for c in text[start..].chars() {
+            if ni == needle_lower.len() {
+                break;
+            }
+            for lc in c.to_lowercase() {
                 if ni >= needle_lower.len() || lc != needle_lower[ni] {
-                    continue 'outer;
+                    return None;
                 }
                 ni += 1;
             }
-            ti += 1;
+            end += c.len_utf8();
         }
-        if ni == needle_lower.len() {
-            let start = text_chars[i].0;
-            let end = if ti < text_chars.len() { text_chars[ti].0 } else { text.len() };
-            results.push((start, end));
-        }
-    }
-    results
+        (ni == needle_lower.len()).then_some((start, end))
+    })
 }
 
 /// Password dialog for steganography operations.
