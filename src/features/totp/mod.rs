@@ -262,17 +262,26 @@ fn uri_encode(s: &str) -> String {
     out
 }
 
-/// Minimal percent-decoding.
-fn uri_decode(s: &str) -> String {
-    let mut out = Vec::with_capacity(s.len());
+/// Percent-decoding on bytes: `%` and two hex digits give one byte, anything
+/// else is kept as it is. Works on bytes, never on `str` offsets, so a
+/// multi-byte character after `%` cannot split a char (it panicked, issue
+/// #23 pass 2).
+fn uri_decode_bytes(s: &str) -> Vec<u8> {
+    fn hex(b: u8) -> Option<u8> {
+        match b {
+            b'0'..=b'9' => Some(b - b'0'),
+            b'a'..=b'f' => Some(b - b'a' + 10),
+            b'A'..=b'F' => Some(b - b'A' + 10),
+            _ => None,
+        }
+    }
     let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(val) = u8::from_str_radix(
-                &s[i + 1..i + 3], 16,
-            ) {
-                out.push(val);
+            if let (Some(h), Some(l)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
+                out.push(h << 4 | l);
                 i += 3;
                 continue;
             }
@@ -280,7 +289,14 @@ fn uri_decode(s: &str) -> String {
         out.push(bytes[i]);
         i += 1;
     }
-    String::from_utf8_lossy(&out).to_string()
+    out
+}
+
+/// Minimal percent-decoding of a label or an issuer (display only: an
+/// invalid UTF-8 sequence shows as U+FFFD). The secret goes through
+/// `uri_decode_bytes` and refuses it instead.
+fn uri_decode(s: &str) -> String {
+    String::from_utf8_lossy(&uri_decode_bytes(s)).to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -339,7 +355,10 @@ pub fn parse_secret_input(input: &str) -> Result<String, SecretInputError> {
                 return Err(SecretInputError::UnsupportedParameters);
             }
         }
-        return normalize_base32_secret(&uri_decode(&secret));
+        // Not UTF-8 once decoded: refused, never replaced by U+FFFD.
+        let decoded = String::from_utf8(uri_decode_bytes(&secret))
+            .map_err(|_| SecretInputError::InvalidBase32)?;
+        return normalize_base32_secret(&decoded);
     }
     normalize_base32_secret(input)
 }
@@ -679,6 +698,50 @@ mod tests {
         assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DP&algorithm=SHA256"), Err(UnsupportedParameters));
         assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DP&digits=8"), Err(UnsupportedParameters));
         assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DP&period=60"), Err(UnsupportedParameters));
+    }
+
+    /// Pass 2, B1: the percent-decoding sliced the text on byte offsets and
+    /// panicked on a multi-byte character after `%` (with panic=abort, the
+    /// whole app on a keystroke of the secret field).
+    #[test]
+    fn percent_sequences_never_panic_and_are_explicit() {
+        use SecretInputError::*;
+        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSW%1\u{e9}"), Err(InvalidBase32));
+        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSW%a\u{e9}"), Err(InvalidBase32));
+        assert_eq!(parse_secret_input("otpauth://totp/%1\u{e9}?secret=JBSWY3DP"), Ok("JBSWY3DP".into()));
+        // A trailing escape is decoded (%41 = A).
+        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DP%41%41"), Ok("JBSWY3DPAA".into()));
+        // %FF is not UTF-8 once decoded: refused, not replaced by U+FFFD.
+        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DP%FF"), Err(InvalidBase32));
+        // `+` is not a hex digit (from_str_radix accepted "+1").
+        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DP%+1"), Err(InvalidBase32));
+        // An incomplete escape stays as text, which is not Base32.
+        assert_eq!(parse_secret_input("otpauth://totp/x?secret=JBSWY3DP%4"), Err(InvalidBase32));
+        assert_eq!(uri_decode_bytes("%4"), b"%4".to_vec());
+        assert_eq!(uri_decode_bytes("a%41"), b"aA".to_vec());
+    }
+
+    /// Fuzz-style: every short string over a hostile alphabet goes through
+    /// without a panic (the field is parsed on each keystroke).
+    #[test]
+    fn parse_secret_input_never_panics() {
+        let alphabet = ["%", "1", "a", "F", "\u{e9}", "\u{1F600}", "=", " ", "?", "&", "otpauth://totp/", "secret=", "OTPAUTH:", "A", "\u{0}"];
+        let n = alphabet.len();
+        let mut count = 0;
+        for a in 0..n {
+            for b in 0..n {
+                for c in 0..n {
+                    for d in 0..n {
+                        let s = format!("{}{}{}{}", alphabet[a], alphabet[b], alphabet[c], alphabet[d]);
+                        let _ = parse_secret_input(&s);
+                        let _ = parse_secret_input(&format!("otpauth://totp/x?secret={}", s));
+                        let _ = parse_uri(&format!("otpauth://totp/{}?secret=A", s));
+                        count += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(count, n * n * n * n);
     }
 
     // -- Entry serialization ------------------------------------------------
