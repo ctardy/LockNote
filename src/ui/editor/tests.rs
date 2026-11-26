@@ -786,6 +786,22 @@
         assert_eq!(fr_zero, "0 mot");
     }
 
+    /// Pass 4, M1: the export writes a text read after the last question,
+    /// only if no lock came in between, and every plaintext buffer is wiped.
+    #[test]
+    fn the_export_reads_the_text_after_the_last_question_and_wipes_it() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
+        let src = std::fs::read_to_string(dir.join("file_ops.rs")).unwrap();
+        let start = src.find("pub(super) fn on_export(&self)").unwrap();
+        let body = &src[start..start + src[start..].find("\n    }\n").unwrap()];
+        let last_question = body.rfind("self.confirm(").expect("confirm");
+        let last_read = body.rfind("get_content()").expect("get_content");
+        assert!(last_read > last_question, "the text written is read before the question");
+        assert!(body.contains("still_valid(epoch)"), "no lock epoch check before writing");
+        assert!(!body.contains("let content = self.get_content();"), "plain String of the note");
+        assert!(!body.contains("let (bytes, had_replacements) = encoding.encode(&content);"), "plain Vec of the note");
+    }
+
     /// Pass 4: a wipe deferred at lock is retried while locked, never after
     /// the unlock restored the notes.
     #[test]

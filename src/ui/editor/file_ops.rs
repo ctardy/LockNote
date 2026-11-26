@@ -158,6 +158,7 @@ impl EditorForm {
         use crate::ui::dialogs::export_encoding::ExportEncodingDialog;
         use crate::ui::dialogs::confirm_password::ConfirmPasswordDialog;
 
+        let epoch = self.lock_epoch();
         // Require password confirmation before export
         if !ConfirmPasswordDialog::show(&self.password_copy(), &t("confirmpwd.export")) {
             return;
@@ -180,11 +181,15 @@ impl EditorForm {
 
         if dialog.run(Some(&self.window)) {
             if let Ok(path) = dialog.get_selected_item() {
-                let content = self.get_content();
-                let (bytes, had_replacements) = encoding.encode(&content);
-
-                // Warn if some characters were replaced
-                if had_replacements {
+                // Warn if some characters would be replaced. The check reads
+                // the text in a buffer wiped right away (pass 4).
+                let lossy = {
+                    let content = Zeroizing::new(self.get_content());
+                    let (bytes, had_replacements) = encoding.encode(&content);
+                    let _wiped = Zeroizing::new(bytes);
+                    had_replacements
+                };
+                if lossy {
                     let params = nwg::MessageParams {
                         title: &t("export.warning_title"),
                         content: &t("export.warning_lossy"),
@@ -195,8 +200,16 @@ impl EditorForm {
                         return;
                     }
                 }
+                // Nothing is written if a lock came during any dialog above;
+                // the text is read now, after the last question.
+                if !self.still_valid(epoch) {
+                    eprintln!("INFO export: dropped, the note locked meanwhile");
+                    return;
+                }
+                let content = Zeroizing::new(self.get_content());
+                let bytes = Zeroizing::new(encoding.encode(&content).0);
 
-                match std::fs::write(&path, &bytes) {
+                match std::fs::write(&path, &bytes[..]) {
                     Ok(_) => {
                         nwg::modal_info_message(
                             &self.window,
