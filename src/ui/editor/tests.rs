@@ -779,8 +779,20 @@
         crate::features::i18n::set_language(crate::features::i18n::Language::French);
         assert_eq!(count_text(1, "status.word", "status.words"), "1 mot");
         assert_eq!(count_text(3, "status.word", "status.words"), "3 mots");
+        // French: 0 takes the singular ("0 mot", pass 2).
+        let fr_zero = count_text(0, "status.word", "status.words");
         crate::features::i18n::set_language(crate::features::i18n::Language::English);
         assert_eq!(count_text(0, "status.line", "status.lines"), "0 lines");
+        assert_eq!(fr_zero, "0 mot");
+    }
+
+    #[test]
+    fn singular_rule_per_language() {
+        use crate::features::i18n::Language::*;
+        assert!(is_singular(French, 0) && is_singular(French, 1) && !is_singular(French, 2));
+        for lang in [English, Spanish, German] {
+            assert!(!is_singular(lang, 0) && is_singular(lang, 1) && !is_singular(lang, 2), "{:?}", lang);
+        }
     }
 
     #[test]

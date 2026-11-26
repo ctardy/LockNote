@@ -725,9 +725,18 @@ pub(super) fn tab_color_label(name: &str) -> String {
     crate::features::i18n::get(&format!("color.{}", name)).to_string()
 }
 
+/// Whether `n` takes the singular in `lang`: French uses it for 0 and 1
+/// ("0 mot"), English, Spanish and German for 1 only.
+pub(super) fn is_singular(lang: crate::features::i18n::Language, n: usize) -> bool {
+    match lang {
+        crate::features::i18n::Language::French => n <= 1,
+        _ => n == 1,
+    }
+}
+
 /// "{n} word" / "{n} words" from the i18n keys `one` / `many` (status bar).
 pub(super) fn count_text(n: usize, one: &str, many: &str) -> String {
-    let key = if n == 1 { one } else { many };
+    let key = if is_singular(crate::features::i18n::current_language(), n) { one } else { many };
     crate::features::i18n::get(key).replace("{n}", &n.to_string())
 }
 
