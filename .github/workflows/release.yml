@@ -12,7 +12,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -31,13 +31,13 @@ jobs:
         run: scripts\test.cmd
 
       - name: Sign executables
-        uses: azure/trusted-signing-action@v0.5.0
+        uses: azure/artifact-signing-action@v2.0.0
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
           azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
           endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
-          trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
           files-folder: build
           files-folder-filter: exe
@@ -108,7 +108,7 @@ jobs:
           PY
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: LockNote-windows-x64
           path: |
@@ -122,19 +122,19 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       - name: Download artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
       # Published in this repository, the one the updater reads
       # (`GITHUB_REPO` in src/updater.rs). No mirror any more (issue 059).
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           files: |
