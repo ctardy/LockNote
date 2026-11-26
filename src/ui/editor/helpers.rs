@@ -725,6 +725,27 @@ pub(super) fn tab_color_label(name: &str) -> String {
     crate::features::i18n::get(&format!("color.{}", name)).to_string()
 }
 
+/// Wipe the text in `cell` without ever panicking: a `RefCell` borrowed
+/// further up the stack (a dialog's nested loop under which WM_ENDSESSION or
+/// the auto-lock runs, pass 3) makes `borrow_mut` panic, and the release
+/// build aborts. Returns false and sets `pending` when it could not wipe now:
+/// the caller retries (`retry_pending_wipe`).
+pub(super) fn wipe_or_defer<T: zeroize::Zeroize>(cell: &RefCell<T>, pending: &Cell<bool>, what: &str) -> bool {
+    use zeroize::Zeroize;
+    match cell.try_borrow_mut() {
+        Ok(mut s) => {
+            s.zeroize();
+            pending.set(false);
+            true
+        }
+        Err(_) => {
+            eprintln!("WARN wipe: {} borrowed further up, wipe deferred to the next tick", what);
+            pending.set(true);
+            false
+        }
+    }
+}
+
 /// The check marks of View > Word Wrap and View > Line Numbers for these
 /// settings, as (word wrap, line numbers).
 pub(super) fn view_menu_checks(settings: &crate::settings::Settings) -> (bool, bool) {

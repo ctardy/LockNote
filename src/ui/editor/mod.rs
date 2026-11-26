@@ -145,6 +145,9 @@ pub struct EditorForm {
     /// A failed save blocked the shutdown (issue #29): the reason is removed
     /// at WM_ENDSESSION.
     shutdown_blocked: Cell<bool>,
+    /// A password wipe found the password borrowed (pass 3): retried on the
+    /// next highlight tick.
+    wipe_pending: Cell<bool>,
 
     // ── Tray icon ──
     tray_icon: nwg::TrayNotification,

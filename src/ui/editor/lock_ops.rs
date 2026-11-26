@@ -104,10 +104,7 @@ impl EditorForm {
         self.locked_session_state.set(Some(self.capture_session_state()));
         // Clear sensitive data from editor
         self.editor.set_text("");
-        {
-            use zeroize::Zeroize;
-            self.password.borrow_mut().zeroize();
-        }
+        self.wipe_password();
 
         // Wipe every other in-memory plaintext store so a memory dump taken
         // after the overlay appears does not still contain notes

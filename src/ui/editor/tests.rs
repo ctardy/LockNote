@@ -786,6 +786,35 @@
         assert_eq!(fr_zero, "0 mot");
     }
 
+    /// Pass 3, B1: a wipe under a held borrow must not panic (abort in
+    /// release); it is deferred and done once the borrow is gone.
+    #[test]
+    fn a_wipe_under_a_held_borrow_is_deferred_not_a_panic() {
+        let cell = RefCell::new(String::from("secret"));
+        let pending = Cell::new(false);
+        {
+            let _held = cell.borrow(); // a dialog holding it
+            assert!(!wipe_or_defer(&cell, &pending, "password"));
+            assert!(pending.get());
+        }
+        assert!(wipe_or_defer(&cell, &pending, "password"));
+        assert!(!pending.get());
+        assert!(cell.borrow().is_empty());
+    }
+
+    /// Pass 3, B1: no dialog may be shown while a borrow of the password is
+    /// held: its nested loop can run WM_ENDSESSION or the lock, which wipe
+    /// the password.
+    #[test]
+    fn no_dialog_holds_a_borrow_of_the_password() {
+        let src = super::all_source();
+        // Built here so this test does not find itself.
+        let needle = format!("show(&self.password{}", ".borrow()");
+        for (i, line) in src.lines().enumerate() {
+            assert!(!line.contains(&needle), "line {}: {}", i + 1, line.trim());
+        }
+    }
+
     /// Pass 2: the settings read back at unlock (or from a backup) may differ
     /// from the menu: the check marks follow them.
     #[test]

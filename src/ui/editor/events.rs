@@ -237,6 +237,9 @@ impl EditorForm {
                         f.layout_controls();
                     }
                     Event::OnTimerTick => {
+                        if handle == f.highlight_timer.handle && f.wipe_pending.get() {
+                            f.wipe_password();
+                        }
                         if handle == f.highlight_timer.handle {
                             f.update_occurrence_highlights();
                             f.repaint_gutter_if_caret_moved();

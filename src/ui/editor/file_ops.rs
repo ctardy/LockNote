@@ -134,13 +134,25 @@ impl EditorForm {
         }
     }
 
+    /// A copy of the password for a dialog, wiped on drop: a `Ref` held
+    /// across the dialog's nested loop made the wipe of WM_ENDSESSION or of
+    /// the lock panic (pass 3).
+    pub(super) fn password_copy(&self) -> Zeroizing<String> {
+        self.password.borrow().clone()
+    }
+
+    /// Wipe the password now, or on the next tick if it is borrowed.
+    pub(super) fn wipe_password(&self) {
+        wipe_or_defer(&self.password, &self.wipe_pending, "password");
+    }
+
     /// Export the current note as a text file with encoding selection.
     pub(super) fn on_export(&self) {
         use crate::ui::dialogs::export_encoding::ExportEncodingDialog;
         use crate::ui::dialogs::confirm_password::ConfirmPasswordDialog;
 
         // Require password confirmation before export
-        if !ConfirmPasswordDialog::show(&self.password.borrow(), &t("confirmpwd.export")) {
+        if !ConfirmPasswordDialog::show(&self.password_copy(), &t("confirmpwd.export")) {
             return;
         }
 

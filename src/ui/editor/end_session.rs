@@ -111,8 +111,7 @@ impl EndSessionSteps for FormEndSessionSteps<'_> {
     }
 
     fn wipe(&mut self) {
-        use zeroize::Zeroize;
-        self.form.password.borrow_mut().zeroize();
+        self.form.wipe_password();
         self.form.editor.set_text("");
     }
 
