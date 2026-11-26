@@ -449,7 +449,7 @@ pub fn compare_names_user_locale(a: &str, b: &str) -> Result<std::cmp::Ordering,
         CSTR_GREATER_THAN => Ok(std::cmp::Ordering::Greater),
         _ => Err(VaultTreeError::Compare(format!(
             "CompareStringEx failed: {:?}",
-            windows::core::Error::from_win32()
+            windows::core::Error::from_thread()
         ))),
     }
 }

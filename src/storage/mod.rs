@@ -1324,7 +1324,7 @@ fn wait_helper_ready(
     }
     Err(format!(
         "waiting for the helper failed: {}",
-        windows::core::Error::from_win32()
+        windows::core::Error::from_thread()
     ))
 }
 

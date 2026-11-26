@@ -142,7 +142,7 @@ impl SwapLock {
                 let error = if waited == WAIT_TIMEOUT {
                     LockError::Held(format!("mutex {}: not released within {} s", name, timeout.as_secs()))
                 } else {
-                    LockError::Failed(format!("mutex {}: wait failed: {}", name, windows::core::Error::from_win32()))
+                    LockError::Failed(format!("mutex {}: wait failed: {}", name, windows::core::Error::from_thread()))
                 };
                 let _ = CloseHandle(mutex);
                 return Err(error);

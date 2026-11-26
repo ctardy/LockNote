@@ -352,7 +352,7 @@ impl EditorForm {
         };
         if timer == 0 {
             // Without the timer the feedback would never go away.
-            eprintln!("WARN status_bar: SetTimer failed: {}", windows::core::Error::from_win32());
+            eprintln!("WARN status_bar: SetTimer failed: {}", windows::core::Error::from_thread());
         } else {
             *self.status_path_feedback.borrow_mut() = Some(feedback);
         }

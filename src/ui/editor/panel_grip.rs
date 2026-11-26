@@ -94,7 +94,7 @@ pub(super) fn create_panel_grip(parent: &nwg::ControlHandle) -> isize {
         ..Default::default()
     };
     if unsafe { RegisterClassW(&wc) } == 0 {
-        eprintln!("WARN panel_grip: RegisterClassW failed ({})", windows::core::Error::from_win32());
+        eprintln!("WARN panel_grip: RegisterClassW failed ({})", windows::core::Error::from_thread());
     }
     let hwnd = unsafe {
         CreateWindowExW(
