@@ -388,7 +388,8 @@ fn extract_exe(zip_data: &[u8]) -> Result<Vec<u8>, String> {
     for i in 0..archive.len() {
         let file = archive.by_index(i)
             .map_err(|e| format!("ZIP entry error: {}", e))?;
-        names.push(file.name().to_string());
+        let name = file.name().map_err(|e| format!("ZIP entry name error: {}", e))?;
+        names.push(name.to_string());
     }
     let index = select_entry(&names, EDITION_EXE)
         .ok_or_else(|| format!("{} not found in archive", EDITION_EXE))?;
