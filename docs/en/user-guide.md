@@ -711,13 +711,24 @@ windows are cancelled (what you typed in them is lost, your notes are not),
 then LockNote locks. A question open at that moment (for example "Delete
 this secret?") is answered **No**: nothing it asked about is done. If a
 window cannot close at once (the temporary files window while it reads a
-network share), LockNote hides your notes after 2 seconds ("LockNote is
-locking...") and locks as soon as that window has closed. If the save
-before the lock fails, LockNote does not lock and does not lose anything:
-it shows the reason over a hidden window, then your text is back, still
-unsaved: save it again or copy it. The Lock
-button does the same, and closing LockNote (tray Quit) cancels the open
-windows first, then closes as usual. While LockNote is locked, the menus
+network share), LockNote hides your notes after 2 seconds ("Notes hidden",
+with the name of the window it waits for) and locks as soon as that window
+has closed. The Lock button does the same, and closing LockNote (tray
+Quit) cancels the open windows first, then closes as usual; if a window
+still has not closed after 10 seconds, LockNote names it and offers **Keep
+waiting** or **Close without saving**.
+
+**If the save before a lock fails**, nothing is lost:
+
+- after **Lock** (button, Ctrl+L), LockNote asks: **Keep open** (the
+  default; Enter, Esc or the window's close button do the same) or **Lock
+  without saving** (the unsaved changes are then lost);
+- for the **auto-lock** (nobody is there), your notes are hidden ("Notes
+  hidden") until you type your password and click **Show notes**; then
+  they come back with their unsaved changes and LockNote says why the
+  save failed. Nobody can show them without the password, and LockNote
+  cannot be closed meanwhile. LockNote tries to save again at each
+  auto-lock check; when it succeeds, it locks normally. While LockNote is locked, the menus
 only offer File > Quit and Help > About.
 
 ### Auto-save

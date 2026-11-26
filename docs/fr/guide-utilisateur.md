@@ -772,13 +772,28 @@ se verrouille. Une question ouverte à ce moment (par exemple « Supprimer ce
 secret ? ») reçoit la réponse **Non** : rien de ce qu'elle demandait n'est
 fait. Si une fenêtre ne peut pas se fermer tout de suite (la fenêtre des
 fichiers temporaires pendant la lecture d'un partage réseau), LockNote masque
-vos notes au bout de 2 secondes (« LockNote se verrouille… ») et se verrouille
-dès que cette fenêtre est fermée. Si l'enregistrement avant le verrouillage
-échoue, LockNote ne se verrouille pas et ne perd rien : il affiche la raison
-par-dessus la fenêtre masquée, puis votre texte réapparaît, toujours non
-enregistré : réenregistrez-le ou copiez-le. Le bouton Verrouiller fait de même, et fermer LockNote
-(Quitter de la zone de notification) annule d'abord les fenêtres ouvertes,
-puis ferme comme d'habitude. Pendant le verrouillage, les menus n'offrent que
+vos notes au bout de 2 secondes (« Notes masquées », avec le nom de la
+fenêtre attendue) et se verrouille dès que cette fenêtre est fermée. Le
+bouton Verrouiller fait de même, et fermer LockNote (Quitter de la zone de
+notification) annule d'abord les fenêtres ouvertes, puis ferme comme
+d'habitude ; si une fenêtre n'est toujours pas fermée au bout de
+10 secondes, LockNote la nomme et propose **Continuer d'attendre** ou
+**Fermer sans enregistrer**.
+
+**Si l'enregistrement avant un verrouillage échoue**, rien n'est perdu :
+
+- après **Verrouiller** (bouton, Ctrl+L), LockNote demande : **Garder
+  ouvert** (par défaut ; Entrée, Échap ou la croix font de même) ou
+  **Verrouiller sans enregistrer** (les modifications non enregistrées
+  sont alors perdues) ;
+- pour le **verrouillage auto** (personne n'est là), vos notes sont
+  masquées (« Notes masquées ») jusqu'à ce que vous tapiez votre mot de
+  passe et cliquiez sur **Afficher les notes** ; elles reviennent alors avec
+  leurs modifications non enregistrées et LockNote indique pourquoi
+  l'enregistrement a échoué. Personne ne peut les afficher sans le mot de
+  passe, et LockNote ne peut pas être fermé entre-temps. LockNote réessaie
+  d'enregistrer à chaque vérification du verrouillage auto ; s'il y
+  parvient, il se verrouille normalement. Pendant le verrouillage, les menus n'offrent que
 Fichier > Quitter et Aide > À propos.
 
 ### Sauvegarde auto

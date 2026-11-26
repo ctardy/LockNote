@@ -32,9 +32,12 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   locks on time, but first cancels the open LockNote dialogs (their input
   is lost, the notes are not; an open question is answered No) and locks
   once they are all closed; a window that cannot close at once gets the
-  notes hidden after 2 seconds. A save that fails just before a lock no
-  longer loses the unsaved changes: LockNote stays unlocked and says why. The Lock button and Quit do the same, and
+  notes hidden after 2 seconds. The Lock button and Quit do the same, and
   while locked the menus only allow Quit and About (#30).
+- **A save that fails just before a lock no longer loses the unsaved
+  changes**: after Lock, LockNote asks "Keep open" or "Lock without
+  saving"; for the auto-lock, the notes stay hidden until the password is
+  typed, then come back with their changes and the reason (#30).
 - **"Copied" shown after a failed copy**: the TOTP panel and dialogs and
   the vault said "Copied" even when Windows refused the clipboard write.
   Now a failed copy says "Copy failed: ..." and "Copied" appears only after
