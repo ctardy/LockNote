@@ -1068,7 +1068,7 @@ fn build_fr() -> Dict {
     m.insert("totp.secret.err.length", "Ce secret a une longueur que le Base32 ne donne jamais : une partie manque ou il a \u{00e9}t\u{00e9} coll\u{00e9} deux fois. Collez-le \u{00e0} nouveau, seul.");
     m.insert("totp.secret.err.short", "Ce secret est trop court (moins de 80 bits) : il en manque sans doute une partie.");
     m.insert("totp.secret.err.doubled", "Le m\u{00ea}me texte appara\u{00ee}t deux fois : il a sans doute \u{00e9}t\u{00e9} coll\u{00e9} deux fois. Videz le champ et collez le secret une seule fois.");
-    m.insert("totp.secret.err.duplicate", "Ce lien donne deux fois le m\u{00ea}me param\u{00e8}tre (par exemple deux secrets) : il est refus\u{00e9}, le bon ne pouvant \u{00ea}tre connu.");
+    m.insert("totp.secret.err.duplicate", "Ce lien donne deux fois le m\u{00ea}me param\u{00e8}tre (par exemple deux secrets) : il est refus\u{00e9}, impossible de savoir lequel est le bon.");
     m.insert("totp.secret.err.empty", "Saisissez le secret donn\u{00e9} par le site.");
     m.insert("totp.secret.err.base32", "Ce secret n'est pas du Base32 valide (lettres A-Z et chiffres 2-7).");
     m.insert("totp.secret.err.not_totp", "Seuls les liens otpauth://totp/ sont pris en charge.");
@@ -1434,8 +1434,8 @@ fn build_fr() -> Dict {
     m.insert("filter.ext", "Fichiers {EXT} (*.{ext})");
     m.insert("close.title", "Modifications non enregistr\u{00e9}es");
     m.insert("close.msg", "Modifications non enregistr\u{00e9}es. Enregistrer avant de fermer ?");
-    m.insert("close.save_failed", "LockNote n'a pas pu enregistrer :\n{error}\n\nVos modifications non enregistr\u{00e9}es sont toujours dans la fen\u{00ea}tre. Gardez LockNote ouvert pour r\u{00e9}essayer ou copier votre texte ; fermer sans enregistrer les perd.");
-    m.insert("close.keep_open", "LockNote reste ouvert");
+    m.insert("close.save_failed", "LockNote n'a pas pu enregistrer :\n{error}\n\nVos modifications non enregistr\u{00e9}es sont toujours dans la fen\u{00ea}tre. Gardez LockNote ouvert pour r\u{00e9}essayer ou copier votre texte ; si vous fermez sans enregistrer, elles seront perdues.");
+    m.insert("close.keep_open", "Garder LockNote ouvert");
     m.insert("close.close_unsaved", "Fermer sans enregistrer");
     m.insert("endsession.blocked", "LockNote n'a pas pu enregistrer vos notes ({error}). Annulez, puis enregistrez ou copiez votre texte.");
     m.insert("close.remember_not_saved", "Votre choix n'a pas \u{00e9}t\u{00e9} m\u{00e9}moris\u{00e9} : LockNote garde ses param\u{00e8}tres dans la note, et la note n'est pas enregistr\u{00e9}e. Pour ne plus \u{00ea}tre questionn\u{00e9}, choisissez \u{00ab} {onclose} {never} \u{00bb} dans {menu}, puis enregistrez.");
@@ -2081,7 +2081,7 @@ fn build_es() -> Dict {
     m.insert("filter.ext", "Archivos {EXT} (*.{ext})");
     m.insert("close.title", "Cambios sin guardar");
     m.insert("close.msg", "Cambios sin guardar. \u{00bf}Guardar antes de cerrar?");
-    m.insert("close.save_failed", "LockNote no pudo guardar:\n{error}\n\nSus cambios sin guardar siguen en la ventana. Mantenga LockNote abierto para reintentar o copiar su texto; cerrar sin guardar los pierde.");
+    m.insert("close.save_failed", "LockNote no pudo guardar:\n{error}\n\nSus cambios sin guardar siguen en la ventana. Mantenga LockNote abierto para reintentar o copiar su texto; si cierra sin guardar, se perder\u{00e1}n.");
     m.insert("close.keep_open", "Mantener LockNote abierto");
     m.insert("close.close_unsaved", "Cerrar sin guardar");
     m.insert("endsession.blocked", "LockNote no pudo guardar sus notas ({error}). Cancele y luego guarde o copie su texto.");

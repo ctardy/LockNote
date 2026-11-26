@@ -12,7 +12,8 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   and lowercase accepted) or as an `otpauth://totp/` link; **Generate**
   still creates a new secret. An invalid secret is refused with the reason
   and never stored: not Base32, cut or pasted twice (impossible length),
-  shorter than 80 bits, or a link asking for codes LockNote does not make
+  shorter than 80 bits, a link pasted twice, a link giving a parameter
+  twice (two secrets), or a link asking for codes LockNote does not make
   (other than SHA1, 6 digits, 30 s) (#23).
 - **View > Line Numbers**: shows or hides the line-number gutter; the text
   takes the freed width. The choice is the existing `show_line_numbers`
@@ -29,7 +30,8 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   then declined); it now waits and restarts its delay when the dialog
   closes. Auto-lock could wipe the password under an open dialog: it still
   locks on time, but first cancels the open LockNote dialogs (their input
-  is lost, the notes are not). The Lock button and Quit do the same, and
+  is lost, the notes are not; an open question is answered No) and locks
+  once they are all closed. The Lock button and Quit do the same, and
   while locked the menus only allow Quit and About (#30).
 - **"Copied" shown after a failed copy**: the TOTP panel and dialogs and
   the vault said "Copied" even when Windows refused the clipboard write.

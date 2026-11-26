@@ -274,14 +274,17 @@ LockNote verrouillé a déjà enregistré au verrouillage. Puis il se ferme comm
 d'habitude (clés SSH retirées de ssh-agent, mise à jour ou enregistrement en
 attente appliqué). Si l'enregistrement échoue, Windows affiche « LockNote n'a
 pas pu enregistrer vos notes (…) » sur son écran d'arrêt : annulez, puis
-enregistrez ou copiez votre texte.
+enregistrez ou copiez votre texte. La liste des clés SSH chargées par ce
+fichier n'est pas réenregistrée à ce moment : au déverrouillage suivant,
+LockNote retire à nouveau ces clés de ssh-agent, donc une clé ajoutée à la
+main entre-temps est retirée aussi ; ajoutez-la de nouveau si besoin.
 
 **Attention.** Si un enregistrement échoue, un message « Erreur de
 sauvegarde » en donne la raison. Vos modifications sont toujours dans la
 fenêtre : réessayez avant de fermer. Quand un enregistrement échoue pendant la
 fermeture (**Enregistrer** à la question, Toujours enregistrer, ou le dernier
 enregistrement), LockNote affiche « LockNote n'a pas pu enregistrer : … »
-avec la raison. **LockNote reste ouvert** (par défaut, aussi Entrée, Échap ou
+avec la raison. **Garder LockNote ouvert** (par défaut, aussi Entrée, Échap ou
 la croix de la fenêtre) garde votre texte dans la fenêtre ; **Fermer sans
 enregistrer** ferme et les modifications non enregistrées sont perdues. Les
 clés SSH chargées dans ssh-agent par ce fichier ont déjà été retirées à ce
@@ -765,7 +768,9 @@ principale (une boîte de dialogue, la question de fermeture…), la sauvegarde
 auto attend et son délai repart à sa fermeture. Le verrouillage auto
 n'attend pas : son délai écoulé, les fenêtres ouvertes de LockNote sont
 annulées (ce que vous y aviez tapé est perdu, vos notes non), puis LockNote
-se verrouille. Le bouton Verrouiller fait de même, et fermer LockNote
+se verrouille. Une question ouverte à ce moment (par exemple « Supprimer ce
+secret ? ») reçoit la réponse **Non** : rien de ce qu'elle demandait n'est
+fait. Le bouton Verrouiller fait de même, et fermer LockNote
 (Quitter de la zone de notification) annule d'abord les fenêtres ouvertes,
 puis ferme comme d'habitude. Pendant le verrouillage, les menus n'offrent que
 Fichier > Quitter et Aide > À propos.

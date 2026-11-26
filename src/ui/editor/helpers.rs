@@ -731,7 +731,6 @@ pub(super) fn tab_color_label(name: &str) -> String {
 /// build aborts. Returns false and sets `pending` when it could not wipe now:
 /// the caller retries (`retry_pending_wipe`).
 pub(super) fn wipe_or_defer<T: zeroize::Zeroize>(cell: &RefCell<T>, pending: &Cell<bool>, what: &str) -> bool {
-    use zeroize::Zeroize;
     match cell.try_borrow_mut() {
         Ok(mut s) => {
             s.zeroize();

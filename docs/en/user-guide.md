@@ -251,7 +251,10 @@ the notes, as if you had answered Save, unless On close is **Never save**
 was already saved when it locked. Then it closes as usual (SSH keys removed
 from ssh-agent, an update or a pending save applied). If the save fails,
 Windows shows "LockNote could not save your notes (...)" on its shutdown
-screen: cancel, then save or copy your text.
+screen: cancel, then save or copy your text. The list of SSH keys this file
+loaded is not saved again at that moment: at the next unlock LockNote
+removes those keys from ssh-agent once more, so a key you added to
+ssh-agent by hand in between is removed too; add it again if needed.
 
 **Warning.** If a save fails, a "Save Error" message says why. Your changes are
 still in the window: try again before closing. When a save fails while
@@ -705,9 +708,11 @@ While a LockNote window or message is open over the main window (a dialog,
 the close question...), auto-save waits and its delay starts again when it
 closes. Auto-lock does not wait: when its delay is over, the open LockNote
 windows are cancelled (what you typed in them is lost, your notes are not),
-then LockNote locks. The Lock button does the same, and closing LockNote
-(tray Quit) cancels the open windows first, then closes as usual. While LockNote is locked, the menus only offer File > Quit and
-Help > About.
+then LockNote locks. A question open at that moment (for example "Delete
+this secret?") is answered **No**: nothing it asked about is done. The Lock
+button does the same, and closing LockNote (tray Quit) cancels the open
+windows first, then closes as usual. While LockNote is locked, the menus
+only offer File > Quit and Help > About.
 
 ### Auto-save
 
