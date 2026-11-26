@@ -197,8 +197,8 @@ impl SaveFailedDialog {
         Self::show_with(owner, message, &t("close.keep_open"), &t("close.close_unsaved"))
     }
 
-    /// The same dialog with other button texts (the failed save before a
-    /// manual lock: "Keep open" / "Lock without saving", pass 6).
+    /// The same dialog with other button texts (the stuck-close offer:
+    /// "Keep waiting" / "Close without saving", pass 6).
     /// `CloseWithoutSaving` is the second button.
     pub fn show_with(owner: Option<nwg::ControlHandle>, message: &str, keep: &str, act: &str) -> SaveFailedAnswer {
         let mut window = Default::default();

@@ -134,15 +134,14 @@ pub struct EditorForm {
     status_path_feedback: RefCell<Option<String>>,
     /// The left button went down on the path (a click needs both ends on it).
     status_path_pressed: Cell<bool>,
-    /// A modal dialog with its own message loop is open (Temporary files):
-    /// `on_close` refuses meanwhile.
     /// Modals opened through `modal()` (issue #30; `modal_open` also sees
     /// the dialogs and message boxes opened without it).
     modal_depth: self::modal_guard::ModalDepth,
     /// Auto-save and auto-lock ticks wait while a modal is open.
     autosave_gate: self::modal_guard::TimerGate,
-    /// A lock due while dialogs were open: (since, manual), run once they
-    /// are cancelled (owner decision on #30).
+    /// The real lock waiting under the curtain (dialogs still open or the
+    /// save failed): when the dialogs were last asked to close and the save
+    /// last tried (lock_flow, owner decision on #30).
     lock_pending: Cell<Option<self::modal_guard::LockPending>>,
     /// A close requested while dialogs were open.
     close_pending: Cell<Option<self::modal_guard::Pending>>,
@@ -153,9 +152,11 @@ pub struct EditorForm {
     /// +1 at every lock (pass 4): a dialog result is applied only if it did
     /// not change while the dialog was open.
     lock_epoch: Cell<u64>,
-    /// The curtain (lock screen without unlock field) hides the note.
+    /// The curtain (the lock screen, with its password field) hides the
+    /// note before it is locked; only the password lifts it.
     curtain: Cell<self::modal_guard::Curtain>,
-    /// Reason of the failed save behind the "save failed" curtain.
+    /// Reason of the failed save before the lock, shown when the curtain is
+    /// lifted (and on its subtitle).
     lock_save_failed_reason: RefCell<Option<String>>,
     /// Last WM_MOUSEMOVE position (lParam) on the main window.
     last_mouse_pos: Cell<Option<isize>>,

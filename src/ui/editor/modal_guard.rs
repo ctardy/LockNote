@@ -2,8 +2,8 @@
 //
 // Every dialog of LockNote runs its own message loop: the main window's
 // timers keep firing under it. Auto-save could write changes the user is
-// about to decline: it is suspended while a modal is open and its delay
-// restarts when the last one closes. The lock follows one rule (owner
+// about to decline: it is suspended while a modal is open (and under the
+// curtain, pass 9) and its delay restarts when the last one closes. The lock follows one rule (owner
 // decision on #30, pass 8, see lock_flow.rs): curtain at once, dialogs
 // answered harmlessly, real lock only with no window open and the note
 // saved. A modal is "open" when an RAII `ModalGuard` is alive, or when a

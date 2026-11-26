@@ -81,9 +81,9 @@ impl EditorForm {
     /// stops the message loop, as for File > Quit).
     pub(super) fn on_temp_files(&self) -> bool {
         use crate::ui::dialogs::temp_files_dialog::{TempFilesAction, TempFilesDialog};
-        // The tray menu still reaches the disabled editor: `on_close` refuses
-        // while this is set, since the message loop it would stop is the
-        // dialog's, not the application's.
+        // The tray menu still reaches the disabled editor: `on_close` then
+        // cancels this dialog and closes once it is gone, since the message
+        // loop it would stop is the dialog's, not the application's.
         let action = {
             let _modal = self.modal();
             TempFilesDialog::show(self.window.handle, &self.exe_path)
