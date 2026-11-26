@@ -103,8 +103,8 @@ pub(super) enum LockStep {
     Wait,
     CancelAgain,
     /// Hide the note now (overlay without unlock field, LockNote dialogs
-    /// hidden); the lock becomes a manual one, it cannot be undone by a
-    /// mouse move.
+    /// hidden); the lock becomes committed (it keeps its origin, auto or
+    /// manual), it cannot be undone by a mouse move.
     ShowCurtain,
     /// No dialog left: lock from the application's own loop.
     Run,
