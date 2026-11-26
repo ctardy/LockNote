@@ -682,16 +682,17 @@ pub(super) mod tests {
 
     #[test]
     fn every_lines_menu_item_is_dispatched() {
-        let events = src("events.rs");
-        for (item, op) in [
-            ("menu_edit_lines_sort_asc", "LineOp::SortAscending"),
-            ("menu_edit_lines_sort_desc", "LineOp::SortDescending"),
-            ("menu_edit_lines_dedup", "LineOp::RemoveDuplicates"),
-            ("menu_edit_lines_join", "LineOp::Join"),
-            ("menu_edit_lines_trim", "LineOp::TrimTrailing"),
+        // The menus run through the command table (palette_ops.rs).
+        let table = src("palette_ops.rs");
+        for (id, item, op) in [
+            ("LinesSortAscending", "menu_edit_lines_sort_asc", "LineOp::SortAscending"),
+            ("LinesSortDescending", "menu_edit_lines_sort_desc", "LineOp::SortDescending"),
+            ("LinesRemoveDuplicates", "menu_edit_lines_dedup", "LineOp::RemoveDuplicates"),
+            ("LinesJoin", "menu_edit_lines_join", "LineOp::Join"),
+            ("LinesTrimTrailing", "menu_edit_lines_trim", "LineOp::TrimTrailing"),
         ] {
-            let pos = events.find(&format!("f.{}.handle", item)).unwrap_or_else(|| panic!("{item} not dispatched"));
-            assert!(events[pos..].lines().nth(1).unwrap_or("").contains(op), "{item} -> {op}");
+            assert!(table.contains(&format!("{id} => &self.{item},")), "{item} not in the command table");
+            assert!(table.contains(&format!("{id} => self.on_line_op(crate::features::line_ops::{op}),")), "{id} -> {op}");
         }
     }
 

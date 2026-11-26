@@ -52,26 +52,6 @@ impl EditorForm {
                         if let Some(id) = f.command_for_menu(handle) {
                             f.run_command(id);
                         }
-                        // Edit > Lines
-                        else if handle == f.menu_edit_lines_sort_asc.handle {
-                            f.on_line_op(crate::features::line_ops::LineOp::SortAscending);
-                        } else if handle == f.menu_edit_lines_sort_desc.handle {
-                            f.on_line_op(crate::features::line_ops::LineOp::SortDescending);
-                        } else if handle == f.menu_edit_lines_dedup.handle {
-                            f.on_line_op(crate::features::line_ops::LineOp::RemoveDuplicates);
-                        } else if handle == f.menu_edit_lines_join.handle {
-                            f.on_line_op(crate::features::line_ops::LineOp::Join);
-                        } else if handle == f.menu_edit_lines_trim.handle {
-                            f.on_line_op(crate::features::line_ops::LineOp::TrimTrailing);
-                        }
-                        // Edit > Convert Case
-                        else if handle == f.menu_edit_case_upper.handle {
-                            f.on_convert_case(crate::features::case_convert::CaseOp::Upper);
-                        } else if handle == f.menu_edit_case_lower.handle {
-                            f.on_convert_case(crate::features::case_convert::CaseOp::Lower);
-                        } else if handle == f.menu_edit_case_title.handle {
-                            f.on_convert_case(crate::features::case_convert::CaseOp::Title);
-                        }
                         // Context menu
                         else if handle == f.ctx_cut.handle {
                             f.on_cut();

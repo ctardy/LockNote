@@ -229,14 +229,15 @@ mod tests {
 
     #[test]
     fn every_convert_case_menu_item_is_dispatched() {
-        let events = src("events.rs");
-        for (item, op) in [
-            ("menu_edit_case_upper", "CaseOp::Upper"),
-            ("menu_edit_case_lower", "CaseOp::Lower"),
-            ("menu_edit_case_title", "CaseOp::Title"),
+        // The menus run through the command table (palette_ops.rs).
+        let table = src("palette_ops.rs");
+        for (id, item, op) in [
+            ("CaseUpper", "menu_edit_case_upper", "CaseOp::Upper"),
+            ("CaseLower", "menu_edit_case_lower", "CaseOp::Lower"),
+            ("CaseTitle", "menu_edit_case_title", "CaseOp::Title"),
         ] {
-            let pos = events.find(&format!("f.{}.handle", item)).unwrap_or_else(|| panic!("{item} not dispatched"));
-            assert!(events[pos..].lines().nth(1).unwrap_or("").contains(op), "{item} -> {op}");
+            assert!(table.contains(&format!("{id} => &self.{item},")), "{item} not in the command table");
+            assert!(table.contains(&format!("{id} => self.on_convert_case(crate::features::case_convert::{op}),")), "{id} -> {op}");
         }
     }
 
