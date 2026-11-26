@@ -89,6 +89,7 @@ impl EditorForm {
                 windows::Win32::Foundation::HWND::default()
             };
 
+            let epoch = self.lock_epoch();
             let cmd = TrackPopupMenu(
                 hmenu,
                 TPM_RETURNCMD | TPM_NONOTIFY,
@@ -101,8 +102,9 @@ impl EditorForm {
             let _ = DestroyMenu(hmenu);
 
             // The auto-lock timer keeps running inside TrackPopupMenu's modal
-            // loop (issue 049): never switch tabs on a locked, wiped state.
-            if *self.is_locked.borrow() {
+            // loop (issue 049): never switch tabs on a locked, wiped state,
+            // nor after a lock and an unlock (pass 4: lock epoch).
+            if !self.still_valid(epoch) {
                 return;
             }
 
@@ -338,6 +340,10 @@ impl EditorForm {
             let _ = windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut pt);
 
             if let nwg::ControlHandle::Hwnd(win_hwnd) = self.window.handle {
+                // A popup menu runs its own loop (counted by modal_open,
+                // closed by EndMenu at a lock): its command is dropped if a
+                // lock came meanwhile (pass 4).
+                let epoch = self.lock_epoch();
                 let result = TrackPopupMenu(
                     hmenu,
                     TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD | TPM_RIGHTBUTTON,
@@ -347,7 +353,9 @@ impl EditorForm {
                     HWND(win_hwnd as *mut _),
                     None,
                 );
-                if result.as_bool() {
+                if result.as_bool() && !self.still_valid(epoch) {
+                    eprintln!("INFO tabs: menu command dropped, the note locked meanwhile");
+                } else if result.as_bool() {
                     let cmd = result.0 as usize;
                     match cmd {
                         5000 => self.on_rename_tab_at(tab_index),

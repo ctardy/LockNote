@@ -163,13 +163,24 @@ pub enum ClearStep {
     Done,
 }
 
+/// Why the clipboard text could not be read.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ReadFailure {
+    /// No text on the clipboard (an image, files, nothing): someone else's
+    /// content, our secret is gone.
+    NotText,
+    /// Text is there but the clipboard could not be opened (another
+    /// application holds it).
+    Busy,
+}
+
 /// The auto-clear decision (pass 3: a failed read disarmed the guard and
-/// left the secret on the clipboard).
-pub fn clear_step(read: Result<&str, ()>, snapshot: &str) -> ClearStep {
+/// left the secret on the clipboard; pass 4: "no text" is not "busy").
+pub fn clear_step(read: Result<&str, ReadFailure>, snapshot: &str) -> ClearStep {
     match read {
         Ok(current) if current == snapshot => ClearStep::Clear,
-        Ok(_) => ClearStep::Done,
-        Err(()) => ClearStep::Retry,
+        Ok(_) | Err(ReadFailure::NotText) => ClearStep::Done,
+        Err(ReadFailure::Busy) => ClearStep::Retry,
     }
 }
 
@@ -188,7 +199,14 @@ mod tests {
     fn a_failed_read_keeps_the_guard_armed() {
         assert_eq!(clear_step(Ok("secret"), "secret"), ClearStep::Clear);
         assert_eq!(clear_step(Ok("something else"), "secret"), ClearStep::Done);
-        assert_eq!(clear_step(Err(()), "secret"), ClearStep::Retry);
+        assert_eq!(clear_step(Err(ReadFailure::Busy), "secret"), ClearStep::Retry);
+    }
+
+    /// Pass 4: an image or files on the clipboard is someone else's
+    /// content: done, not retried forever.
+    #[test]
+    fn a_clipboard_without_text_is_done() {
+        assert_eq!(clear_step(Err(ReadFailure::NotText), "secret"), ClearStep::Done);
     }
 
     #[test]

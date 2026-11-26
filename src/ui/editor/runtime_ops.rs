@@ -35,7 +35,7 @@ impl EditorForm {
         // header docs this behaviour — without the check, a user who
         // copied another value (a URL, a code from a different app) in
         // the meantime would silently lose it when the timer fires.
-        use crate::features::clipboard_guard::{clear_step, warn_read_failure, ClearStep};
+        use crate::features::clipboard_guard::{clear_step, warn_read_failure, ClearStep, ReadFailure};
         let step = {
             let guard = self.clipboard_guard.borrow();
             let Some(snap) = guard.should_clear() else { return };
@@ -49,7 +49,14 @@ impl EditorForm {
                     if warn_read_failure(n) {
                         eprintln!("WARN clipboard: auto-clear cannot read the clipboard, retried failures={} err={}", n, e);
                     }
-                    clear_step(Err(()), snap)
+                    // No text at all (image, files, empty): someone else's
+                    // content. Text that could not be read: busy, retry.
+                    let failure = if clipboard_win::is_format_avail(clipboard_win::formats::CF_UNICODETEXT) {
+                        ReadFailure::Busy
+                    } else {
+                        ReadFailure::NotText
+                    };
+                    clear_step(Err(failure), snap)
                 }
             }
         };
