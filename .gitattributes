@@ -1,3 +1,7 @@
 # Frozen binary fixtures: never convert line endings.
 *.lnbak binary
 *.bin binary
+
+# cmd.exe misparses LF-only batch files: the LOCALAPPDATA redirection of
+# test.cmd could be skipped and the tests would run on the real app data.
+*.cmd text eol=crlf
