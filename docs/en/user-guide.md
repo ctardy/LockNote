@@ -256,9 +256,11 @@ screen: cancel, then save or copy your text.
 **Warning.** If a save fails, a "Save Error" message says why. Your changes are
 still in the window: try again before closing. When a save fails while
 closing (**Save** at the prompt, Always save, or the last save), LockNote
-asks "LockNote could not save: ... Keep LockNote open, to try again or copy
-your text?" with the reason. **Yes** (the default) keeps LockNote open with
-your text; **No** closes without saving and the unsaved changes are lost.
+says "LockNote could not save: ..." with the reason. **Keep LockNote open**
+(the default, also Enter, Esc or the title bar's close button) keeps your
+text in the window; **Close without saving** closes and the unsaved changes
+are lost. The SSH keys loaded into ssh-agent by this file were already
+removed at that point; load them again if you keep LockNote open.
 
 ## 7. Tabs
 

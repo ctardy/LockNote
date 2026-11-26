@@ -262,23 +262,17 @@ impl CloseSteps for FormCloseSteps<'_> {
     }
 
     fn close_without_saving(&mut self, reason: &str) -> bool {
-        // Yes = keep open: a message box's default button is its first one,
-        // and the safe answer must be the default (Enter, a stray key).
-        let title = t("save.error.title");
+        // LockNote's own buttons ("Keep LockNote open" / "Close without
+        // saving"), not a Yes/No box labelled in the Windows language; keep
+        // open is the default (Enter, Esc, title bar). Owned by the main
+        // window, so it stays above it even when it is always on top.
+        use crate::ui::dialogs::close_confirm::{closes_without_saving, SaveFailedDialog};
         let content = t("close.save_failed").replace("{error}", reason);
-        let params = nwg::MessageParams {
-            title: &title,
-            content: &content,
-            buttons: nwg::MessageButtons::YesNo,
-            icons: nwg::MessageIcons::Warning,
-        };
-        // Owned by the main window (above it even when it is always on top);
-        // a close request meanwhile (tray menu) is refused by on_close.
-        let choice = {
+        let answer = {
             let _modal = self.form.modal();
-            nwg::modal_message(&self.form.window, &params)
+            SaveFailedDialog::show(Some(self.form.window.handle), &content)
         };
-        let close = choice == nwg::MessageChoice::No;
+        let close = closes_without_saving(answer);
         eprintln!("INFO close: save failed, close_without_saving={}", close);
         close
     }

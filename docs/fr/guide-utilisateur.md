@@ -280,11 +280,12 @@ enregistrez ou copiez votre texte.
 sauvegarde » en donne la raison. Vos modifications sont toujours dans la
 fenêtre : réessayez avant de fermer. Quand un enregistrement échoue pendant la
 fermeture (**Enregistrer** à la question, Toujours enregistrer, ou le dernier
-enregistrement), LockNote demande « LockNote n'a pas pu enregistrer : …
-Garder LockNote ouvert, pour réessayer ou copier votre texte ? » avec la
-raison. **Oui** (par défaut) laisse LockNote ouvert avec votre texte ;
-**Non** ferme sans enregistrer et les modifications non enregistrées sont
-perdues.
+enregistrement), LockNote affiche « LockNote n'a pas pu enregistrer : … »
+avec la raison. **LockNote reste ouvert** (par défaut, aussi Entrée, Échap ou
+la croix de la fenêtre) garde votre texte dans la fenêtre ; **Fermer sans
+enregistrer** ferme et les modifications non enregistrées sont perdues. Les
+clés SSH chargées dans ssh-agent par ce fichier ont déjà été retirées à ce
+moment : rechargez-les si vous gardez LockNote ouvert.
 
 ## 7. Onglets
 

@@ -160,9 +160,135 @@ impl CloseConfirmDialog {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Save failed at close (pass 3: a Yes/No box had Windows' button labels and
+// an ambiguous question; ES even said the opposite)
+// ---------------------------------------------------------------------------
+
+/// What the user did in the "could not save" dialog.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SaveFailedAnswer {
+    KeepOpen,
+    CloseWithoutSaving,
+    /// Title bar close, Esc.
+    Dismissed,
+}
+
+/// Whether the close goes on without saving: only an explicit click on
+/// "Close without saving"; Enter, Esc and the title bar keep LockNote open.
+pub fn closes_without_saving(answer: SaveFailedAnswer) -> bool {
+    answer == SaveFailedAnswer::CloseWithoutSaving
+}
+
+pub struct SaveFailedDialog;
+
+impl SaveFailedDialog {
+    /// `message`: `close.save_failed` with the reason. Owned by `owner` (the
+    /// main window). "Keep LockNote open" is the default (Enter) button.
+    pub fn show(owner: Option<nwg::ControlHandle>, message: &str) -> SaveFailedAnswer {
+        let mut window = Default::default();
+        nwg::Window::builder()
+            .size((460, 190))
+            .position((300, 300))
+            .title(&t("save.error.title"))
+            .flags(nwg::WindowFlags::WINDOW | nwg::WindowFlags::VISIBLE)
+            .parent(owner)
+            .build(&mut window)
+            .expect("Failed to build SaveFailedDialog window");
+
+        super::apply_dialog_theme(&window);
+
+        let mut font = Default::default();
+        nwg::Font::builder()
+            .family("Segoe UI")
+            .size(16)
+            .build(&mut font)
+            .expect("Failed to build font");
+
+        // Several lines (the reason can be long): the shared pass wraps it.
+        let mut lbl_msg = Default::default();
+        nwg::Label::builder()
+            .text(message)
+            .parent(&window)
+            .position((20, 15))
+            .size((420, 100))
+            .font(Some(&font))
+            .build(&mut lbl_msg)
+            .expect("Failed to build message label");
+
+        let mut btn_keep = Default::default();
+        nwg::Button::builder()
+            .text(&t("close.keep_open"))
+            .parent(&window)
+            .position((110, 130))
+            .size((160, 30))
+            .font(Some(&font))
+            .build(&mut btn_keep)
+            .expect("Failed to build Keep open button");
+        super::bind_enter_to_button(window.handle, btn_keep.handle);
+
+        let mut btn_close = Default::default();
+        nwg::Button::builder()
+            .text(&t("close.close_unsaved"))
+            .parent(&window)
+            .position((280, 130))
+            .size((160, 30))
+            .font(Some(&font))
+            .build(&mut btn_close)
+            .expect("Failed to build Close without saving button");
+
+        let answer = Rc::new(RefCell::new(SaveFailedAnswer::Dismissed));
+        let answer_clone = answer.clone();
+        let handler = nwg::full_bind_event_handler(&window.handle, move |evt, _evt_data, handle| {
+            match evt {
+                nwg::Event::OnButtonClick => {
+                    if handle == btn_keep.handle {
+                        *answer_clone.borrow_mut() = SaveFailedAnswer::KeepOpen;
+                        nwg::stop_thread_dispatch();
+                    } else if handle == btn_close.handle {
+                        *answer_clone.borrow_mut() = SaveFailedAnswer::CloseWithoutSaving;
+                        nwg::stop_thread_dispatch();
+                    }
+                }
+                nwg::Event::OnWindowClose => nwg::stop_thread_dispatch(),
+                _ => {}
+            }
+        });
+
+        nwg::dispatch_thread_events();
+        nwg::unbind_event_handler(&handler);
+        let a = *answer.borrow();
+        a
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_explicit_button_closes_without_saving() {
+        assert!(closes_without_saving(SaveFailedAnswer::CloseWithoutSaving));
+        assert!(!closes_without_saving(SaveFailedAnswer::KeepOpen));
+        assert!(!closes_without_saving(SaveFailedAnswer::Dismissed));
+    }
+
+    /// The buttons carry LockNote's own words, distinct, in every language,
+    /// and the message no longer asks a Yes/No question.
+    #[test]
+    fn the_save_failed_texts_name_the_two_actions() {
+        use crate::features::i18n::{get, set_language, Language};
+        let _g = crate::features::i18n::test_support::lang_guard();
+        for lang in [Language::English, Language::French, Language::Spanish, Language::German] {
+            set_language(lang);
+            let keep = get("close.keep_open").to_string();
+            let close = get("close.close_unsaved").to_string();
+            let msg = get("close.save_failed").to_string();
+            assert!(!keep.starts_with('[') && !close.starts_with('['), "{:?}", lang);
+            assert_ne!(keep, close);
+            assert!(msg.contains("{error}") && !msg.contains('?'), "{:?}: {}", lang, msg);
+        }
+    }
 
     #[test]
     fn default_result_is_cancel() {
