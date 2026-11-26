@@ -143,21 +143,16 @@ pub struct EditorForm {
     autosave_gate: self::modal_guard::TimerGate,
     /// A lock due while dialogs were open: (since, manual), run once they
     /// are cancelled (owner decision on #30).
-    lock_pending: Cell<Option<self::modal_guard::Pending>>,
+    lock_pending: Cell<Option<self::modal_guard::LockPending>>,
     /// A close requested while dialogs were open.
     close_pending: Cell<Option<self::modal_guard::Pending>>,
     /// +1 at every lock (pass 4): a dialog result is applied only if it did
     /// not change while the dialog was open.
     lock_epoch: Cell<u64>,
-    /// on_autolock is showing the reason of its failed save: lock requests
-    /// meanwhile are ignored (they would cancel that box).
-    lock_in_progress: Cell<bool>,
     /// The curtain (lock screen without unlock field) hides the note.
     curtain: Cell<self::modal_guard::Curtain>,
     /// Reason of the failed save behind the "save failed" curtain.
-    lock_save_failed_reason: RefCell<String>,
-    /// Lock requests made during the lock's own box (pass 6).
-    lock_box_queue: self::helpers::LockBoxQueue,
+    lock_save_failed_reason: RefCell<Option<String>>,
     /// Last WM_MOUSEMOVE position (lParam) on the main window.
     last_mouse_pos: Cell<Option<isize>>,
     /// A failed save blocked the shutdown (issue #29): the reason is removed

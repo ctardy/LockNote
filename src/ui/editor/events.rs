@@ -248,12 +248,11 @@ impl EditorForm {
                             f.run_pending_requests();
                         }
                         if handle == f.autolock_timer.handle && !*f.is_locked.borrow() {
-                            // Open dialogs are cancelled, then it locks from
-                            // this loop; one that does not close gets the
-                            // curtain at LOCK_DEADLINE (owner decision on #30).
+                            // Curtain at once, dialogs answered No / Cancel,
+                            // real lock when possible (lock_flow, #30).
                             let due = !matches!(f.autolock.borrow().lock_decision(), crate::features::autolock::LockDecision::Wait);
                             if due {
-                                f.request_lock(false);
+                                f.request_lock();
                             }
                         }
                         if handle == f.autosave_timer.handle {

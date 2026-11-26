@@ -769,9 +769,9 @@ pub(super) fn curtain_waiting_text(window: &str) -> String {
 }
 
 /// Whether the window's activation gives the focus to the password field:
-/// locked, or the "save failed" curtain (pass 7), which has one.
+/// locked, or the curtain (it has one, pass 8).
 pub(super) fn focus_password_field(locked: bool, curtain: super::modal_guard::Curtain) -> bool {
-    locked || curtain == super::modal_guard::Curtain::SaveFailed
+    locked || curtain != super::modal_guard::Curtain::None
 }
 
 /// What `layout_controls` lays out.
@@ -802,68 +802,15 @@ pub(super) fn zeroize_settings_secrets(s: &mut crate::settings::Settings) {
     s.totp_2fa_secret.zeroize();
 }
 
-/// What the lock does after its save (owner decision, pass 6).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) enum FailedLockSave {
-    /// Nothing to save, or saved: lock.
-    Proceed,
-    /// Manual lock: ask "Keep open" (default) / "Lock without saving".
-    AskManual,
-    /// Automatic lock (nobody there): curtain lifted only with the password,
-    /// nothing wiped, nothing discarded.
-    HideUntilPassword,
-}
-
-pub(super) fn failed_lock_save_step(modified: bool, save_ok: bool, manual: bool) -> FailedLockSave {
-    if lock_proceeds(modified, save_ok) {
-        FailedLockSave::Proceed
-    } else if manual {
-        FailedLockSave::AskManual
-    } else {
-        FailedLockSave::HideUntilPassword
-    }
-}
-
-/// The wait after the `attempts`-th wrong password on the "save failed"
-/// curtain: the lock screen's backoff (pass 7), never an exit.
+/// The wait after the `attempts`-th wrong password on the curtain: the lock
+/// screen's backoff (pass 7), never an exit.
 pub(super) fn curtain_wrong_password_delay(attempts: u32) -> u32 {
     super::lock_overlay::unlock_backoff_seconds(attempts)
 }
 
-/// Whether the password typed on the "save failed" curtain is the one in
-/// memory (constant time; an empty one never matches).
+/// Whether the password typed on the curtain is the one in memory (constant time; an empty one never matches).
 pub(super) fn curtain_password_ok(typed: &str, password: &str) -> bool {
     !password.is_empty() && crate::ui::dialogs::confirm_password::constant_time_eq(typed.as_bytes(), password.as_bytes())
-}
-
-/// Lock requests made while the lock shows its own box (pass 6): the
-/// manual one is kept for after it, the log appears once per box.
-#[derive(Default)]
-pub(super) struct LockBoxQueue {
-    manual: Cell<bool>,
-    logged: Cell<bool>,
-}
-
-impl LockBoxQueue {
-    /// Record a request; true when it is the first one to log for this box.
-    pub(super) fn request(&self, manual: bool) -> bool {
-        if manual {
-            self.manual.set(true);
-        }
-        !self.logged.replace(true)
-    }
-
-    /// After the box: whether a manual lock was asked meanwhile (and reset).
-    pub(super) fn take_manual(&self) -> bool {
-        self.logged.set(false);
-        self.manual.replace(false)
-    }
-}
-
-/// Whether the lock goes on after its save: not when there were unsaved
-/// changes and the save failed (pass 5: the wipe lost them).
-pub(super) fn lock_proceeds(modified: bool, save_ok: bool) -> bool {
-    !modified || save_ok
 }
 
 /// Whether a save may run: never while locked or once the session ended.

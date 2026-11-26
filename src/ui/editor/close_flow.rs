@@ -49,12 +49,11 @@ impl EditorForm {
         // A modal dialog runs its own message loop: closing now would wipe
         // the password and the text, then stop that loop instead of the
         // application's, leaving an empty editor that cannot save.
-        // The note is hidden after a failed save before an automatic lock:
-        // quitting would lose the unsaved changes behind the password
-        // (owner decision, pass 6). Logoff / shutdown goes through
-        // WM_QUERYENDSESSION, which blocks it after a failed save.
-        if self.curtain.get() == super::modal_guard::Curtain::SaveFailed {
-            eprintln!("INFO close: refused, the note is hidden after a failed save (password needed)");
+        // Under the curtain only the password gives the note back; quitting
+        // could lose unsaved changes behind it (owner decision, pass 8).
+        // Logoff / shutdown goes through WM_QUERYENDSESSION (#29).
+        if self.curtain.get() != super::modal_guard::Curtain::None {
+            eprintln!("INFO close: refused under the curtain (password needed)");
             self.tell_quit_refused_under_curtain();
             return false;
         }
@@ -66,7 +65,7 @@ impl EditorForm {
             return false;
         }
 
-        // If locked, data was already saved by on_autolock — just exit.
+        // If locked, the lock saved the note before wiping it — just exit.
         // Password is zeroized, so saving now would corrupt the file.
         if *self.is_locked.borrow() {
             // Retry what the lock could not remove; the list cannot be saved
@@ -244,10 +243,19 @@ impl CloseSteps for FormCloseSteps<'_> {
         // its own message loop: a second close request meanwhile (tray menu,
         // title bar) is refused by the modal check of on_close; auto-save and
         // auto-lock wait (issue #30).
-        let answer = {
+        let epoch = self.form.lock_epoch();
+        let mut answer = {
             let _modal = self.form.modal();
             crate::ui::dialogs::close_confirm::CloseConfirmDialog::show(Some(self.form.window.handle))
         };
+        // An answer returning after a curtain went up is Cancel (pass 8).
+        if !self.form.still_valid(epoch) {
+            eprintln!("INFO close: prompt answer dropped, a lock came meanwhile");
+            answer = crate::ui::dialogs::close_confirm::CloseConfirmResult {
+                action: crate::ui::dialogs::close_confirm::CloseAction::Cancel,
+                remember: false,
+            };
+        }
         eprintln!("INFO close: prompt action={:?} remember={}", answer.action, answer.remember);
         answer
     }
@@ -277,11 +285,13 @@ impl CloseSteps for FormCloseSteps<'_> {
         // window, so it stays above it even when it is always on top.
         use crate::ui::dialogs::close_confirm::{closes_without_saving, SaveFailedDialog};
         let content = t("close.save_failed").replace("{error}", reason);
+        let epoch = self.form.lock_epoch();
         let answer = {
             let _modal = self.form.modal();
             SaveFailedDialog::show(Some(self.form.window.handle), &content)
         };
-        let close = closes_without_saving(answer);
+        // An answer returning after a curtain went up is "Keep open".
+        let close = closes_without_saving(answer) && self.form.still_valid(epoch);
         eprintln!("INFO close: save failed, close_without_saving={}", close);
         close
     }

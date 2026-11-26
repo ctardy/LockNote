@@ -121,9 +121,6 @@ struct DialogState {
     /// Fonts created by the pass; deleted with the window.
     fonts: Vec<HFONT>,
     done: bool,
-    /// One of LockNote's own decision boxes (pass 7): never cancelled nor
-    /// hidden by a pending lock or close.
-    protected: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -178,27 +175,7 @@ pub fn open_dialog_count() -> usize {
 
 /// The windows of the LockNote dialogs open on this thread.
 pub fn registered_dialogs() -> Vec<isize> {
-    STATES.with(|s| s.borrow().iter().filter(|(_, st)| !st.borrow().protected).map(|(k, _)| *k).collect())
-}
-
-/// Mark a registered dialog as one of LockNote's own decision boxes (the
-/// close prompt, the save-failed and stuck-close questions): a pending lock
-/// or close neither cancels nor hides it, and nothing is cancelled while it
-/// is shown (pass 7: the stuck-close offer cancelled itself).
-pub fn protect(window: &nwg::Window) {
-    let Some(hwnd) = hwnd_of(window.handle) else {
-        warn("protect: window has no HWND");
-        return;
-    };
-    match state_of(key(hwnd)) {
-        Some(st) => st.borrow_mut().protected = true,
-        None => warn("protect: dialog not registered (call apply_dialog_theme first)"),
-    }
-}
-
-/// Whether one of the protected decision boxes is open.
-pub fn protected_dialog_open() -> bool {
-    STATES.with(|s| s.borrow().values().any(|st| st.borrow().protected))
+    STATES.with(|s| s.borrow().keys().copied().collect())
 }
 
 /// Register a freshly built dialog and queue its styling pass.

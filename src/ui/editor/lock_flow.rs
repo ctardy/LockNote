@@ -1,175 +1,149 @@
-// The lock and close sequences, behind a trait (pass 7).
+// The lock sequence, behind a trait (pass 7), reduced to one rule (pass 8,
+// owner decision on #30):
 //
-// Passes 5-6 tested the pure step functions only; the defects were in how
-// they were chained (a committed auto lock turned manual, "Keep open" left
-// the curtain up, the stuck-close offer cancelled itself, a queued request
-// replayed under the persistence guard). The sequences now live here and
-// run against `LockSteps`: `FormLockSteps` (modal_guard.rs) on the real
-// window, a recording fake in the tests below, which drive whole sequences.
+// 1. As soon as a lock is due (auto-lock delay, Lock button, Ctrl+L) the
+//    note goes under the curtain at once; only the password lifts it.
+// 2. At that moment every open LockNote dialog gets its harmless answer
+//    (cancelled as No / Cancel), and any answer that returns after the
+//    curtain went up is treated as the harmless one (`answer_applies`).
+// 3. The real lock (wipe) runs from the main loop only when no window is
+//    open and the save succeeded (or there was nothing to save); otherwise
+//    the curtain stays, nothing is wiped or discarded, and the save is
+//    retried. Lifting the curtain with the password before that brings the
+//    note back with its changes, and the reason of a failed save.
+// 4. There is no "Lock without saving": to drop changes, lift the curtain
+//    and close without saving.
+//
+// `FormLockSteps` (modal_guard.rs) implements the steps on the window; the
+// tests below drive whole sequences with a recording fake.
 
 #[allow(unused_imports)]
 use super::*;
-use super::modal_guard::{close_step, lock_goes_on, lock_step, merged_manual, CloseStep, Curtain, LockStep};
 
-/// A lock waiting for dialogs to return.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct PendingLock {
-    /// Who asked: the Lock button / Ctrl+L (true) or the inactivity.
-    pub(super) manual: bool,
-    /// The curtain is up for it: it will lock even if the user comes back
-    /// (a mouse move cannot lift it). Not the same as `manual`.
-    pub(super) committed: bool,
-}
+/// How often the dialogs that did not close are asked again.
+pub(super) const RECANCEL_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
+/// How often a failed save under the curtain is retried.
+pub(super) const SAVE_RETRY: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// What the sequences need from the window.
+/// What the sequence needs from the window.
 pub(super) trait LockSteps {
+    /// A LockNote dialog or message box is open.
     fn modal_open(&self) -> bool;
-    /// One of LockNote's own decision boxes is shown (the lock's box, the
-    /// stuck-close offer, the close prompt, the save-failed question): never
-    /// cancelled, never hidden, and nothing is cancelled under it.
-    fn own_box_open(&self) -> bool;
-    /// Ask the other dialogs to close as No / Cancel.
+    /// Give every open dialog its harmless answer (No / Cancel) and hide
+    /// the LockNote dialogs behind the curtain.
     fn cancel_dialogs(&mut self);
     fn locked(&self) -> bool;
-    fn curtain(&self) -> Curtain;
-    fn show_curtain(&mut self, mode: Curtain);
-    /// Lift the curtain and give the full layout back.
+    fn curtain_up(&self) -> bool;
+    fn show_curtain(&mut self);
+    /// Lift the curtain: full layout, hidden dialogs shown again.
     fn hide_curtain(&mut self);
-    /// The inactivity is still there (auto lock).
-    fn still_due(&self) -> bool;
+    fn epoch(&self) -> u64;
+    /// Every answer of a dialog opened before is now stale.
+    fn bump_epoch(&mut self);
     fn modified(&self) -> bool;
     fn save(&mut self) -> Result<(), String>;
-    /// Manual lock after a failed save: true = "Lock without saving".
-    fn ask_lock_without_saving(&mut self, reason: &str) -> bool;
-    fn set_save_failed_reason(&mut self, reason: String);
-    /// The lock itself (epoch, keys, wipe, lock screen).
+    fn save_failed_reason(&self) -> Option<String>;
+    fn set_save_failed_reason(&mut self, reason: Option<String>);
+    /// The real lock: keys, wipe, lock screen (the curtain becomes it).
     fn lock_now(&mut self);
+    fn pending(&self) -> bool;
+    fn set_pending(&mut self, pending: bool);
+    /// The reason of a failed save, shown after the curtain is lifted.
+    fn inform_save_failed(&mut self, reason: &str);
     fn reset_autolock(&mut self);
-    fn pending(&self) -> Option<PendingLock>;
-    fn set_pending(&mut self, p: Option<PendingLock>);
-    /// The lock's own box is up: lock requests are queued.
-    fn in_box(&self) -> bool;
-    fn set_in_box(&mut self, v: bool);
-    /// A manual lock asked during the lock's box.
-    fn queue_manual(&mut self);
-    fn take_queued_manual(&mut self) -> bool;
 }
 
-/// A lock request (timer due, Lock button, Ctrl+L).
-pub(super) fn request<S: LockSteps>(s: &mut S, manual: bool) {
-    // The lock's own box: queued, run after it (never cancelled).
-    if s.in_box() {
-        if manual {
-            s.queue_manual();
-        }
-        return;
-    }
-    if !s.modal_open() {
-        run_lock(s, manual, false);
-        return;
-    }
-    // One pending lock; a manual request wins. Under one of LockNote's own
-    // decision boxes nothing is cancelled: the lock waits for it.
-    let mut p = s.pending().unwrap_or(PendingLock { manual, committed: false });
-    p.manual = merged_manual(p.manual, manual);
-    s.set_pending(Some(p));
-    if !s.own_box_open() {
-        s.cancel_dialogs();
-    }
-}
-
-/// A tick of a pending lock; `waited` since the request, `since_cancel`
-/// since the dialogs were last asked to close. Returns true when the
-/// dialogs were asked to close again (the caller restarts `since_cancel`).
-pub(super) fn tick<S: LockSteps>(s: &mut S, waited: std::time::Duration, since_cancel: std::time::Duration) -> bool {
-    let Some(mut p) = s.pending() else { return false };
-    match lock_step(s.modal_open(), since_cancel, waited, p.committed) {
-        LockStep::Wait => false,
-        LockStep::CancelAgain => {
-            if s.own_box_open() {
-                return false;
-            }
-            s.cancel_dialogs();
-            true
-        }
-        LockStep::ShowCurtain => {
-            // Committed (a mouse move cannot lift it), but its origin stays:
-            // an auto lock stays automatic (finding 1, pass 7).
-            p.committed = true;
-            s.set_pending(Some(p));
-            s.show_curtain(Curtain::Waiting);
-            false
-        }
-        LockStep::Run => {
-            s.set_pending(None);
-            run_lock(s, p.manual, p.committed);
-            false
-        }
-    }
-}
-
-/// The lock once no dialog is left (or at once): save, then lock, ask, or
-/// hide until the password. Runs under the persistence guard: it never
-/// replays a request itself, a queued manual lock becomes a pending one for
-/// the next tick.
-pub(super) fn run_lock<S: LockSteps>(s: &mut S, manual: bool, committed: bool) {
+/// A lock is due (auto-lock delay, Lock button, Ctrl+L): curtain at once,
+/// dialogs answered harmlessly, real lock if possible now. Never dropped,
+/// whatever box is open.
+pub(super) fn request<S: LockSteps>(s: &mut S) {
     if s.locked() {
         return;
     }
-    // A committed lock runs even if the user came back; an auto lock that
-    // is not committed is dropped then, and any curtain lifted.
-    if !lock_goes_on(manual || committed, s.still_due()) {
-        eprintln!("INFO lock: pending auto lock dropped, the user is active again");
-        if s.curtain() == Curtain::Waiting {
-            s.hide_curtain();
-        }
-        return;
+    if !s.curtain_up() {
+        s.bump_epoch();
+        eprintln!("INFO lock: due, note hidden under the curtain epoch={}", s.epoch());
+        s.show_curtain();
     }
-    let modified = s.modified();
-    let saved = if modified { s.save() } else { Ok(()) };
-    let reason = saved.as_ref().err().cloned().unwrap_or_default();
-    match failed_lock_save_step(modified, saved.is_ok(), manual) {
-        FailedLockSave::Proceed => s.lock_now(),
-        FailedLockSave::AskManual => {
-            eprintln!("WARN lock: save before a manual lock failed, asking");
-            s.set_in_box(true);
-            let lock_anyway = s.ask_lock_without_saving(&reason);
-            s.set_in_box(false);
-            // Not replayed here (under the persistence guard, finding 5): a
-            // manual lock asked during the box is pending for the next tick.
-            if s.take_queued_manual() && !lock_anyway {
-                s.set_pending(Some(PendingLock { manual: true, committed: false }));
-            }
-            if !lock_anyway {
-                eprintln!("INFO lock: kept open after the failed save");
-                // Every exit that does not lock leaves no curtain (finding 2).
-                if s.curtain() != Curtain::None {
-                    s.hide_curtain();
-                }
-                s.reset_autolock();
-                return;
-            }
-            eprintln!("WARN lock: locking without saving (user choice)");
+    s.set_pending(true);
+    if s.modal_open() {
+        s.cancel_dialogs();
+    } else {
+        try_lock(s);
+    }
+}
+
+/// What a tick of a pending lock did.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub(super) struct TickDone {
+    pub(super) cancelled: bool,
+    pub(super) tried: bool,
+}
+
+/// A tick of a pending lock (every 200 ms, from the main loop):
+/// `since_cancel` since the dialogs were last asked to close,
+/// `since_try` since the last save attempt (`None`: never tried).
+pub(super) fn tick<S: LockSteps>(s: &mut S, since_cancel: std::time::Duration, since_try: Option<std::time::Duration>) -> TickDone {
+    let mut done = TickDone::default();
+    if !s.pending() || s.locked() {
+        return done;
+    }
+    if s.modal_open() {
+        if since_cancel >= RECANCEL_EVERY {
+            s.cancel_dialogs();
+            done.cancelled = true;
+        }
+        return done;
+    }
+    if since_try.map_or(true, |t| t >= SAVE_RETRY) {
+        try_lock(s);
+        done.tried = true;
+    }
+    done
+}
+
+/// The real lock, only after a successful save (or nothing to save) and
+/// with no window open; otherwise the curtain stays and nothing is lost.
+fn try_lock<S: LockSteps>(s: &mut S) {
+    let saved = if s.modified() { s.save() } else { Ok(()) };
+    match saved {
+        Ok(()) => {
+            s.set_save_failed_reason(None);
+            s.set_pending(false);
             s.lock_now();
         }
-        FailedLockSave::HideUntilPassword => {
-            if s.curtain() != Curtain::SaveFailed {
-                eprintln!("WARN lock: save before an automatic lock failed, note hidden until the password");
+        Err(reason) => {
+            if s.save_failed_reason().is_none() {
+                eprintln!("WARN lock: save before the lock failed, note kept under the curtain, retried every {} s", SAVE_RETRY.as_secs());
             }
-            s.set_save_failed_reason(reason);
-            s.show_curtain(Curtain::SaveFailed);
+            s.set_save_failed_reason(Some(reason));
         }
     }
 }
 
-/// A tick of a pending close. `asked`: the stuck-close offer was shown.
-pub(super) fn close_tick(modal_open: bool, own_box: bool, since_cancel: std::time::Duration, waited: std::time::Duration, asked: bool, curtain: bool) -> CloseStep {
-    // Under LockNote's own box (the offer itself, the lock's box) a close
-    // neither cancels nor offers: it waits (finding 3, pass 7).
-    if own_box {
-        return if modal_open { CloseStep::Wait } else { CloseStep::Run };
+/// The password typed on the curtain was checked (`password_ok`): lift it,
+/// the note comes back with its changes; the reason of a failed save is
+/// shown then. Returns whether it was lifted.
+pub(super) fn lift<S: LockSteps>(s: &mut S, password_ok: bool) -> bool {
+    if !s.curtain_up() || s.locked() || !password_ok {
+        return false;
     }
-    close_step(modal_open, since_cancel, waited, asked, curtain)
+    eprintln!("INFO lock: curtain lifted with the password");
+    s.set_pending(false);
+    s.hide_curtain();
+    s.reset_autolock();
+    if let Some(reason) = s.save_failed_reason() {
+        s.set_save_failed_reason(None);
+        s.inform_save_failed(&reason);
+    }
+    true
+}
+
+/// Whether the answer of a dialog opened at `epoch_before` may act: no
+/// curtain went up meanwhile (it moves the epoch) and none is up, not
+/// locked. Otherwise the caller applies the harmless answer.
+pub(super) fn answer_applies(epoch_before: u64, epoch_now: u64, curtain_up: bool, locked: bool) -> bool {
+    epoch_before == epoch_now && !curtain_up && !locked
 }
 
 #[cfg(test)]
@@ -177,70 +151,66 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
-    /// The window, recorded.
+    /// The window, recorded. `dialogs` are the open LockNote dialogs, with
+    /// whether each closes when asked (a busy one does not).
     struct Fake {
-        dialog_open: bool,
-        own_box: bool,
+        dialogs: Vec<(&'static str, bool)>,
         locked: bool,
-        curtain: Curtain,
-        still_due: bool,
+        curtain: bool,
+        epoch: u64,
         modified: bool,
         save_ok: bool,
-        lock_without_saving: bool,
-        pending: Option<PendingLock>,
-        in_box: bool,
-        queued_manual: bool,
+        reason: Option<String>,
+        pending: bool,
         log: Vec<String>,
     }
 
     impl Fake {
         fn new() -> Fake {
-            Fake {
-                dialog_open: false,
-                own_box: false,
-                locked: false,
-                curtain: Curtain::None,
-                still_due: true,
-                modified: true,
-                save_ok: true,
-                lock_without_saving: false,
-                pending: None,
-                in_box: false,
-                queued_manual: false,
-                log: Vec::new(),
-            }
+            Fake { dialogs: Vec::new(), locked: false, curtain: false, epoch: 0, modified: true, save_ok: true, reason: None, pending: false, log: Vec::new() }
         }
         fn has(&self, e: &str) -> bool {
             self.log.iter().any(|l| l == e)
+        }
+        /// A dialog opened now returns `destructive` later: the caller acts
+        /// only if `answer_applies`; true when it acted destructively.
+        fn answer_returns(&mut self, epoch_at_open: u64) -> bool {
+            let acts = answer_applies(epoch_at_open, self.epoch, self.curtain, self.locked);
+            if acts {
+                self.log.push("destructive".into());
+            }
+            acts
         }
     }
 
     impl LockSteps for Fake {
         fn modal_open(&self) -> bool {
-            self.dialog_open || self.own_box || self.in_box
-        }
-        fn own_box_open(&self) -> bool {
-            self.own_box || self.in_box
+            !self.dialogs.is_empty()
         }
         fn cancel_dialogs(&mut self) {
             self.log.push("cancel".into());
+            // Harmless answers: the ones that can close, close.
+            self.dialogs.retain(|(_, busy)| *busy);
         }
         fn locked(&self) -> bool {
             self.locked
         }
-        fn curtain(&self) -> Curtain {
+        fn curtain_up(&self) -> bool {
             self.curtain
         }
-        fn show_curtain(&mut self, mode: Curtain) {
-            self.curtain = mode;
-            self.log.push(format!("curtain:{:?}", mode));
+        fn show_curtain(&mut self) {
+            self.curtain = true;
+            self.log.push("curtain".into());
         }
         fn hide_curtain(&mut self) {
-            self.curtain = Curtain::None;
-            self.log.push("hide_curtain".into());
+            self.curtain = false;
+            self.log.push("lift".into());
         }
-        fn still_due(&self) -> bool {
-            self.still_due
+        fn epoch(&self) -> u64 {
+            self.epoch
+        }
+        fn bump_epoch(&mut self) {
+            self.epoch += 1;
         }
         fn modified(&self) -> bool {
             self.modified
@@ -254,160 +224,134 @@ mod tests {
                 Err("disk full".into())
             }
         }
-        fn ask_lock_without_saving(&mut self, _reason: &str) -> bool {
-            self.log.push("ask".into());
-            assert!(self.in_box, "the question is the lock's own box");
-            self.lock_without_saving
+        fn save_failed_reason(&self) -> Option<String> {
+            self.reason.clone()
         }
-        fn set_save_failed_reason(&mut self, reason: String) {
-            self.log.push(format!("reason:{}", reason));
+        fn set_save_failed_reason(&mut self, reason: Option<String>) {
+            self.reason = reason;
         }
         fn lock_now(&mut self) {
+            assert!(self.dialogs.is_empty(), "wiped with a window open");
+            assert!(!self.modified, "wiped unsaved changes");
             self.locked = true;
-            self.curtain = Curtain::None;
-            self.log.push("lock".into());
+            self.curtain = false;
+            self.log.push("wipe".into());
         }
-        fn reset_autolock(&mut self) {
-            self.log.push("reset".into());
-        }
-        fn pending(&self) -> Option<PendingLock> {
+        fn pending(&self) -> bool {
             self.pending
         }
-        fn set_pending(&mut self, p: Option<PendingLock>) {
-            self.pending = p;
+        fn set_pending(&mut self, pending: bool) {
+            self.pending = pending;
         }
-        fn in_box(&self) -> bool {
-            self.in_box
+        fn inform_save_failed(&mut self, reason: &str) {
+            self.log.push(format!("inform:{}", reason));
         }
-        fn set_in_box(&mut self, v: bool) {
-            self.in_box = v;
-        }
-        fn queue_manual(&mut self) {
-            self.queued_manual = true;
-        }
-        fn take_queued_manual(&mut self) -> bool {
-            std::mem::replace(&mut self.queued_manual, false)
-        }
+        fn reset_autolock(&mut self) {}
     }
 
-    const MS: fn(u64) -> Duration = Duration::from_millis;
+    const S2: Duration = Duration::from_secs(2);
 
-    /// Finding 1: an AUTO lock committed under the curtain stays automatic:
-    /// its failed save hides the note until the password, it never offers
-    /// "Lock without saving" to a passer-by.
     #[test]
-    fn a_committed_auto_lock_with_a_failed_save_hides_until_the_password() {
+    fn a_due_lock_with_nothing_open_saves_then_locks() {
         let mut f = Fake::new();
-        f.dialog_open = true; // a dialog that does not close
-        f.save_ok = false;
-        request(&mut f, false);
-        assert!(f.has("cancel"));
-        tick(&mut f, LOCK_DEADLINE_FOR_TESTS, MS(200));
-        assert_eq!(f.curtain, Curtain::Waiting);
-        // The user comes back (mouse): the committed lock still runs.
-        f.still_due = false;
-        f.dialog_open = false;
-        tick(&mut f, MS(5000), MS(200));
-        assert!(!f.has("ask"), "Lock without saving offered for an auto lock: {:?}", f.log);
-        assert_eq!(f.curtain, Curtain::SaveFailed, "{:?}", f.log);
-        assert!(!f.locked);
+        request(&mut f);
+        assert_eq!(f.log, ["curtain", "save", "wipe"]);
+        assert!(f.locked && !f.curtain);
     }
 
-    /// Finding 2: Ctrl+L under a stuck dialog, failed save, "Keep open":
-    /// no curtain is left, nothing locked.
     #[test]
-    fn keep_open_after_a_failed_manual_lock_leaves_no_curtain() {
-        let mut f = Fake::new();
-        f.dialog_open = true;
-        f.save_ok = false;
-        request(&mut f, true);
-        tick(&mut f, LOCK_DEADLINE_FOR_TESTS, MS(200));
-        assert_eq!(f.curtain, Curtain::Waiting);
-        f.dialog_open = false;
-        f.lock_without_saving = false; // "Keep open"
-        tick(&mut f, MS(5000), MS(200));
-        assert!(f.has("ask"));
-        assert_eq!(f.curtain, Curtain::None, "{:?}", f.log);
-        assert!(!f.locked);
-        assert!(f.pending.is_none());
-    }
-
-    /// "Lock without saving" locks.
-    #[test]
-    fn lock_without_saving_locks() {
+    fn a_failed_save_keeps_the_curtain_and_the_changes_then_retries() {
         let mut f = Fake::new();
         f.save_ok = false;
-        f.lock_without_saving = true;
-        request(&mut f, true);
-        assert!(f.locked && f.curtain == Curtain::None, "{:?}", f.log);
-    }
-
-    /// An auto lock no longer due when it runs (user back, not committed)
-    /// is dropped; a manual one always locks.
-    #[test]
-    fn an_auto_lock_the_user_came_back_from_is_dropped() {
-        let mut f = Fake::new();
-        f.dialog_open = true;
-        request(&mut f, false);
-        f.still_due = false;
-        f.dialog_open = false;
-        tick(&mut f, MS(400), MS(200));
-        assert!(!f.locked && f.pending.is_none(), "{:?}", f.log);
-        let mut f = Fake::new();
-        f.still_due = false;
-        request(&mut f, true);
-        assert!(f.locked);
-    }
-
-    /// Finding 5: a manual lock asked during the lock's box is not replayed
-    /// inside run_lock (under the persistence guard): it becomes a pending
-    /// manual lock, run by the next tick.
-    #[test]
-    fn a_manual_lock_queued_during_the_box_runs_at_the_next_tick() {
-        let mut f = Fake::new();
-        f.save_ok = false;
-        f.lock_without_saving = false;
-        // During the question, Ctrl+L.
-        struct Hook;
-        let _ = Hook;
-        f.in_box = true;
-        request(&mut f, true);
-        assert!(f.queued_manual && !f.locked);
-        f.in_box = false;
-        // The run of a lock whose box gets the answer "Keep open".
-        run_lock(&mut f, true, false);
-        assert!(!f.locked, "replayed under the guard: {:?}", f.log);
-        assert_eq!(f.pending, Some(PendingLock { manual: true, committed: false }));
+        request(&mut f);
+        assert!(f.curtain && !f.locked && f.modified && f.pending);
+        assert_eq!(tick(&mut f, S2, Some(Duration::from_secs(1))), TickDone::default(), "not before SAVE_RETRY");
         f.save_ok = true;
-        tick(&mut f, MS(200), MS(200));
+        assert!(tick(&mut f, S2, Some(SAVE_RETRY)).tried);
         assert!(f.locked, "{:?}", f.log);
     }
 
-    /// Finding 3: while one of LockNote's own boxes is shown (the
-    /// stuck-close offer itself, the lock's box), a pending close neither
-    /// cancels nor offers again; once it is gone the close runs.
     #[test]
-    fn the_stuck_close_offer_is_not_cancelled_by_its_own_close() {
-        let w = Duration::from_secs(10);
-        assert_eq!(close_tick(true, false, MS(100), w, false, false), CloseStep::Offer);
-        // The offer is up (own box): no cancel, no second offer.
-        assert_eq!(close_tick(true, true, Duration::from_secs(3), w, true, false), CloseStep::Wait);
-        assert_eq!(close_tick(true, true, Duration::from_secs(3), w, false, false), CloseStep::Wait, "not over the lock's box");
-        assert_eq!(close_tick(true, false, Duration::from_secs(3), w, true, false), CloseStep::CancelAgain);
-        assert_eq!(close_tick(false, false, MS(100), w, true, false), CloseStep::Run);
-    }
-
-    /// No lock request cancels LockNote's own box.
-    #[test]
-    fn a_lock_request_never_cancels_an_own_box() {
+    fn the_password_lifts_the_curtain_and_shows_why_the_save_failed() {
         let mut f = Fake::new();
-        f.own_box = true; // e.g. the close prompt
-        request(&mut f, false);
-        assert!(!f.has("cancel"), "{:?}", f.log);
-        tick(&mut f, MS(400), Duration::from_secs(2));
-        assert!(!f.has("cancel"), "{:?}", f.log);
-        assert!(f.pending.is_some());
+        f.save_ok = false;
+        request(&mut f);
+        assert!(!lift(&mut f, false), "wrong password");
+        assert!(f.curtain);
+        assert!(lift(&mut f, true));
+        assert!(!f.curtain && !f.pending && f.modified, "changes kept");
+        assert!(f.has("inform:disk full"));
     }
 
-    const LOCK_DEADLINE_FOR_TESTS: Duration = super::super::modal_guard::LOCK_DEADLINE;
+    #[test]
+    fn a_window_that_does_not_close_keeps_the_curtain_until_it_does() {
+        let mut f = Fake::new();
+        f.dialogs.push(("temporary files (busy)", true));
+        request(&mut f);
+        assert!(f.curtain && f.has("cancel") && !f.locked);
+        assert!(tick(&mut f, RECANCEL_EVERY, None).cancelled, "asked again");
+        f.dialogs.clear();
+        tick(&mut f, Duration::from_millis(200), None);
+        assert!(f.locked);
+    }
+
+    /// The table of every scenario found in passes 5-7. Invariants:
+    /// (a) at the deadline the note is hidden under the password curtain;
+    /// (b) no destructive action happens without the password;
+    /// (c) nothing unsaved is discarded;
+    /// (d) the wipe happens only after a save success and with no window
+    ///     (asserted inside `Fake::lock_now`).
+    #[test]
+    fn the_single_rule_holds_for_every_known_scenario() {
+        struct Scenario {
+            name: &'static str,
+            /// Open when the lock is due: (name, busy).
+            dialogs: Vec<(&'static str, bool)>,
+            save_ok: bool,
+            /// A second request while the first is being processed.
+            second_request: bool,
+            /// The open box is answered destructively after the curtain.
+            answered_after: bool,
+        }
+        let all = vec![
+            Scenario { name: "close prompt left open", dialogs: vec![("close prompt", false)], save_ok: true, second_request: false, answered_after: true },
+            Scenario { name: "save-failed question open", dialogs: vec![("close without saving?", false)], save_ok: false, second_request: false, answered_after: true },
+            Scenario { name: "stuck-close offer open", dialogs: vec![("close without saving (stuck)", false)], save_ok: true, second_request: false, answered_after: true },
+            Scenario { name: "Ctrl+L under a stuck dialog + failed save", dialogs: vec![("temporary files (busy)", true)], save_ok: false, second_request: false, answered_after: false },
+            Scenario { name: "Ctrl+L, no dialog, failed save", dialogs: vec![], save_ok: false, second_request: false, answered_after: false },
+            Scenario { name: "auto lock during the lock's own processing", dialogs: vec![], save_ok: false, second_request: true, answered_after: false },
+            Scenario { name: "Yes over the curtain", dialogs: vec![("delete this secret?", false)], save_ok: true, second_request: false, answered_after: true },
+            Scenario { name: "About open under the curtain", dialogs: vec![("about", false)], save_ok: true, second_request: false, answered_after: false },
+        ];
+        for sc in all {
+            let mut f = Fake::new();
+            f.dialogs = sc.dialogs.clone();
+            f.save_ok = sc.save_ok;
+            let opened_at = f.epoch;
+            request(&mut f);
+            if sc.second_request {
+                request(&mut f);
+            }
+            // (a) at the deadline (at once here) the note is hidden.
+            assert!(f.curtain || f.locked, "{}: (a) note visible", sc.name);
+            // (b) an answer returning after the curtain does nothing.
+            if sc.answered_after {
+                assert!(!f.answer_returns(opened_at), "{}: (b) destructive answer over the curtain", sc.name);
+            }
+            // Time passes; busy windows end; save attempts go on.
+            for _ in 0..3 {
+                tick(&mut f, RECANCEL_EVERY, Some(SAVE_RETRY));
+            }
+            f.dialogs.clear();
+            tick(&mut f, RECANCEL_EVERY, Some(SAVE_RETRY));
+            assert!(!f.has("destructive"), "{}: (b)", sc.name);
+            // (c) nothing unsaved discarded: either saved and locked, or
+            // still under the curtain with the changes.
+            if sc.save_ok {
+                assert!(f.locked, "{}: should lock once possible: {:?}", sc.name, f.log);
+            } else {
+                assert!(f.curtain && f.modified && !f.locked, "{}: (c) {:?}", sc.name, f.log);
+            }
+        }
+    }
 }

@@ -201,7 +201,7 @@ impl EditorForm {
         }
         // Under a dialog the toolbar stays clickable: as the auto-lock, the
         // open dialogs are cancelled first (owner decision on #30).
-        self.request_lock(true);
+        self.request_lock();
     }
 
     /// Grey out every menu command while locked (pass 3): only File > Quit
@@ -362,74 +362,59 @@ impl EditorForm {
         }
     }
 
-    /// Hide the note without locking it (pass 5): the lock screen without
-    /// its unlock field, with a "locking" text. Used while dialogs that do
-    /// not close delay the lock, and while the reason of a failed save at
-    /// lock is shown.
-    pub(super) fn show_curtain(&self, mode: super::modal_guard::Curtain) {
+    /// Hide the note without wiping it (pass 8: one curtain kind): the
+    /// lock screen, whose password field lifts it. The lock epoch has moved
+    /// (lock_flow::request): an answer returning after it is harmless.
+    pub(super) fn show_curtain(&self) {
         use super::modal_guard::Curtain;
-        let before = self.curtain.replace(mode);
-        if before != Curtain::None {
-            if before != mode {
-                self.set_curtain_texts(mode);
-            }
+        if self.curtain.replace(Curtain::Up) != Curtain::None {
             return;
         }
-        eprintln!("INFO lock: curtain shown mode={:?}", mode);
-        // A question answered under the curtain must not act (pass 6).
-        self.lock_epoch.set(self.lock_epoch.get() + 1);
+        eprintln!("INFO lock: curtain shown");
         self.show_lock_overlay();
         self.set_menus_for_lock(true);
-        self.set_curtain_texts(mode);
-    }
-
-    /// The curtain's title and subtitle, and whether it has a password
-    /// field (only to lift a "save failed" curtain).
-    fn set_curtain_texts(&self, mode: super::modal_guard::Curtain) {
-        use super::modal_guard::Curtain;
-        let with_field = mode == Curtain::SaveFailed;
-        self.lock_input.set_visible(with_field);
-        self.lock_eye.set_visible(with_field);
-        self.lock_btn.set_visible(with_field);
-        self.lock_input.set_enabled(with_field);
-        self.lock_btn.set_enabled(with_field);
         self.lock_label.set_text(&t("lock.curtain.title"));
-        match mode {
-            Curtain::SaveFailed => {
-                self.lock_subtitle.set_text(&t("lock.curtain.save_failed"));
-                self.lock_btn.set_text(&t("lock.curtain.show"));
-                self.focus_lock_input();
-            }
-            _ => self.lock_subtitle.set_text(&curtain_waiting_text("")),
-        }
+        self.lock_btn.set_text(&t("lock.curtain.show"));
+        self.update_curtain_subtitle();
+        self.focus_lock_input();
     }
 
-    /// Name the window the curtain waits for (pass 6).
-    pub(super) fn set_curtain_waiting_for(&self, window: &str) {
-        if self.curtain.get() == super::modal_guard::Curtain::Waiting {
-            self.lock_subtitle.set_text(&curtain_waiting_text(window));
+    /// The curtain's subtitle: the window the lock waits for, a failed
+    /// save, or just "enter your password".
+    pub(super) fn update_curtain_subtitle(&self) {
+        if self.curtain.get() == super::modal_guard::Curtain::None {
+            return;
         }
+        let text = if self.lock_save_failed_reason.borrow().is_some() {
+            t("lock.curtain.save_failed")
+        } else if self.modal_open() {
+            curtain_waiting_text(&super::modal_guard::first_dialog_title())
+        } else {
+            t("lock.curtain")
+        };
+        self.lock_subtitle.set_text(&text);
     }
 
-    /// The password typed on the "save failed" curtain: the one in memory
-    /// lifts it (no disk read: the save just failed), then the reason of
-    /// the failed save is shown; the note comes back with its unsaved
-    /// changes (owner decision, pass 6).
-    pub(super) fn lift_save_failed_curtain(&self) {
+    /// The password typed on the curtain: the one in memory lifts it (no
+    /// disk read: the note may not be saved). Same attempt counter and
+    /// backoff as the lock screen, checked here too (pass 8), never an exit
+    /// (unsaved changes may be behind it).
+    pub(super) fn lift_curtain(&self) {
+        if self.lock_backoff_remaining.get() > 0 {
+            eprintln!("INFO lock: curtain password refused during the backoff");
+            return;
+        }
         let typed = Zeroizing::new(self.lock_input.text());
         self.lock_input.set_text("");
         let ok = curtain_password_ok(&typed, &self.password.borrow());
         if !ok {
-            // Same attempt counter and backoff as the lock screen (pass 7:
-            // the curtain was a free password oracle); no exit at the end,
-            // the unsaved changes are behind it.
             let attempts = {
                 let mut a = self.lock_attempts.borrow_mut();
                 *a += 1;
                 *a
             };
             let delay = curtain_wrong_password_delay(attempts);
-            eprintln!("INFO lock: wrong password on the save-failed curtain attempts={} delay_s={}", attempts, delay);
+            eprintln!("INFO lock: wrong password on the curtain attempts={} delay_s={}", attempts, delay);
             if delay == 0 {
                 self.lock_status_msg.set(Tone::Error, &t("unlock.wrong"));
                 self.focus_lock_input();
@@ -444,35 +429,10 @@ impl EditorForm {
             return;
         }
         *self.lock_attempts.borrow_mut() = 0;
-        eprintln!("INFO lock: save-failed curtain lifted with the password");
-        self.hide_curtain();
-        self.autolock.borrow_mut().reset();
-        let reason = std::mem::take(&mut *self.lock_save_failed_reason.borrow_mut());
-        self.lock_in_progress.set(true);
-        self.inform(&t("save.error.title"), &lock_save_failed_text(&reason));
-        self.lock_in_progress.set(false);
-        self.after_lock_box();
+        super::lock_flow::lift(&mut super::modal_guard::FormLockSteps { form: self }, true);
     }
 
-    /// After the lock's own box: run a manual lock asked meanwhile; a close
-    /// asked meanwhile runs from its pending request.
-    pub(super) fn after_lock_box(&self) {
-        // Pending, run by the next tick: never replayed from here (pass 7).
-        if self.lock_box_queue.take_manual() {
-            eprintln!("INFO lock: manual lock asked during the box, pending for the next tick");
-            self.lock_pending.set(Some(super::modal_guard::Pending::new(true)));
-        }
-    }
-
-    /// Under the "waiting" curtain, a quit that waits says so (pass 7).
-    pub(super) fn set_curtain_quit_waiting(&self, window: &str) {
-        if self.curtain.get() == super::modal_guard::Curtain::Waiting {
-            let name = if window.trim().is_empty() { "?" } else { window.trim() };
-            self.lock_subtitle.set_text(&t("lock.curtain.quit_waiting").replace("{window}", name));
-        }
-    }
-
-    /// Quit refused under the "save failed" curtain: say so on it (pass 7).
+    /// Quit refused under the curtain: say so on it.
     pub(super) fn tell_quit_refused_under_curtain(&self) {
         self.lock_status_msg.set(Tone::Error, &t("lock.curtain.quit_refused"));
         self.focus_lock_input();
@@ -580,9 +540,9 @@ impl EditorForm {
     /// increments the attempts counter, shows the error in the status label,
     /// and applies exponential backoff (same schedule as the previous popup).
     pub(super) fn on_unlock_overlay(&self) {
-        // The "save failed" curtain: the note was not locked (pass 6).
-        if self.curtain.get() == super::modal_guard::Curtain::SaveFailed {
-            self.lift_save_failed_curtain();
+        // The curtain: the note was not wiped, the password in memory lifts it.
+        if self.curtain.get() != super::modal_guard::Curtain::None {
+            self.lift_curtain();
             return;
         }
         // Ignore clicks while backoff is active (defense in depth; the button

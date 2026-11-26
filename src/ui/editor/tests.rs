@@ -824,8 +824,7 @@
         use super::modal_guard::Curtain;
         assert!(!input_blocked_by(false, Curtain::None));
         assert!(input_blocked_by(true, Curtain::None));
-        assert!(input_blocked_by(false, Curtain::Waiting));
-        assert!(input_blocked_by(false, Curtain::SaveFailed));
+        assert!(input_blocked_by(false, Curtain::Up));
         assert_eq!(layout_mode(true), LayoutMode::OverlayOnly);
         assert_eq!(layout_mode(false), LayoutMode::Full);
     }
@@ -851,17 +850,6 @@
         assert!(!ev.contains("if *f_ed.is_locked.borrow()"), "editor key handler on is_locked alone");
     }
 
-    /// Pass 6, owner decision: a failed save before a MANUAL lock asks
-    /// (keep open / lock without saving); before an AUTOMATIC lock the note
-    /// is hidden until the password is typed, nothing is discarded.
-    #[test]
-    fn a_failed_save_at_lock_asks_or_hides_until_the_password() {
-        assert_eq!(failed_lock_save_step(false, false, false), FailedLockSave::Proceed, "nothing to save");
-        assert_eq!(failed_lock_save_step(true, true, true), FailedLockSave::Proceed, "saved");
-        assert_eq!(failed_lock_save_step(true, false, true), FailedLockSave::AskManual);
-        assert_eq!(failed_lock_save_step(true, false, false), FailedLockSave::HideUntilPassword);
-    }
-
     /// Pass 6: the "save failed" curtain lifts only with the password held
     /// in memory (compared in constant time), never with an empty one.
     #[test]
@@ -872,27 +860,12 @@
         assert!(!curtain_password_ok("x", ""));
     }
 
-    /// Pass 6: a manual lock asked while the lock shows its own box is kept
-    /// for after it; the log of ignored requests appears once per box.
-    #[test]
-    fn requests_during_the_lock_box_are_queued_and_logged_once() {
-        let q = LockBoxQueue::default();
-        assert!(q.request(false), "first ignored request: logged");
-        assert!(!q.request(false), "then silent");
-        assert!(!q.request(true));
-        assert!(q.take_manual(), "the manual request runs after the box");
-        assert!(!q.take_manual());
-        assert!(q.request(false), "a new box logs again");
-    }
-
-    /// Pass 7: the activation focuses the password field of the "save
-    /// failed" curtain too; the "waiting" curtain has none.
+    /// Pass 7/8: the activation focuses the password field of the curtain.
     #[test]
     fn activation_focuses_the_curtain_password_field() {
         use super::modal_guard::Curtain;
         assert!(focus_password_field(true, Curtain::None));
-        assert!(focus_password_field(false, Curtain::SaveFailed));
-        assert!(!focus_password_field(false, Curtain::Waiting));
+        assert!(focus_password_field(false, Curtain::Up));
         assert!(!focus_password_field(false, Curtain::None));
         let ev = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor").join("events.rs")).unwrap();
         assert_eq!(ev.matches("focus_password_field(*f2.is_locked.borrow(), f2.curtain.get())").count(), 2, "WM_ACTIVATE and WM_SETFOCUS");
@@ -907,7 +880,7 @@
         assert_eq!(delays, [0, 1, 2, 4, 8, 8, 8, 8]);
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
         let lock = std::fs::read_to_string(dir.join("lock_ops.rs")).unwrap();
-        let start = lock.find("pub(super) fn lift_save_failed_curtain(").unwrap();
+        let start = lock.find("pub(super) fn lift_curtain(").unwrap();
         let body = &lock[start..start + lock[start..].find("\n    }\n").unwrap()];
         assert!(body.contains("self.lock_attempts.borrow_mut()"), "no attempt counter");
         assert!(body.contains("self.lock_backoff_timer.start()"), "no backoff");
@@ -951,8 +924,9 @@
             src[start..end].to_string()
         };
         let lock = read("lock_ops.rs");
-        // Pass 7: the save decision is taken in lock_flow::run_lock before
-        // lock_now, which is the only path to do_lock (the wipe).
+        // Pass 8: lock_flow::try_lock saves before lock_now, the only path
+        // to do_lock (the wipe); the persistence guard is taken only in the
+        // save and lock_now steps.
         let flow = read("lock_flow.rs");
         // lock_flow's functions are top-level: their body ends at a "}" in
         // column 0.
@@ -961,22 +935,28 @@
             let end = src[start..].find("\n}\n").map_or(src.len(), |e| start + e);
             src[start..end].to_string()
         };
-        let run = top(&flow, "pub(super) fn run_lock<");
-        let decision = run.find("failed_lock_save_step(").expect("run_lock decides after its save");
-        let lock_now = run.find("s.lock_now()").expect("run_lock locks");
-        assert!(decision < lock_now, "decision after the lock");
+        let try_lock = top(&flow, "fn try_lock<");
+        let save = try_lock.find("s.save()").expect("try_lock saves");
+        let lock_now = try_lock.find("s.lock_now()").expect("try_lock locks");
+        assert!(save < lock_now, "lock before the save");
+        assert!(try_lock.contains("Err(reason) =>"), "a failed save keeps the curtain");
         let do_lock = body(&lock, "pub(super) fn do_lock(");
         assert!(do_lock.contains("self.wipe_plaintext_stores()"));
-        // The ssh-agent list save failure at lock is reported, not erased.
         assert!(do_lock.contains("WARN lock: the shortened ssh-agent list was not saved"));
-        assert!(!lock.contains("fn on_autolock("), "the old path is gone");
         let guard = read("modal_guard.rs");
         assert!(body(&guard, "pub(super) fn run_pending_requests(").contains("lock_flow::tick("));
-        assert!(top(&flow, "pub(super) fn tick<").contains("lock_step("));
         assert!(body(&guard, "pub(super) fn request_lock(").contains("lock_flow::request("));
-        assert!(top(&flow, "pub(super) fn request<").contains("merged_manual("));
-        assert!(body(&guard, "pub(super) fn request_lock(").contains("lock_box_queue.request("));
-        assert!(body(&guard, "pub(super) fn run_pending_requests(").contains("lock_flow::close_tick("));
+        let req = top(&flow, "pub(super) fn request<");
+        let curtain = req.find("s.show_curtain()").expect("curtain at once");
+        assert!(req.find("s.bump_epoch()").unwrap() < curtain, "epoch moved before the curtain");
+        assert!(req.contains("s.cancel_dialogs()"));
+        // Only two acquire() of the persistence guard in the lock path: the
+        // save and lock_now steps.
+        assert_eq!(guard.matches("persistence_lock::acquire()").count(), 2, "acquire() outside save / lock_now");
+        assert!(body(&guard, "    fn save(&mut self)").contains("persistence_lock::acquire()"));
+        assert!(body(&guard, "    fn lock_now(&mut self)").contains("persistence_lock::acquire()"));
+        assert!(!flow.contains("persistence_lock::acquire()"));
+        assert!(!do_lock.contains("persistence_lock::acquire()"));
         let unlock = body(&lock, "pub(super) fn unlock_from_disk(");
         let m = unlock.find("let _modal = self.modal();").expect("unlock window under a modal guard");
         assert!(m < unlock.find("show_with_parent(").unwrap());
@@ -990,18 +970,22 @@
             assert!(b.contains("zeroize_settings_secrets(&mut current)"), "{} wipes its settings copy", fun);
             assert!(b.contains("still_valid(epoch)"), "{} re-checks the epoch", fun);
         }
-        assert!(body(&lock, "pub(super) fn on_unlock_overlay(").contains("lift_save_failed_curtain()"));
-        assert!(body(&lock, "pub(super) fn show_curtain(").contains("self.lock_epoch.set("));
-        assert!(read("close_flow.rs").contains("Curtain::SaveFailed"), "quit refused under the save-failed curtain");
+        assert!(body(&lock, "pub(super) fn on_unlock_overlay(").contains("self.lift_curtain()"));
+        let lift = body(&lock, "pub(super) fn lift_curtain(");
+        assert!(lift.find("lock_backoff_remaining.get() > 0").unwrap() < lift.find("curtain_password_ok(").unwrap(), "backoff checked in the lift itself");
+        assert!(lift.contains("lock_flow::lift("));
+        let close = read("close_flow.rs");
+        assert!(close.contains("if self.curtain.get() != super::modal_guard::Curtain::None {"), "quit refused under the curtain");
+        // Answers returning after a curtain are harmless (one shared check).
+        assert!(close.matches("self.form.still_valid(epoch)").count() >= 2, "close prompt and save-failed question");
+        assert!(body(&guard, "fn offer_close_without_saving(").contains("self.still_valid(epoch)"));
+        assert!(body(&guard, "pub(super) fn still_valid(").contains("Curtain::None"));
     }
 
-    /// Pass 5: a failed save before the lock keeps the note (no wipe of the
-    /// unsaved changes); an unmodified note or a saved one locks.
+    /// The reason of a failed save at lock, shown once the curtain is lifted
+    /// (the decision itself is tested in lock_flow).
     #[test]
-    fn a_failed_save_before_the_lock_keeps_the_note() {
-        assert!(!lock_proceeds(true, false), "unsaved changes and a failed save");
-        assert!(lock_proceeds(true, true));
-        assert!(lock_proceeds(false, false), "nothing to save");
+    fn the_failed_save_reason_text_names_the_error() {
         let _g = crate::features::i18n::test_support::lang_guard();
         let t = lock_save_failed_text("disk full");
         assert!(t.contains("disk full") && !t.contains("{error}"), "{}", t);
