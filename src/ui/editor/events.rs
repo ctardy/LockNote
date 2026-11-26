@@ -385,7 +385,13 @@ impl EditorForm {
 
                 {
                     use crate::ui::dialogs::drop_choice::{DropChoiceDialog, DropChoice};
-                    match DropChoiceDialog::show(&file_name, is_text) {
+                    let epoch = f.lock_epoch();
+                    let choice = DropChoiceDialog::show(&file_name, is_text);
+                    if !matches!(choice, DropChoice::Cancel) && !f.still_valid(epoch) {
+                        eprintln!("INFO drop: dropped, the note locked meanwhile");
+                        return;
+                    }
+                    match choice {
                         DropChoice::InsertText => {
                             insert_text_from_file(f, path);
                         }

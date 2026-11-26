@@ -745,6 +745,17 @@ pub(super) fn wipe_or_defer<T: zeroize::Zeroize>(cell: &RefCell<T>, pending: &Ce
     }
 }
 
+/// Wipe the TOTP secrets of a `Settings` (a copy given to a dialog, or the
+/// live one at lock / end of session).
+pub(super) fn zeroize_settings_secrets(s: &mut crate::settings::Settings) {
+    use zeroize::Zeroize;
+    for e in s.totp_entries.iter_mut() {
+        e.secret.zeroize();
+    }
+    s.totp_entries.clear();
+    s.totp_2fa_secret.zeroize();
+}
+
 /// Whether the lock goes on after its save: not when there were unsaved
 /// changes and the save failed (pass 5: the wipe lost them).
 pub(super) fn lock_proceeds(modified: bool, save_ok: bool) -> bool {

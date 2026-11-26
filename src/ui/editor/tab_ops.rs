@@ -183,20 +183,22 @@ impl EditorForm {
     pub(super) fn close_tab_at(&self, index: usize) {
         let active = self.tab_bar.borrow().active_index();
         // Save current editor content to the active tab before closing
-        let content = self.get_content();
+        let content = Zeroizing::new(self.get_content());
         self.tab_bar.borrow_mut().set_tab_content(active, &content);
+        drop(content);
 
         let tb = self.tab_bar.borrow();
         if tb.count() <= 1 {
             return;
         }
 
-        // Check if the tab has content — ask for confirmation
-        let tab_content = tb.get_tab_content(index);
+        // Check if the tab has content — ask for confirmation. Only whether
+        // it is empty crosses the question, not a copy of the text (pass 5).
+        let has_content = !Zeroizing::new(tb.get_tab_content(index)).trim().is_empty();
         let tab_name = tb.all_tabs().get(index).map(|t| t.name.clone()).unwrap_or_default();
         drop(tb);
 
-        if !tab_content.trim().is_empty() {
+        if has_content {
             let msg = t("tab.close.msg")
                 .replace("{name}", &tab_name);
             let confirmed = self.confirm(&nwg::MessageParams {

@@ -7,6 +7,7 @@ use super::*;
 impl EditorForm {
     /// Hide the current note content inside a carrier image.
     pub(super) fn on_stego_hide(&self) {
+        let epoch = self.lock_epoch();
         // Step 1: Choose carrier image
         let mut open_dialog = nwg::FileDialog::default();
         nwg::FileDialog::builder()
@@ -73,8 +74,13 @@ impl EditorForm {
             None => return,
         };
 
+        // Nothing is read nor written if a lock came during the dialogs.
+        if !self.still_valid(epoch) {
+            eprintln!("INFO stego: hide dropped, the note locked meanwhile");
+            return;
+        }
         // Step 4: Encrypt current tab content and embed
-        let content = self.get_content();
+        let content = Zeroizing::new(self.get_content());
         let encrypted = match crate::crypto::encrypt(
             &content,
             &password,
@@ -136,6 +142,7 @@ impl EditorForm {
 
     /// Extract hidden notes from a steganographic image.
     pub(super) fn on_stego_extract(&self) {
+        let epoch = self.lock_epoch();
         // Step 1: Choose image file
         let mut open_dialog = nwg::FileDialog::default();
         nwg::FileDialog::builder()
@@ -177,6 +184,10 @@ impl EditorForm {
             None => return,
         };
 
+        if !self.still_valid(epoch) {
+            eprintln!("INFO stego: extract dropped, the note locked meanwhile");
+            return;
+        }
         match crate::features::stego::extract(&file_data, &password) {
             Ok(plaintext) => {
                 // Open extracted notes in a new tab

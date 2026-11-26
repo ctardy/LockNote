@@ -451,6 +451,7 @@ impl EditorForm {
 
     /// Add a new TOTP entry.
     pub(super) fn on_totp_add(&self) {
+        let epoch = self.lock_epoch();
         // Use the existing TotpSetupDialog for adding
         if let Some(name) = crate::ui::dialogs::totp_manager::simple_input_dialog(
             &self.window.handle, &t("totp.add.title"), &t("totp.add.prompt"),
@@ -461,6 +462,10 @@ impl EditorForm {
                 // A secret copied with the dialog's Copy button is cleared
                 // like any other copy (pass 3).
                 self.arm_clipboard_guard(copied);
+                if added.is_some() && !self.still_valid(epoch) {
+                    eprintln!("INFO totp: add dropped, the note locked meanwhile");
+                    return;
+                }
                 if let Some(entry) = added {
                     // Add to settings
                     let settings_entry = crate::settings::TotpEntry {

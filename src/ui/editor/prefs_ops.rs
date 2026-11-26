@@ -87,11 +87,18 @@ impl EditorForm {
 
     /// Open security dialog (password, encryption, locks).
     pub(super) fn on_security(&self) {
-        let current = self.settings.borrow().clone();
+        let mut current = self.settings.borrow().clone();
         let mut copied = None;
+        let epoch = self.lock_epoch();
         let changes = crate::ui::dialogs::security_dialog::SecurityDialog::show(&current, &mut copied);
+        // The copy of the settings held TOTP secrets (pass 5).
+        zeroize_settings_secrets(&mut current);
         // The 2FA secret copied in its setup is cleared like any copy.
         self.arm_clipboard_guard(copied);
+        if changes.is_some() && !self.still_valid(epoch) {
+            eprintln!("INFO security: changes dropped, the note locked meanwhile");
+            return;
+        }
         if let Some(changes) = changes {
             let mut settings = self.settings.borrow_mut();
             settings.min_password_length = changes.min_password_length;

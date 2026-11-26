@@ -191,16 +191,9 @@ impl EditorForm {
     /// The TOTP secrets of the settings and of the panel (lock and end of
     /// session; the unlock reads them back from the file).
     pub(super) fn wipe_totp_secrets(&self) {
-        use zeroize::Zeroize;
         self.totp_panel.set_entries(Vec::new());
         match self.settings.try_borrow_mut() {
-            Ok(mut s) => {
-                for e in s.totp_entries.iter_mut() {
-                    e.secret.zeroize();
-                }
-                s.totp_entries.clear();
-                s.totp_2fa_secret.zeroize();
-            }
+            Ok(mut s) => zeroize_settings_secrets(&mut s),
             Err(_) => self.defer_wipe("settings (TOTP secrets)"),
         }
     }

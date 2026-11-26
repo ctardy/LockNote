@@ -828,6 +828,38 @@
         assert!(t.contains("disk full") && !t.contains("{error}"), "{}", t);
     }
 
+    /// Pass 5: the copy of the settings given to a dialog loses its TOTP
+    /// secrets afterwards.
+    #[test]
+    fn settings_secrets_are_wiped_from_a_copy() {
+        let mut s = crate::settings::Settings::default();
+        s.totp_2fa_secret = "JBSWY3DPEHPK3PXP".into();
+        s.totp_entries.push(crate::settings::TotpEntry { name: "x".into(), secret: "GEZDGNBVGY3TQOJQ".into() });
+        zeroize_settings_secrets(&mut s);
+        assert!(s.totp_2fa_secret.is_empty() && s.totp_entries.is_empty());
+    }
+
+    /// Pass 5: the dialogs that change the note re-check the lock epoch.
+    #[test]
+    fn note_changing_dialogs_recheck_the_lock_epoch() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
+        for (file, fun) in [
+            ("stego_ops.rs", "fn on_stego_hide"),
+            ("stego_ops.rs", "fn on_stego_extract"),
+            ("attach_ops.rs", "fn on_totp_add"),
+            ("prefs_ops.rs", "fn on_security"),
+            ("attach_ops.rs", "fn on_attach_open"),
+            ("file_ops.rs", "fn on_export"),
+        ] {
+            let src = std::fs::read_to_string(dir.join(file)).unwrap();
+            let start = src.find(fun).unwrap_or_else(|| panic!("{}", fun));
+            let body = &src[start..start + src[start..].find("\n    }\n").unwrap()];
+            assert!(body.contains("self.lock_epoch()") && body.contains("still_valid(epoch)"), "{} {}", file, fun);
+        }
+        let ev = std::fs::read_to_string(dir.join("events.rs")).unwrap();
+        assert!(ev.contains("let choice = DropChoiceDialog::show(") && ev.contains("f.still_valid(epoch)"));
+    }
+
     /// Pass 5: nothing is saved while locked (the stores are wiped, a
     /// deferred password wipe could leave a password to save them with).
     #[test]
