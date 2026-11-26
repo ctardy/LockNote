@@ -192,22 +192,20 @@ impl EditorForm {
             Ok(plaintext) => {
                 // Open extracted notes in a new tab
                 {
-                    let mut tb = self.tab_bar.borrow_mut();
+                    let tb = self.tab_bar.borrow();
                     if tb.count() < crate::ui::tab_bar::MAX_TABS {
-                        // Save current tab content
-                        let active = tb.active_index();
-                        let content = self.get_content();
-                        tb.set_tab_content(active, &content);
+                        drop(tb);
                         // Derive tab name from image filename
                         let tab_name = image_path.file_stem()
                             .and_then(|s| s.to_str())
                             .unwrap_or("Extracted")
                             .to_string();
-                        let idx = tb.add_tab(&tab_name);
-                        tb.set_tab_content(idx, &plaintext);
-                        tb.set_active(idx);
-                        drop(tb);
-                        self.editor.set_text(&plaintext);
+                        // Save current tab content, switch to the new tab
+                        super::tab_ops::switch_editor_tab(&self.editor, &self.tab_bar, |tb| {
+                            let idx = tb.add_tab(&tab_name);
+                            tb.set_tab_content(idx, &plaintext);
+                            tb.set_active(idx);
+                        });
                         self.mark_modified();
                         self.update_title();
                         self.update_status_bar();

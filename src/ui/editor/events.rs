@@ -549,13 +549,7 @@ impl EditorForm {
                             f2.tab_drag_over.set(None);
                         }
                         if f2.tab_drag.get().is_some() && idx != active_idx {
-                            let content = f2.get_content();
-                            let tb = f2.tab_bar.borrow_mut();
-                            tb.set_tab_content(active_idx, &content);
-                            tb.set_active(idx);
-                            let new_content = tb.get_tab_content(idx);
-                            drop(tb);
-                            f2.editor.set_text(&new_content);
+                            super::tab_ops::switch_editor_tab(&f2.editor, &f2.tab_bar, |tb| tb.set_active(idx));
                             *f2.detected_encoding.borrow_mut() = "UTF-8".to_string();
                             f2.update_title();
                             f2.update_status_bar();
