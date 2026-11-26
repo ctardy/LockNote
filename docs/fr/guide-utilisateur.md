@@ -791,9 +791,14 @@ d'habitude ; si une fenêtre n'est toujours pas fermée au bout de
   passe et cliquiez sur **Afficher les notes** ; elles reviennent alors avec
   leurs modifications non enregistrées et LockNote indique pourquoi
   l'enregistrement a échoué. Personne ne peut les afficher sans le mot de
-  passe, et LockNote ne peut pas être fermé entre-temps. LockNote réessaie
-  d'enregistrer à chaque vérification du verrouillage auto ; s'il y
-  parvient, il se verrouille normalement. Pendant le verrouillage, les menus n'offrent que
+  passe (les mots de passe erronés sont ralentis comme sur l'écran de
+  verrouillage), et LockNote ne peut pas être fermé entre-temps : Quitter le
+  signale sur cet écran. LockNote réessaie d'enregistrer à chaque
+  vérification du verrouillage auto ; s'il y parvient, il se verrouille
+  normalement. Un arrêt forcé de Windows (confirmé malgré l'avertissement
+  de LockNote) perd ces modifications non enregistrées.
+
+Pendant le verrouillage, les menus n'offrent que
 Fichier > Quitter et Aide > À propos.
 
 ### Sauvegarde auto

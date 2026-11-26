@@ -33,7 +33,9 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   is lost, the notes are not; an open question is answered No) and locks
   once they are all closed; a window that cannot close at once gets the
   notes hidden after 2 seconds. The Lock button and Quit do the same, and
-  while locked the menus only allow Quit and About (#30).
+  while locked the menus only allow Quit and About. A Quit still waiting
+  for a window after 10 seconds names it and offers "Keep waiting" or
+  "Close without saving" (#30).
 - **A save that fails just before a lock no longer loses the unsaved
   changes**: after Lock, LockNote asks "Keep open" or "Lock without
   saving"; for the auto-lock, the notes stay hidden until the password is

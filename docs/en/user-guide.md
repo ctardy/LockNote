@@ -726,9 +726,14 @@ waiting** or **Close without saving**.
 - for the **auto-lock** (nobody is there), your notes are hidden ("Notes
   hidden") until you type your password and click **Show notes**; then
   they come back with their unsaved changes and LockNote says why the
-  save failed. Nobody can show them without the password, and LockNote
-  cannot be closed meanwhile. LockNote tries to save again at each
-  auto-lock check; when it succeeds, it locks normally. While LockNote is locked, the menus
+  save failed. Nobody can show them without the password (wrong passwords
+  are slowed down as on the lock screen), and LockNote cannot be closed
+  meanwhile: Quit says so on that screen. LockNote tries to save again at
+  each auto-lock check; when it succeeds, it locks normally. A forced
+  Windows shutdown (one you confirm despite LockNote's warning) loses those
+  unsaved changes.
+
+While LockNote is locked, the menus
 only offer File > Quit and Help > About.
 
 ### Auto-save
