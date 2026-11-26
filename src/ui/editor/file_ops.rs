@@ -53,6 +53,11 @@ impl EditorForm {
     /// `unload_agent_keys`). The failure is logged here, in English, before
     /// the translated text is built.
     pub(super) fn save_note(&self) -> Result<(), SaveFailure> {
+        // The Windows session ended: the stores are wiped, nothing is saved.
+        if super::end_session::exit_refuses_save(self.exiting.get()).is_err() {
+            eprintln!("INFO save: refused reason=exiting");
+            return Err(SaveFailure::Refused("exiting".to_string()));
+        }
         // Fail fast before touching the payload.
         let precondition = save_precondition(&self.password.borrow());
         if let Err(msg) = precondition {
@@ -125,6 +130,8 @@ impl EditorForm {
         match crate::storage::write_data(&self.exe_path, &encrypted) {
             Ok(()) => {
                 self.mark_clean();
+                // A shutdown blocked by an earlier failed save may go on now.
+                self.clear_shutdown_block();
                 Ok(())
             }
             Err(e) => {

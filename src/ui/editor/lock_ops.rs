@@ -102,6 +102,19 @@ impl EditorForm {
         // modification, and the save above may have failed), so unlock
         // prefers this in-memory state.
         self.locked_session_state.set(Some(self.capture_session_state()));
+        self.wipe_plaintext_stores();
+
+        // Mark clean so auto-save won't fire with an empty password
+        self.mark_clean();
+
+        // Show lock overlay — unlock popup will appear on focus (WM_ACTIVATE) or click
+        *self.is_locked.borrow_mut() = true;
+        self.show_lock_overlay();
+    }
+
+    /// The editor text, the password and every other plaintext store: used
+    /// by the lock and by the end of the Windows session.
+    pub(super) fn wipe_plaintext_stores(&self) {
         // Clear sensitive data from editor
         self.editor.set_text("");
         self.wipe_password();
@@ -131,13 +144,6 @@ impl EditorForm {
         }
         // Prompts: same as the vault (issue 058).
         self.clear_prompts_for_lock();
-
-        // Mark clean so auto-save won't fire with an empty password
-        self.mark_clean();
-
-        // Show lock overlay — unlock popup will appear on focus (WM_ACTIVATE) or click
-        *self.is_locked.borrow_mut() = true;
-        self.show_lock_overlay();
     }
 
     /// Manual lock (Ctrl+L or toolbar button). Reuses the auto-lock sequence;

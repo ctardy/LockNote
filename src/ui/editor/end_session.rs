@@ -43,6 +43,24 @@ pub(super) trait EndSessionSteps {
     fn wipe(&mut self);
     /// `ui::finish_exit_once`: promote the pending save, release the lock.
     fn finish_exit(&mut self);
+    /// From now on every save and every UI command is refused.
+    fn mark_exiting(&mut self);
+    /// Stop the message loop: nothing is left to run.
+    fn stop_loop(&mut self);
+    /// ShutdownBlockReasonDestroy, when a reason was set.
+    fn destroy_block(&mut self);
+}
+
+/// WM_ENDSESSION: `ending` is its wParam, `blocked` whether a reason is set.
+pub(super) fn end_session_message(ending: bool, blocked: bool, steps: &mut impl EndSessionSteps) {
+    if blocked {
+        steps.destroy_block();
+    }
+    if ending {
+        end_session(steps);
+    } else {
+        eprintln!("INFO endsession: cancelled, LockNote goes on");
+    }
 }
 
 /// WM_QUERYENDSESSION: true lets the session end.
@@ -73,9 +91,22 @@ pub(super) fn query_end_session(
 /// WM_ENDSESSION with wParam TRUE: the exit of a normal close.
 pub(super) fn end_session(steps: &mut impl EndSessionSteps) {
     eprintln!("INFO endsession: exiting");
+    // First, so nothing below (the ssh-agent list save included) and no
+    // message dispatched later can save or act.
+    steps.mark_exiting();
     steps.unload_agent_keys();
     steps.wipe();
     steps.finish_exit();
+    steps.stop_loop();
+}
+
+/// A save asked once the session ended is refused.
+pub(super) fn exit_refuses_save(exiting: bool) -> Result<(), ()> {
+    if exiting {
+        Err(())
+    } else {
+        Ok(())
+    }
 }
 
 /// `EndSessionSteps` on the real window.
@@ -111,13 +142,29 @@ impl EndSessionSteps for FormEndSessionSteps<'_> {
     }
 
     fn wipe(&mut self) {
-        self.form.wipe_password();
-        self.form.editor.set_text("");
+        // Every plaintext store, as the lock, plus the TOTP secrets.
+        self.form.wipe_plaintext_stores();
+        self.form.wipe_totp_secrets();
     }
 
     fn finish_exit(&mut self) {
         // Nothing may be shown now: no restart message.
         let _already_done = crate::ui::finish_exit_once(&self.form.exe_path, |_queued| {});
+    }
+
+    fn mark_exiting(&mut self) {
+        self.form.exiting.set(true);
+        // Locked too: shortcuts, menus (except Quit / About), the timers and
+        // the dialogs all refuse to act on a locked note.
+        *self.form.is_locked.borrow_mut() = true;
+    }
+
+    fn stop_loop(&mut self) {
+        nwg::stop_thread_dispatch();
+    }
+
+    fn destroy_block(&mut self) {
+        self.form.clear_shutdown_block();
     }
 }
 
@@ -135,22 +182,42 @@ impl EditorForm {
 
     /// WM_ENDSESSION: `ending` is its wParam.
     pub(super) fn on_end_session(&self, ending: bool) {
-        if self.shutdown_blocked.replace(false) {
-            if let Some(hwnd) = self.window.handle.hwnd() {
-                unsafe {
-                    if let Err(e) = windows::Win32::System::Shutdown::ShutdownBlockReasonDestroy(
-                        windows::Win32::Foundation::HWND(hwnd as *mut _),
-                    ) {
-                        eprintln!("WARN endsession: ShutdownBlockReasonDestroy failed err={:?}", e);
-                    }
+        let blocked = self.shutdown_blocked.get();
+        end_session_message(ending, blocked, &mut FormEndSessionSteps { form: self });
+    }
+
+    /// The TOTP secrets of the settings and of the panel (end of session).
+    pub(super) fn wipe_totp_secrets(&self) {
+        use zeroize::Zeroize;
+        self.totp_panel.set_entries(Vec::new());
+        match self.settings.try_borrow_mut() {
+            Ok(mut s) => {
+                for e in s.totp_entries.iter_mut() {
+                    e.secret.zeroize();
+                }
+                s.totp_entries.clear();
+                s.totp_2fa_secret.zeroize();
+            }
+            Err(_) => eprintln!("WARN endsession: settings borrowed, TOTP secrets not wiped"),
+        }
+    }
+
+    /// Remove the shutdown block reason, if one is set: at WM_ENDSESSION, or
+    /// after a later save succeeded (the reason no longer holds).
+    pub(super) fn clear_shutdown_block(&self) {
+        if !self.shutdown_blocked.replace(false) {
+            return;
+        }
+        if let Some(hwnd) = self.window.handle.hwnd() {
+            unsafe {
+                if let Err(e) = windows::Win32::System::Shutdown::ShutdownBlockReasonDestroy(
+                    windows::Win32::Foundation::HWND(hwnd as *mut _),
+                ) {
+                    eprintln!("WARN endsession: ShutdownBlockReasonDestroy failed err={:?}", e);
                 }
             }
         }
-        if ending {
-            end_session(&mut FormEndSessionSteps { form: self });
-        } else {
-            eprintln!("INFO endsession: cancelled, LockNote goes on");
-        }
+        eprintln!("INFO endsession: shutdown block reason removed");
     }
 }
 
@@ -187,6 +254,40 @@ mod tests {
         fn finish_exit(&mut self) {
             self.log.push("finish_exit".into());
         }
+        fn mark_exiting(&mut self) {
+            self.log.push("exiting".into());
+        }
+        fn stop_loop(&mut self) {
+            self.log.push("stop".into());
+        }
+        fn destroy_block(&mut self) {
+            self.log.push("destroy_block".into());
+        }
+    }
+
+    /// Pass 3, M3: after the end of the session nothing stays readable or
+    /// usable: everything wiped, saves and commands refused, loop stopped.
+    #[test]
+    fn the_end_of_the_session_wipes_refuses_and_stops() {
+        let mut f = Fake::new(Ok(()));
+        end_session_message(true, false, &mut f);
+        assert_eq!(f.log, ["exiting", "unload", "wipe", "finish_exit", "stop"]);
+    }
+
+    #[test]
+    fn a_cancelled_shutdown_keeps_everything_and_drops_the_block() {
+        let mut f = Fake::new(Ok(()));
+        end_session_message(false, true, &mut f);
+        assert_eq!(f.log, ["destroy_block"]);
+        let mut f = Fake::new(Ok(()));
+        end_session_message(false, false, &mut f);
+        assert!(f.log.is_empty());
+    }
+
+    #[test]
+    fn nothing_is_saved_once_exiting() {
+        assert_eq!(exit_refuses_save(true), Err(()));
+        assert_eq!(exit_refuses_save(false), Ok(()));
     }
 
     #[test]
@@ -230,7 +331,7 @@ mod tests {
         let mut f = Fake::new(Ok(()));
         end_session(&mut f);
         // Same order as on_close + ui::run: agent keys, wipe, promote.
-        assert_eq!(f.log, ["unload", "wipe", "finish_exit"]);
+        assert_eq!(f.log, ["exiting", "unload", "wipe", "finish_exit", "stop"]);
     }
 
     #[test]

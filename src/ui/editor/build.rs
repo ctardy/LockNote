@@ -1421,6 +1421,7 @@ impl EditorForm {
             close_pending: Cell::new(None),
             shutdown_blocked: Cell::new(false),
             wipe_pending: Cell::new(false),
+            exiting: Cell::new(false),
             // Tray
             tray_icon,
             tray_menu,

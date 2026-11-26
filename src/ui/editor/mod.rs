@@ -152,6 +152,9 @@ pub struct EditorForm {
     /// A password wipe found the password borrowed (pass 3): retried on the
     /// next highlight tick.
     wipe_pending: Cell<bool>,
+    /// The Windows session ended (issue #29, pass 3): every save and every
+    /// command is refused, the loop is stopping.
+    exiting: Cell<bool>,
 
     // ── Tray icon ──
     tray_icon: nwg::TrayNotification,
