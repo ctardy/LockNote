@@ -786,6 +786,21 @@
         assert_eq!(fr_zero, "0 mot");
     }
 
+    /// Pass 2: the settings read back at unlock (or from a backup) may differ
+    /// from the menu: the check marks follow them.
+    #[test]
+    fn view_menu_checks_follow_the_settings() {
+        let mut s = crate::settings::Settings::default();
+        s.word_wrap = false;
+        s.show_line_numbers = false;
+        assert_eq!(view_menu_checks(&s), (false, false));
+        s.word_wrap = true;
+        assert_eq!(view_menu_checks(&s), (true, false));
+        s.show_line_numbers = true;
+        s.word_wrap = false;
+        assert_eq!(view_menu_checks(&s), (false, true));
+    }
+
     #[test]
     fn singular_rule_per_language() {
         use crate::features::i18n::Language::*;

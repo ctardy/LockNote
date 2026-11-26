@@ -54,6 +54,16 @@ impl EditorForm {
         self.layout_controls();
     }
 
+    /// Put the View check marks and the word wrap back in line with the
+    /// settings, after they were replaced (unlock, backup import); the
+    /// gutter follows at the next `layout_controls`.
+    pub(super) fn sync_view_menu(&self) {
+        let (wrap, numbers) = view_menu_checks(&self.settings.borrow());
+        self.menu_view_word_wrap.set_checked(wrap);
+        self.menu_view_line_numbers.set_checked(numbers);
+        self.apply_word_wrap(wrap);
+    }
+
     /// Apply word wrap setting to the editor control.
     pub(super) fn apply_word_wrap(&self, wrap: bool) {
         // EM_SETTARGETDEVICE: wParam=0 (HDC), lParam=0 wraps to window, lParam=1 disables wrap

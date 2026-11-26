@@ -535,6 +535,8 @@ impl EditorForm {
         self.hide_lock_overlay();
         self.update_title();
         self.update_status_bar();
+        // The settings were read back from the file: the menu follows them.
+        self.sync_view_menu();
         self.layout_controls();
         self.paint_tab_bar();
 

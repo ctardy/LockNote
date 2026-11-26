@@ -725,6 +725,12 @@ pub(super) fn tab_color_label(name: &str) -> String {
     crate::features::i18n::get(&format!("color.{}", name)).to_string()
 }
 
+/// The check marks of View > Word Wrap and View > Line Numbers for these
+/// settings, as (word wrap, line numbers).
+pub(super) fn view_menu_checks(settings: &crate::settings::Settings) -> (bool, bool) {
+    (settings.word_wrap, settings.show_line_numbers)
+}
+
 /// Whether `n` takes the singular in `lang`: French uses it for 0 and 1
 /// ("0 mot"), English, Spanish and German for 1 only.
 pub(super) fn is_singular(lang: crate::features::i18n::Language, n: usize) -> bool {
