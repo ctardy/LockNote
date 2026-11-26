@@ -653,7 +653,7 @@
 
     #[test]
     fn status_layout_flows_left_items_from_the_margin() {
-        let l = status_layout(1000, &[60, 80, 40], 50, 70, None, None);
+        let l = status_layout(1000, &[60, 80, 40], 50, 70, None, None, None);
         assert_eq!(l.left, vec![12, 12 + 60 + 20, 12 + 60 + 20 + 80 + 20]);
         assert_eq!(l.info_x, None);
         assert_eq!(l.path, None);
@@ -661,7 +661,7 @@
 
     #[test]
     fn status_layout_right_group_is_ordered_and_ends_at_the_right_margin() {
-        let l = status_layout(1000, &[60], 50, 70, Some(45), None);
+        let l = status_layout(1000, &[60], 50, 70, Some(45), None, None);
         let info_x = l.info_x.expect("info present");
         // Right to left: info, Encrypted (text then padlock), Saved (text then dot).
         assert_eq!(info_x + 45, 1000 - 12);
@@ -673,7 +673,7 @@
 
     #[test]
     fn status_layout_without_info_ends_with_the_encrypted_text() {
-        let l = status_layout(800, &[], 50, 70, None, None);
+        let l = status_layout(800, &[], 50, 70, None, None, None);
         assert_eq!(l.encrypted_text_x + 70, 800 - 12);
     }
 
@@ -682,7 +682,7 @@
 
     #[test]
     fn status_path_starts_after_the_counters_and_keeps_its_width_when_it_fits() {
-        let l = status_layout(1200, &[60, 80, 40], 50, 70, Some(45), Some(300));
+        let l = status_layout(1200, &[60, 80, 40], 50, 70, Some(45), Some(300), None);
         let p = l.path.expect("room enough");
         assert_eq!(p.x, 12 + 60 + 20 + 80 + 20 + 40 + 20);
         assert_eq!(p.w, 300);
@@ -691,13 +691,13 @@
 
     #[test]
     fn status_path_without_counters_starts_at_the_margin() {
-        let l = status_layout(1200, &[], 50, 70, None, Some(100));
+        let l = status_layout(1200, &[], 50, 70, None, Some(100), None);
         assert_eq!(l.path, Some(PathSlot { x: 12, w: 100 }));
     }
 
     #[test]
     fn status_path_is_narrowed_to_the_room_left() {
-        let l = status_layout(700, &[60, 80, 40], 50, 70, Some(45), Some(2000));
+        let l = status_layout(700, &[60, 80, 40], 50, 70, Some(45), Some(2000), None);
         let p = l.path.expect("some room");
         assert_eq!(p.x + p.w + 20, l.dot_x, "ends one gap before the save dot");
         assert!(p.w >= STATUS_PATH_MIN_WIDTH && p.w < 2000);
@@ -706,14 +706,14 @@
     #[test]
     fn status_path_is_hidden_below_the_minimum_width() {
         // Room for the path = dot_x - 20 - start; find widths around 60 px.
-        let base = status_layout(1000, &[60], 50, 70, None, None);
+        let base = status_layout(1000, &[60], 50, 70, None, None, None);
         let start = 12 + 60 + 20;
         let room = base.dot_x - 20 - start;
         let narrower = 1000 - (room - (STATUS_PATH_MIN_WIDTH - 1));
-        assert_eq!(status_layout(narrower, &[60], 50, 70, None, Some(500)).path, None);
+        assert_eq!(status_layout(narrower, &[60], 50, 70, None, Some(500), None).path, None);
         let just_enough = 1000 - (room - STATUS_PATH_MIN_WIDTH);
         assert_eq!(
-            status_layout(just_enough, &[60], 50, 70, None, Some(500)).path,
+            status_layout(just_enough, &[60], 50, 70, None, Some(500), None).path,
             Some(PathSlot { x: start, w: STATUS_PATH_MIN_WIDTH })
         );
     }
@@ -721,10 +721,204 @@
     #[test]
     fn status_path_moves_nothing_else() {
         for w in [300, 700, 1200] {
-            let without = status_layout(w, &[60, 80, 40], 50, 70, Some(45), None);
-            let with = status_layout(w, &[60, 80, 40], 50, 70, Some(45), Some(400));
+            let without = status_layout(w, &[60, 80, 40], 50, 70, Some(45), None, None);
+            let with = status_layout(w, &[60, 80, 40], 50, 70, Some(45), Some(400), None);
             assert_eq!(StatusLayout { path: None, ..with }, without, "width {}", w);
         }
+    }
+
+    // Feature A1: the caret position, between the path and the save dot.
+
+    #[test]
+    fn status_caret_ends_one_gap_before_the_save_dot() {
+        let l = status_layout(1200, &[60, 80, 40], 50, 70, Some(45), Some(300), Some(90));
+        let cx = l.caret_x.expect("room enough");
+        assert_eq!(cx + 90 + 20, l.dot_x);
+        let p = l.path.expect("room enough");
+        assert!(p.x + p.w + 20 <= cx, "the path ends before the caret position");
+    }
+
+    #[test]
+    fn status_path_is_narrowed_to_the_room_before_the_caret() {
+        let l = status_layout(700, &[60, 80, 40], 50, 70, Some(45), Some(2000), Some(90));
+        let cx = l.caret_x.expect("room for the caret");
+        let p = l.path.expect("some room");
+        assert_eq!(p.x + p.w + 20, cx, "ends one gap before the caret position");
+    }
+
+    #[test]
+    fn status_caret_is_hidden_when_it_does_not_fit_after_the_counters() {
+        let base = status_layout(1000, &[60], 50, 70, None, None, None);
+        let start = 12 + 60 + 20;
+        // Exactly fits: caret_x == start.
+        let fits = 1000 - (base.dot_x - 20 - 90 - start);
+        assert_eq!(status_layout(fits, &[60], 50, 70, None, None, Some(90)).caret_x, Some(start));
+        assert_eq!(status_layout(fits - 1, &[60], 50, 70, None, None, Some(90)).caret_x, None);
+        // Hidden caret: the path gets the room up to the save dot again.
+        assert_eq!(
+            status_layout(fits - 1, &[60], 50, 70, None, Some(5000), Some(90)).path,
+            status_layout(fits - 1, &[60], 50, 70, None, Some(5000), None).path
+        );
+    }
+
+    #[test]
+    fn status_caret_moves_nothing_on_the_right() {
+        for w in [200, 500, 900, 1400] {
+            let without = status_layout(w, &[60, 80, 40], 50, 70, Some(45), Some(400), None);
+            let with = status_layout(w, &[60, 80, 40], 50, 70, Some(45), Some(400), Some(120));
+            assert_eq!(StatusLayout { path: None, caret_x: None, ..with }, StatusLayout { path: None, ..without }, "width {}", w);
+        }
+    }
+
+    #[test]
+    fn status_items_never_overlap_at_any_width() {
+        let counters = [60, 80, 40];
+        let counters_end = 12 + 60 + 20 + 80 + 20 + 40;
+        for w in (0..1600).step_by(7) {
+            let l = status_layout(w, &counters, 50, 70, Some(45), Some(400), Some(150));
+            if let Some(cx) = l.caret_x {
+                assert!(cx >= counters_end + 20, "width {w}: caret over the counters");
+                assert!(cx + 150 + 20 <= l.dot_x, "width {w}: caret over the save dot");
+                if let Some(p) = l.path {
+                    assert!(p.x + p.w + 20 <= cx, "width {w}: path over the caret");
+                }
+            }
+            if let Some(p) = l.path {
+                assert!(p.x >= counters_end, "width {w}: path over the counters");
+                assert!(p.x + p.w + 20 <= l.dot_x, "width {w}: path over the save dot");
+            }
+        }
+    }
+
+    // ── caret_status (feature A1) ──
+
+    #[test]
+    fn caret_status_on_an_empty_text_is_line_1_col_1() {
+        assert_eq!(caret_status("", 0, 0, 0), CaretStatus { line: 1, col: 1, selected: 0 });
+    }
+
+    #[test]
+    fn caret_status_counts_lines_and_columns_from_1() {
+        // RichEdit offsets: "\r\n" is one unit. "ab\r\ncde": c = 3, e = 5.
+        let text = "ab\r\ncde";
+        assert_eq!(caret_status(text, 0, 0, 0), CaretStatus { line: 1, col: 1, selected: 0 });
+        assert_eq!(caret_status(text, 2, 2, 2), CaretStatus { line: 1, col: 3, selected: 0 });
+        assert_eq!(caret_status(text, 3, 3, 3), CaretStatus { line: 2, col: 1, selected: 0 });
+        assert_eq!(caret_status(text, 6, 6, 6), CaretStatus { line: 2, col: 4, selected: 0 });
+    }
+
+    #[test]
+    fn caret_status_counts_a_tab_and_a_surrogate_pair_as_one_column() {
+        // "\t" 1 unit, "😀" 2 units (one character), "é" 1 unit.
+        let text = "\t\u{1F600}é";
+        assert_eq!(caret_status(text, 1, 1, 1).col, 2);
+        assert_eq!(caret_status(text, 3, 3, 3).col, 3);
+        assert_eq!(caret_status(text, 4, 4, 4).col, 4);
+    }
+
+    #[test]
+    fn caret_status_counts_selected_characters_with_one_per_line_break() {
+        let text = "ab\r\n\u{1F600}d";
+        // "b\r\n😀" = 3 characters (b, line break, emoji): units 1..5.
+        assert_eq!(caret_status(text, 1, 5, 5), CaretStatus { line: 2, col: 2, selected: 3 });
+        // The caret on the start of the selection (made backwards).
+        assert_eq!(caret_status(text, 1, 5, 1), CaretStatus { line: 1, col: 2, selected: 3 });
+        // Select all.
+        assert_eq!(caret_status(text, 0, 6, 6).selected, 5);
+    }
+
+    #[test]
+    fn caret_status_past_the_end_stays_on_the_last_character() {
+        // Offsets the text does not have (text read after a change): no
+        // panic, the end of the text.
+        let text = "ab\r\ncd";
+        assert_eq!(caret_status(text, 50, 90, 90), CaretStatus { line: 2, col: 3, selected: 0 });
+    }
+
+    #[test]
+    fn caret_status_text_shows_the_selection_only_when_not_empty() {
+        let _g = crate::features::i18n::test_support::lang_guard();
+        crate::features::i18n::set_language(crate::features::i18n::Language::English);
+        assert_eq!(caret_status_text(CaretStatus { line: 3, col: 5, selected: 0 }), "Ln 3, Col 5");
+        assert_eq!(caret_status_text(CaretStatus { line: 3, col: 5, selected: 1 }), "Ln 3, Col 5 (1 selected)");
+        assert_eq!(caret_status_text(CaretStatus { line: 3, col: 5, selected: 12 }), "Ln 3, Col 5 (12 selected)");
+        crate::features::i18n::set_language(crate::features::i18n::Language::French);
+        let fr = caret_status_text(CaretStatus { line: 2, col: 7, selected: 2 });
+        crate::features::i18n::set_language(crate::features::i18n::Language::English);
+        assert_eq!(fr, "Ligne 2, col. 7 (2 s\u{e9}lectionn\u{e9}s)");
+    }
+
+    // ── refresh_caret_status: sequence (feature A1) ──
+
+    #[derive(Default)]
+    struct FakeCaretWindow {
+        text: String,
+        sel: (usize, usize, usize),
+        shown: String,
+        log: Vec<String>,
+    }
+
+    impl CaretStatusSteps for FakeCaretWindow {
+        fn selection(&self) -> (usize, usize, usize) {
+            self.sel
+        }
+        fn text(&self) -> String {
+            self.text.clone()
+        }
+        fn shown(&self) -> String {
+            self.shown.clone()
+        }
+        fn show(&mut self, text: &str) {
+            self.shown = text.to_string();
+            self.log.push(format!("show {text}"));
+        }
+    }
+
+    #[test]
+    fn caret_status_follows_typing_moves_and_selections_and_repaints_only_on_change() {
+        let _g = crate::features::i18n::test_support::lang_guard();
+        crate::features::i18n::set_language(crate::features::i18n::Language::English);
+        let mut w = FakeCaretWindow::default();
+        // Start: empty note.
+        assert!(refresh_caret_status(&mut w));
+        // Timer ticks with nothing new: no repaint.
+        assert!(!refresh_caret_status(&mut w));
+        assert!(!refresh_caret_status(&mut w));
+        // Typing "ab", Enter, "c".
+        w.text = "ab\r\nc".into();
+        w.sel = (4, 4, 4);
+        assert!(refresh_caret_status(&mut w));
+        // Caret moved to the start (Ctrl+Home).
+        w.sel = (0, 0, 0);
+        assert!(refresh_caret_status(&mut w));
+        // Shift+End: selection of 2.
+        w.sel = (0, 2, 2);
+        assert!(refresh_caret_status(&mut w));
+        assert!(!refresh_caret_status(&mut w));
+        // Click elsewhere: the selection goes.
+        w.sel = (3, 3, 3);
+        assert!(refresh_caret_status(&mut w));
+        assert_eq!(
+            w.log,
+            [
+                "show Ln 1, Col 1",
+                "show Ln 2, Col 2",
+                "show Ln 1, Col 1",
+                "show Ln 1, Col 3 (2 selected)",
+                "show Ln 2, Col 1",
+            ]
+        );
+    }
+
+    #[test]
+    fn the_caret_status_is_refreshed_by_the_timer_and_with_the_counters() {
+        let events = crate::read_source(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui/editor/events.rs"));
+        let tick = events.find("f.repaint_gutter_if_caret_moved();").expect("highlight tick");
+        assert!(events[tick..tick + 120].contains("f.refresh_caret_status();"), "highlight timer tick");
+        let content = crate::read_source(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui/editor/content.rs"));
+        let start = content.find("pub(super) fn update_status_bar(&self)").expect("update_status_bar");
+        let end = start + content[start..].find("\n    }\n").expect("end of update_status_bar");
+        assert!(content[start..end].contains("self.refresh_caret_status();"), "typing / tab switch");
     }
 
     #[test]

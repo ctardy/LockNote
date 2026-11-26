@@ -126,6 +126,19 @@ pub(super) fn caret_key(line: usize, selection_empty: bool) -> usize {
     (line << 1) | usize::from(!selection_empty)
 }
 
+/// The caret end of the selection `min..max`: RichEdit reports the selection
+/// ordered, without saying which end the caret is on. `char_at_caret` is the
+/// character under the system caret (None when the editor does not own it);
+/// the caret is on `min` only when that character is `min`, otherwise on
+/// `max` (also an empty selection, and a selection made by the code).
+pub(super) fn active_end(min: usize, max: usize, char_at_caret: Option<usize>) -> usize {
+    if min != max && char_at_caret == Some(min) {
+        min
+    } else {
+        max
+    }
+}
+
 // ---------------------------------------------------------------------
 // Win32 plumbing
 // ---------------------------------------------------------------------
@@ -155,6 +168,7 @@ const EM_REPLACESEL: u32 = 0x00C2;
 const EM_EMPTYUNDOBUFFER: u32 = 0x00CD;
 const EM_LINEFROMCHAR: u32 = 0x00C9;
 const EM_POSFROMCHAR: u32 = 0x00D6;
+const EM_CHARFROMPOS: u32 = 0x00D7;
 const EM_EXGETSEL: u32 = 0x0434;
 const EM_EXSETSEL: u32 = 0x0437;
 const EM_GETEVENTMASK: u32 = 0x043B;
@@ -177,6 +191,7 @@ struct CharRange {
 
 static WARNED_SPACING: AtomicBool = AtomicBool::new(false);
 static WARNED_GEOMETRY: AtomicBool = AtomicBool::new(false);
+static WARNED_CARET: AtomicBool = AtomicBool::new(false);
 static WARNED_SCROLLBAR_THEME: AtomicBool = AtomicBool::new(false);
 
 fn warn_once(flag: &AtomicBool, detail: &str) {
@@ -330,6 +345,35 @@ pub(super) fn caret_position(hwnd: HWND) -> (usize, bool) {
     send(hwnd, EM_EXGETSEL, 0, &mut sel as *mut _ as isize);
     let line = send(hwnd, EM_LINEFROMCHAR, sel.min.max(0) as usize, 0).max(0) as usize;
     (line, sel.min == sel.max)
+}
+
+/// The selection `(min, max)` and the caret offset (its active end, see
+/// `active_end`), in UTF-16 code units as RichEdit counts them.
+pub(super) fn selection_and_caret(hwnd: HWND) -> (usize, usize, usize) {
+    let mut sel = CharRange::default();
+    send(hwnd, EM_EXGETSEL, 0, &mut sel as *mut _ as isize);
+    let (min, max) = (sel.min.max(0) as usize, sel.max.max(0) as usize);
+    let at_caret = if min != max { char_at_caret(hwnd) } else { None };
+    (min, max, active_end(min, max, at_caret))
+}
+
+/// The character under the system caret, when the editor has the focus
+/// (otherwise the thread's caret, if any, belongs to another control).
+/// RichEdit keeps its caret on the active end of a selection, even while it
+/// hides it (`live_caret_is_on_the_active_end_of_the_selection`).
+fn char_at_caret(hwnd: HWND) -> Option<usize> {
+    if unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetFocus() } != hwnd {
+        return None;
+    }
+    let mut p = windows::Win32::Foundation::POINT::default();
+    if let Err(e) = unsafe { windows::Win32::UI::WindowsAndMessaging::GetCaretPos(&mut p) } {
+        warn_once(&WARNED_CARET, &format!("GetCaretPos failed ({e}); the status bar shows the end of the selection"));
+        return None;
+    }
+    // RichEdit takes a POINTL in lParam (not the EDIT control's packed x, y).
+    let pt = windows::Win32::Foundation::POINTL { x: p.x, y: p.y };
+    let index = send(hwnd, EM_CHARFROMPOS, 0, &pt as *const _ as isize);
+    usize::try_from(index).ok()
 }
 
 /// Pitch of `line`: the measured distance to the next line when there is
@@ -667,6 +711,21 @@ mod tests {
     }
 
     #[test]
+    fn active_end_is_max_unless_the_caret_is_on_min() {
+        // Empty selection: the caret is there, whatever the caret says.
+        assert_eq!(active_end(5, 5, None), 5);
+        assert_eq!(active_end(5, 5, Some(2)), 5);
+        // Selection made forwards (Shift+Right): caret on max.
+        assert_eq!(active_end(2, 8, Some(8)), 8);
+        // Made backwards (Shift+Left): caret on min.
+        assert_eq!(active_end(2, 8, Some(2)), 2);
+        // Editor without the caret (focus elsewhere), or a character that is
+        // neither end: max.
+        assert_eq!(active_end(2, 8, None), 8);
+        assert_eq!(active_end(2, 8, Some(5)), 8);
+    }
+
+    #[test]
     fn caret_key_distinguishes_line_and_selection() {
         assert_ne!(caret_key(3, true), caret_key(3, false));
         assert_ne!(caret_key(3, true), caret_key(4, true));
@@ -823,6 +882,31 @@ mod tests {
                 ReleaseDC(None, screen);
                 rows
             }
+        }
+
+        /// `selection_and_caret` reads which end of the selection the caret
+        /// is on from the system caret: RichEdit must keep it there.
+        #[test]
+        fn live_caret_is_on_the_active_end_of_the_selection() {
+            const EM_SETSEL_: u32 = 0x00B1;
+            let r = make(-21);
+            unsafe {
+                let _ = windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(Some(r.ed));
+            }
+            assert_eq!(
+                unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetFocus() },
+                r.ed,
+                "the test editor must own the focus"
+            );
+            // EM_SETSEL(anchor, caret) in TEXT, where a line break is one unit.
+            for (anchor, caret) in [(2usize, 8usize), (8, 2), (1, 12), (12, 1), (0, 4), (4, 0)] {
+                send(r.ed, EM_SETSEL_, anchor, caret as isize);
+                let (min, max, at) = selection_and_caret(r.ed);
+                assert_eq!((min, max), (anchor.min(caret), anchor.max(caret)));
+                assert_eq!(at, caret, "selection {anchor}->{caret}");
+            }
+            send(r.ed, EM_SETSEL_, 6, 6);
+            assert_eq!(selection_and_caret(r.ed), (6, 6, 6));
         }
 
         #[test]

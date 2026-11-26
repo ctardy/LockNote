@@ -75,6 +75,9 @@ pub(super) struct StatusLayout {
     pub encrypted_text_x: i32,
     /// Left edge of the right-most info (encoding), when there is one.
     pub info_x: Option<i32>,
+    /// Left edge of the caret position ("Ln 3, Col 5"); None when it is not
+    /// drawn (no room after the counters).
+    pub caret_x: Option<i32>,
     /// Where the path of the LockNote file goes; None when it is not drawn.
     pub path: Option<PathSlot>,
 }
@@ -101,9 +104,11 @@ impl PathSlot {
 }
 
 /// Lays the status bar out: the counters flow from the left; from the right
-/// edge come, right to left, the optional info, "Encrypted" (padlock + text)
-/// and the save indicator (dot + text). `saved_w` must be the widest of the
-/// two save texts so the group does not jump when the state changes.
+/// edge come, right to left, the optional info, "Encrypted" (padlock + text),
+/// the save indicator (dot + text) and the caret position. `saved_w` must be
+/// the widest of the two save texts so the group does not jump when the
+/// state changes. The caret position is drawn only when it fits after the
+/// counters; the path takes what is left between the two.
 pub(super) fn status_layout(
     client_w: i32,
     left_widths: &[i32],
@@ -111,6 +116,7 @@ pub(super) fn status_layout(
     encrypted_w: i32,
     info_w: Option<i32>,
     path_w: Option<i32>,
+    caret_w: Option<i32>,
 ) -> StatusLayout {
     let mut left = Vec::with_capacity(left_widths.len());
     let mut x = STATUS_MARGIN;
@@ -134,12 +140,113 @@ pub(super) fn status_layout(
     x -= STATUS_ITEM_GAP + saved_w;
     let saved_text_x = x;
     x -= STATUS_ICON_GAP + STATUS_DOT_SIZE;
-    // The path takes what is left between the counters and the save dot.
-    let room = x - STATUS_ITEM_GAP - path_x;
+    let dot_x = x;
+    // The caret position ends one gap before the save dot.
+    let caret_x = caret_w.map(|w| dot_x - STATUS_ITEM_GAP - w).filter(|&cx| cx >= path_x);
+    // The path takes what is left between the counters and the caret
+    // position (or the save dot).
+    let room = caret_x.unwrap_or(dot_x) - STATUS_ITEM_GAP - path_x;
     let path = path_w
         .filter(|_| room >= STATUS_PATH_MIN_WIDTH)
         .map(|w| PathSlot { x: path_x, w: w.min(room) });
-    StatusLayout { left, dot_x: x, saved_text_x, lock_x, encrypted_text_x, info_x, path }
+    StatusLayout { left, dot_x, saved_text_x, lock_x, encrypted_text_x, info_x, caret_x, path }
+}
+
+/// Status bar part (SB_SETTEXTW index) of the caret position; the counters
+/// are parts 0 to 2 and the encoding is the last part.
+pub(super) const STATUS_CARET_PART: usize = 3;
+/// Number of status bar parts (build.rs, SB_SETPARTS).
+pub(super) const STATUS_PART_COUNT: usize = 5;
+
+/// Where the caret is, as the status bar shows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct CaretStatus {
+    /// 1-based line (hard line breaks, as the gutter numbers them).
+    pub line: usize,
+    /// 1-based column, in characters as displayed: a tab and a surrogate
+    /// pair each count as 1.
+    pub col: usize,
+    /// Selected characters, a line break counting as 1 (as RichEdit).
+    pub selected: usize,
+}
+
+/// The caret status from the editor text (`get_content`, \r\n line breaks)
+/// and the RichEdit UTF-16 offsets of the selection and of the caret.
+pub(super) fn caret_status(text: &str, sel_min: usize, sel_max: usize, caret: usize) -> CaretStatus {
+    // Byte offsets on char boundaries (an offset past the end maps to the end).
+    let (caret_b, _) = utf16_range_to_byte_range(text, caret, caret);
+    let before = &text[..caret_b];
+    let line_start = before.rfind('\n').map_or(0, |p| p + 1);
+    let (start_b, end_b) = utf16_range_to_byte_range(text, sel_min, sel_max);
+    let selected = text
+        .get(start_b..end_b)
+        .map_or(0, |s| s.chars().count() - s.matches("\r\n").count());
+    CaretStatus {
+        line: before.matches('\n').count() + 1,
+        col: before[line_start..].chars().count() + 1,
+        selected,
+    }
+}
+
+/// "Ln 3, Col 5", then " (12 selected)" when the selection is not empty.
+pub(super) fn caret_status_text(s: CaretStatus) -> String {
+    let position = t("status.caret")
+        .replace("{line}", &s.line.to_string())
+        .replace("{col}", &s.col.to_string());
+    if s.selected == 0 {
+        position
+    } else {
+        format!("{} ({})", position, count_text(s.selected, "status.selected.one", "status.selected.many"))
+    }
+}
+
+/// The window side of the caret status refresh, behind a trait so the flow
+/// is tested without a window.
+pub(super) trait CaretStatusSteps {
+    /// The selection `(min, max)` and the caret, RichEdit UTF-16 offsets.
+    fn selection(&self) -> (usize, usize, usize);
+    /// The editor text (`get_content`).
+    fn text(&self) -> String;
+    /// The caret status the bar shows now (trimmed part text).
+    fn shown(&self) -> String;
+    /// Show `text` in the caret part and repaint the bar.
+    fn show(&mut self, text: &str);
+}
+
+/// Refresh the caret status: called on every highlight timer tick (caret
+/// moves, selection changes) and with the counters (typing, tab switch). The
+/// bar is repainted only when the text changes. Returns whether it did.
+pub(super) fn refresh_caret_status(steps: &mut impl CaretStatusSteps) -> bool {
+    let (min, max, caret) = steps.selection();
+    let text = caret_status_text(caret_status(&steps.text(), min, max, caret));
+    if steps.shown() == text {
+        return false;
+    }
+    steps.show(&text);
+    true
+}
+
+/// `CaretStatusSteps` on the editor window.
+struct WindowCaretStatus<'a> {
+    form: &'a EditorForm,
+    editor: windows::Win32::Foundation::HWND,
+    status: windows::Win32::Foundation::HWND,
+}
+
+impl CaretStatusSteps for WindowCaretStatus<'_> {
+    fn selection(&self) -> (usize, usize, usize) {
+        surface::selection_and_caret(self.editor)
+    }
+    fn text(&self) -> String {
+        self.form.get_content()
+    }
+    fn shown(&self) -> String {
+        EditorForm::status_part_text(self.status, STATUS_CARET_PART)
+    }
+    fn show(&mut self, text: &str) {
+        self.form.status_bar.set_text(STATUS_CARET_PART as u8, &format!(" {}", text));
+        self.form.invalidate_status_bar();
+    }
 }
 
 impl EditorForm {
@@ -198,12 +305,27 @@ impl EditorForm {
         self.status_bar.set_text(0, &format!(" {}", count_text(word_count, "status.word", "status.words")));
         self.status_bar.set_text(1, &format!(" {}", count_text(char_count, "status.char", "status.chars")));
         self.status_bar.set_text(2, &format!(" {}", count_text(line_count, "status.line", "status.lines")));
+        self.refresh_caret_status();
 
         {
             let enc = self.detected_encoding.borrow();
-            self.status_bar.set_text(3, &format!(" {}", &*enc));
+            self.status_bar.set_text((STATUS_PART_COUNT - 1) as u8, &format!(" {}", &*enc));
         }
         self.invalidate_status_bar();
+    }
+
+    /// Update the caret position / selection of the status bar if it changed.
+    pub(super) fn refresh_caret_status(&self) {
+        let (nwg::ControlHandle::Hwnd(editor), nwg::ControlHandle::Hwnd(status)) =
+            (self.editor.handle, self.status_bar.handle)
+        else {
+            return;
+        };
+        refresh_caret_status(&mut WindowCaretStatus {
+            form: self,
+            editor: windows::Win32::Foundation::HWND(editor as *mut _),
+            status: windows::Win32::Foundation::HWND(status as *mut _),
+        });
     }
 
     /// Ask the status bar to repaint (it is custom-painted, see
@@ -380,11 +502,12 @@ impl EditorForm {
         use windows::Win32::Graphics::Gdi::*;
 
         let pal = crate::theme::current();
-        let part_count = 4usize;
         #[allow(unused_mut)]
-        let mut texts: Vec<String> = (0..part_count).map(|i| Self::status_part_text(hwnd, i)).collect();
-        // The last part is the detected encoding, drawn on the right.
+        let mut texts: Vec<String> = (0..STATUS_PART_COUNT).map(|i| Self::status_part_text(hwnd, i)).collect();
+        // The last part is the detected encoding, drawn on the right; the
+        // caret position goes before the save indicator.
         let info = texts.pop();
+        let caret = texts.remove(STATUS_CARET_PART);
 
         let modified = self.is_modified.load(Ordering::Relaxed);
         let saved_text = t(save_indicator_text(modified));
@@ -434,7 +557,8 @@ impl EditorForm {
             let left_widths: Vec<i32> = texts.iter().map(|s| measure(s)).collect();
             let saved_w = saved_texts.iter().map(|s| measure(s)).max().unwrap_or(0);
             let info_w = info.as_ref().map(|s| measure(s));
-            let lay = status_layout(w, &left_widths, saved_w, measure(&encrypted_text), info_w, Some(measure(&path)));
+            let caret_w = (!caret.is_empty()).then(|| measure(&caret));
+            let lay = status_layout(w, &left_widths, saved_w, measure(&encrypted_text), info_w, Some(measure(&path)), caret_w);
 
             let secondary = pal.text_secondary.to_colorref();
             for (s, x) in texts.iter().zip(&lay.left) {
@@ -452,6 +576,9 @@ impl EditorForm {
             }
             if let (Some(s), Some(x)) = (info.as_ref(), lay.info_x) {
                 draw_text(s, x, secondary);
+            }
+            if let Some(x) = lay.caret_x {
+                draw_text(&caret, x, secondary);
             }
 
             let cy = rc.top + 1 + (rc.bottom - rc.top - 1) / 2;

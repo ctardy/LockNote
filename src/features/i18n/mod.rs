@@ -817,6 +817,9 @@ fn build_en() -> Dict {
     m.insert("status.chars", "{n} characters");
     m.insert("status.line", "{n} line");
     m.insert("status.lines", "{n} lines");
+    m.insert("status.caret", "Ln {line}, Col {col}");
+    m.insert("status.selected.one", "{n} selected");
+    m.insert("status.selected.many", "{n} selected");
     m.insert("save.error.encrypt", "Encryption failed: {}");
     m.insert("export.success.encoding", "Note exported as {encoding} to:\n{path}");
     m.insert("filter.text", "Text Files (*.txt)");
@@ -1518,6 +1521,9 @@ fn build_fr() -> Dict {
     m.insert("status.chars", "{n} caract\u{00e8}res");
     m.insert("status.line", "{n} ligne");
     m.insert("status.lines", "{n} lignes");
+    m.insert("status.caret", "Ligne {line}, col. {col}");
+    m.insert("status.selected.one", "{n} s\u{00e9}lectionn\u{00e9}");
+    m.insert("status.selected.many", "{n} s\u{00e9}lectionn\u{00e9}s");
     m.insert("save.error.encrypt", "\u{00c9}chec du chiffrement : {}");
     m.insert("export.success.encoding", "Note export\u{00e9}e en {encoding} vers :\n{path}");
     m.insert("filter.text", "Fichiers texte (*.txt)");
@@ -2218,6 +2224,9 @@ fn build_es() -> Dict {
     m.insert("status.chars", "{n} caracteres");
     m.insert("status.line", "{n} l\u{00ed}nea");
     m.insert("status.lines", "{n} l\u{00ed}neas");
+    m.insert("status.caret", "L\u{00ed}n. {line}, col. {col}");
+    m.insert("status.selected.one", "{n} seleccionado");
+    m.insert("status.selected.many", "{n} seleccionados");
     m.insert("save.error.encrypt", "Error de cifrado: {}");
     m.insert("export.success.encoding", "Nota exportada como {encoding} en:\n{path}");
     m.insert("filter.text", "Archivos de texto (*.txt)");
@@ -2918,6 +2927,9 @@ fn build_de() -> Dict {
     m.insert("status.chars", "{n} Zeichen");
     m.insert("status.line", "{n} Zeile");
     m.insert("status.lines", "{n} Zeilen");
+    m.insert("status.caret", "Zeile {line}, Spalte {col}");
+    m.insert("status.selected.one", "{n} ausgew\u{00e4}hlt");
+    m.insert("status.selected.many", "{n} ausgew\u{00e4}hlt");
     m.insert("save.error.encrypt", "Verschl\u{00fc}sselung fehlgeschlagen: {}");
     m.insert("export.success.encoding", "Notiz als {encoding} exportiert nach:\n{path}");
     m.insert("filter.text", "Textdateien (*.txt)");
@@ -3348,6 +3360,9 @@ mod tests {
         "status.chars",
         "status.line",
         "status.lines",
+        // ui/editor/content.rs: caret_status_text (count_text)
+        "status.selected.one",
+        "status.selected.many",
         // ui/editor/helpers.rs: tab_color_label, "color." + theme::TAB_COLORS name
         "color.blue",
         "color.green",

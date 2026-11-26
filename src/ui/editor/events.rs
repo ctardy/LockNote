@@ -127,6 +127,7 @@ impl EditorForm {
                         if handle == f.highlight_timer.handle {
                             f.update_occurrence_highlights();
                             f.repaint_gutter_if_caret_moved();
+                            f.refresh_caret_status();
                         }
                         if handle == f.highlight_timer.handle {
                             f.run_pending_requests();

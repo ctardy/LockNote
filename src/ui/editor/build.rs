@@ -929,7 +929,8 @@ impl EditorForm {
                     style | 0x4 | 0x8,
                 );
             }
-            let parts: [i32; 4] = [200, 400, 550, -1];
+            // Counters, caret position, encoding (content.rs, STATUS_PART_COUNT).
+            let parts: [i32; STATUS_PART_COUNT] = [200, 400, 550, 700, -1];
             unsafe {
                 windows::Win32::UI::WindowsAndMessaging::SendMessageW(
                     windows::Win32::Foundation::HWND(sb_hwnd as *mut _),
