@@ -632,17 +632,35 @@
 
     #[test]
     fn gutter_width_grows_with_digits_and_has_a_floor() {
-        assert_eq!(gutter_width(0), 40);
-        assert_eq!(gutter_width(9), 40);
-        assert_eq!(gutter_width(99), 40);
-        assert_eq!(gutter_width(999), 10 * 3 + 14 + 4);
-        assert_eq!(gutter_width(10_000), 10 * 5 + 14 + 4);
+        assert_eq!(gutter_width(0, 11.0), 40);
+        assert_eq!(gutter_width(9, 11.0), 40);
+        assert_eq!(gutter_width(99, 11.0), 40);
+        assert_eq!(gutter_width(999, 11.0), 10 * 3 + 14 + 4);
+        assert_eq!(gutter_width(10_000, 11.0), 10 * 5 + 14 + 4);
+    }
+
+    /// The zoom (A2): up to the default 11 pt a digit takes 10 px as
+    /// before; a larger font widens the digits with it, so the numbers of
+    /// a zoomed editor are not cut on the left.
+    #[test]
+    fn gutter_digits_widen_with_the_font() {
+        assert_eq!(gutter_digit_px(6.0), 10);
+        assert_eq!(gutter_digit_px(11.0), 10);
+        assert_eq!(gutter_digit_px(12.0), 11);
+        assert_eq!(gutter_digit_px(22.0), 20);
+        assert_eq!(gutter_digit_px(48.0), 44);
+        assert_eq!(gutter_width(999, 48.0), 44 * 3 + 14 + 4);
+        assert_eq!(gutter_width(9, 22.0), 40, "the floor still holds");
+        assert!(gutter_width(9, 48.0) > 40);
+        for pt in [6.0, 9.5, 11.0, 14.0, 30.0, 48.0, 72.0] {
+            assert!(gutter_width(100, pt + 1.0) >= gutter_width(100, pt), "{pt} pt: never narrower for a larger font");
+        }
     }
 
     #[test]
     fn gutter_numbers_end_14px_before_the_gutter_edge() {
         assert_eq!(gutter_number_right(40), 26);
-        assert_eq!(gutter_number_right(gutter_width(12345)), gutter_width(12345) - 14);
+        assert_eq!(gutter_number_right(gutter_width(12345, 11.0)), gutter_width(12345, 11.0) - 14);
     }
 
     #[test]
@@ -1591,16 +1609,17 @@
 
     #[test]
     fn hidden_line_numbers_take_no_width() {
-        assert_eq!(shown_gutter_width(false, 1), 0);
-        assert_eq!(shown_gutter_width(false, 12345), 0);
-        assert_eq!(shown_gutter_width(true, 12345), gutter_width(12345));
+        assert_eq!(shown_gutter_width(false, 1, 11.0), 0);
+        assert_eq!(shown_gutter_width(false, 12345, 48.0), 0);
+        assert_eq!(shown_gutter_width(true, 12345, 11.0), gutter_width(12345, 11.0));
+        assert_eq!(shown_gutter_width(true, 12345, 30.0), gutter_width(12345, 30.0));
     }
 
     #[test]
     fn the_editor_takes_the_width_of_a_hidden_gutter() {
-        let shown = editor_columns(1000, 300, shown_gutter_width(true, 10) as u32);
+        let shown = editor_columns(1000, 300, shown_gutter_width(true, 10, 11.0) as u32);
         assert_eq!(shown, (40, 660));
-        let hidden = editor_columns(1000, 300, shown_gutter_width(false, 10) as u32);
+        let hidden = editor_columns(1000, 300, shown_gutter_width(false, 10, 11.0) as u32);
         assert_eq!(hidden, (0, 700));
         // Without a side panel the editor spans the whole client width.
         assert_eq!(editor_columns(800, 0, 0), (0, 800));

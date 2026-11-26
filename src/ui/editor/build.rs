@@ -581,12 +581,9 @@ impl EditorForm {
             .expect("Failed to build lock toolbar button");
 
         // ── Editor font ──
-        let mut editor_font = nwg::Font::default();
-        nwg::Font::builder()
-            .family(&settings.font_family)
-            .size(font_size_to_nwg(settings.font_size))
-            .build(&mut editor_font)
+        let editor_font = build_editor_font(&settings.font_family, settings.font_size)
             .expect("Failed to build editor font");
+        let editor_font_state = zoom::EditorFontState::from_settings(&settings.font_family, settings.font_size);
 
         // ── Editor (RichTextBox) ──
         // NOTE: do NOT call OleInitialize — it would make RichEdit register an
@@ -1518,7 +1515,9 @@ impl EditorForm {
             dblclick_armed: RefCell::new(false),
             // Editor
             editor,
-            editor_font,
+            editor_font: RefCell::new(editor_font),
+            editor_font_state: RefCell::new(editor_font_state),
+            zoom_wheel_rest: Cell::new(0),
             // Status bar
             status_bar,
             status_path_slot: Cell::new(None),

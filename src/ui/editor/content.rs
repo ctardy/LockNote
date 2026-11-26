@@ -25,18 +25,25 @@ pub(super) const STATUS_DOT_SIZE: i32 = 7;
 /// Width of the padlock icon.
 pub(super) const STATUS_LOCK_WIDTH: i32 = 10;
 
-/// Gutter width for a document of `total_paragraphs` lines: the digits plus
-/// the right padding, never narrower than 40 px.
-pub(super) fn gutter_width(total_paragraphs: usize) -> i32 {
+/// Width given to one digit of the gutter for an editor font of `font_pt`:
+/// 10 px up to the default 11 pt, then in proportion (the zoom, A2).
+pub(super) fn gutter_digit_px(font_pt: f64) -> i32 {
+    (10.0 * font_pt.max(11.0) / 11.0).ceil() as i32
+}
+
+/// Gutter width for a document of `total_paragraphs` lines in an editor
+/// font of `font_pt`: the digits plus the right padding, never narrower
+/// than 40 px.
+pub(super) fn gutter_width(total_paragraphs: usize, font_pt: f64) -> i32 {
     let digit_count = total_paragraphs.max(1).to_string().len() as i32;
-    (digit_count * 10 + GUTTER_RIGHT_PADDING + 4).max(40)
+    (digit_count * gutter_digit_px(font_pt) + GUTTER_RIGHT_PADDING + 4).max(40)
 }
 
 /// Width of the line-number gutter as laid out: none when the user hid the
 /// line numbers (View > Line Numbers, setting `show_line_numbers`, issue #26).
-pub(super) fn shown_gutter_width(show_line_numbers: bool, total_paragraphs: usize) -> i32 {
+pub(super) fn shown_gutter_width(show_line_numbers: bool, total_paragraphs: usize, font_pt: f64) -> i32 {
     if show_line_numbers {
-        gutter_width(total_paragraphs)
+        gutter_width(total_paragraphs, font_pt)
     } else {
         0
     }
@@ -693,7 +700,12 @@ impl EditorForm {
             (result.0 as usize).max(1)
         };
 
-        let gutter_width = gutter_width(total_paragraphs);
+        // The font the editor shows (the zoom included, A2), copied out.
+        let (font_family, font_size) = {
+            let font = self.editor_font_state.borrow();
+            (font.family.clone(), font.size_pt)
+        };
+        let gutter_width = gutter_width(total_paragraphs, font_size);
 
         // Caret line (same line domain as EM_LINEINDEX below) and whether a
         // selection exists; the band follows the editor's current-line band
@@ -746,10 +758,7 @@ impl EditorForm {
             }
 
             // Create and select a font matching the editor font
-            let settings = self.settings.borrow();
-            let font_family: Vec<u16> = settings.font_family.encode_utf16().chain(std::iter::once(0)).collect();
-            let font_size = settings.font_size;
-            drop(settings);
+            let font_family: Vec<u16> = font_family.encode_utf16().chain(std::iter::once(0)).collect();
             let nwg_size = font_size_to_nwg(font_size) as i32;
             let hfont = CreateFontW(
                 -nwg_size,

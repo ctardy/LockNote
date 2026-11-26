@@ -55,14 +55,58 @@ impl EditorForm {
         self.layout_controls();
     }
 
-    /// Put the View check marks and the word wrap back in line with the
-    /// settings, after they were replaced (unlock, backup import); the
-    /// gutter follows at the next `layout_controls`.
+    /// Put the View check marks, the word wrap and the editor font back in
+    /// line with the settings, after they were replaced (unlock, backup
+    /// import); the gutter follows at the next `layout_controls`.
     pub(super) fn sync_view_menu(&self) {
         let (wrap, numbers) = view_menu_checks(&self.settings.borrow());
         self.menu_view_word_wrap.set_checked(wrap);
         self.menu_view_line_numbers.set_checked(numbers);
         self.apply_word_wrap(wrap);
+        // An imported font applies at once, like one from the preferences;
+        // the same settings (unlock) keep the zoom.
+        if let Err(e) = self.apply_settings_font() {
+            eprintln!("ERROR font: the font of the replaced settings was not applied: {e}");
+        }
+    }
+
+    /// Zoom the editor font by one step (Ctrl+= / Ctrl+- / Ctrl+0 and their
+    /// numpad keys, Ctrl+wheel). Session only: the settings keep their size.
+    pub(super) fn on_zoom(&self, step: zoom::ZoomStep) {
+        let current = self.editor_font_state.borrow().clone();
+        let target = current.zoomed(step);
+        match zoom::switch_font(&current, target, &mut FormFont(self)) {
+            Ok(true) => eprintln!("INFO zoom: {step:?} -> {} pt", self.editor_font_state.borrow().size_pt),
+            Ok(false) => {}
+            Err(e) => eprintln!("ERROR zoom: {step:?} not applied, the editor keeps its font: {e}"),
+        }
+    }
+
+    /// Ctrl+wheel over the editor: one zoom step per notch (`wheel_steps`).
+    pub(super) fn on_wheel_zoom(&self, delta: i32) {
+        let (steps, rest) = zoom::wheel_steps(self.zoom_wheel_rest.get(), delta);
+        self.zoom_wheel_rest.set(rest);
+        let step = if steps > 0 { zoom::ZoomStep::In } else { zoom::ZoomStep::Out };
+        for _ in 0..steps.unsigned_abs() {
+            self.on_zoom(step);
+        }
+    }
+
+    /// Give the editor the font of the settings unless it already shows it
+    /// (zoomed or not): a new family or size ends the zoom (A2).
+    pub(super) fn apply_settings_font(&self) -> Result<(), String> {
+        let (family, size) = {
+            let s = self.settings.borrow();
+            (s.font_family.clone(), s.font_size)
+        };
+        let current = self.editor_font_state.borrow().clone();
+        if current.follows(&family, size) {
+            return Ok(());
+        }
+        let target = zoom::EditorFontState::from_settings(&family, size);
+        zoom::switch_font(&current, target, &mut FormFont(self))?;
+        eprintln!("INFO font: editor font {family} {size} pt applied");
+        Ok(())
     }
 
     /// Apply word wrap setting to the editor control.
@@ -152,6 +196,11 @@ impl EditorForm {
                 let _ = self.on_save();
                 return true;
             }
+        }
+
+        if let Some(step) = zoom::zoom_key(vk, ctrl, shift, alt) {
+            self.on_zoom(step);
+            return true;
         }
 
         if ctrl && !shift {
@@ -557,5 +606,35 @@ impl super::heading_flow::HeadingSteps for FormHeadingSteps<'_> {
     }
     fn move_caret(&mut self, line: u32) {
         self.form.apply_cursor_line(line);
+    }
+}
+
+/// The window side of `zoom::switch_font`. No borrow of the font state is
+/// held across a step: `refresh` repaints the gutter, which reads it.
+struct FormFont<'a>(&'a EditorForm);
+
+impl zoom::FontSteps for FormFont<'_> {
+    fn apply_font(&mut self, family: &str, size_pt: f64) -> Result<(), String> {
+        let font = build_editor_font(family, size_pt)?;
+        let nwg::ControlHandle::Hwnd(raw) = self.0.editor.handle else {
+            return Err("the editor has no window handle".to_string());
+        };
+        let hwnd = windows::Win32::Foundation::HWND(raw as *mut _);
+        // On a refusal the editor still uses the old font, which stays;
+        // once it took the new one, the old one may go.
+        surface::set_font(hwnd, font.handle as isize)?;
+        *self.0.editor_font.borrow_mut() = font;
+        Ok(())
+    }
+
+    fn store(&mut self, state: zoom::EditorFontState) {
+        *self.0.editor_font_state.borrow_mut() = state;
+    }
+
+    fn refresh(&mut self) {
+        // The gutter width follows the font size; the band and the numbers
+        // follow the new line pitch.
+        self.0.layout_controls();
+        self.0.paint_gutter();
     }
 }

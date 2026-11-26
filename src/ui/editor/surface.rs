@@ -43,6 +43,8 @@ use windows::Win32::Graphics::Gdi::{
     FONT_CHARSET, HGDIOBJ, LOGPIXELSY, OUT_DEFAULT_PRECIS, RDW_ERASE, RDW_FRAME, RDW_INVALIDATE,
     TEXTMETRICW,
 };
+use windows::core::Interface;
+use windows::Win32::UI::Controls::RichEdit::{ITextDocument, EM_GETOLEINTERFACE, tomResume, tomSuspend};
 use windows::Win32::UI::Controls::SetWindowTheme;
 use windows::Win32::UI::Shell::DefSubclassProc;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -239,6 +241,54 @@ pub(super) fn apply_line_spacing(hwnd: HWND) -> Result<(), String> {
         return Err("EM_SETPARAFORMAT refused the line spacing".to_string());
     }
     Ok(())
+}
+
+const WM_SETFONT: u32 = 0x0030;
+
+/// Give the editor a new font (`hfont`, a GDI font the caller keeps alive),
+/// the zoom and the preferences (A2). Like the startup font, it goes in with
+/// `WM_SETFONT`; the text colour and the line spacing it may reset are put
+/// back. The text, the selection, the modified flag, the undo history and
+/// the EN_CHANGE notification are left as they were: this is presentation,
+/// not an edit. `Err` means the editor did NOT take the font (it keeps the
+/// one it had); once it took it, a later failure is reported here and the
+/// font counts as applied.
+pub(super) fn set_font(hwnd: HWND, hfont: isize) -> Result<(), String> {
+    // WM_SETFONT turns the text colour back to automatic, and putting it
+    // back (EM_SETCHARFORMAT) or the spacing (EM_SETPARAFORMAT) would each
+    // be an undo step: Ctrl+Z would then revert the colour instead of the
+    // typing (`live_set_font_*`). The undo history is suspended meanwhile.
+    let doc = text_document(hwnd)?;
+    unsafe { doc.Undo(tomSuspend.0) }.map_err(|e| format!("the undo history could not be suspended ({e})"))?;
+    let was_modified = send(hwnd, EM_GETMODIFY, 0, 0) != 0;
+    let event_mask = send(hwnd, EM_GETEVENTMASK, 0, 0);
+    send(hwnd, EM_SETEVENTMASK, 0, event_mask & !ENM_CHANGE);
+    // No redraw here: apply_line_spacing repaints the whole control.
+    send(hwnd, WM_SETFONT, hfont as usize, 0);
+    apply_editor_colors(hwnd);
+    if let Err(e) = apply_line_spacing(hwnd) {
+        warn_once(&WARNED_SPACING, &format!("{e}; the text keeps single spacing"));
+    }
+    // EM_SETCHARFORMAT raises the modified flag: a font is not an edit.
+    send(hwnd, EM_SETMODIFY, usize::from(was_modified), 0);
+    send(hwnd, EM_SETEVENTMASK, 0, event_mask);
+    if let Err(e) = unsafe { doc.Undo(tomResume.0) } {
+        eprintln!("ERROR editor_surface: the undo history could not be resumed after a font change ({e}); edits may not be undoable");
+    }
+    Ok(())
+}
+
+/// The TOM document of the editor (EM_GETOLEINTERFACE; no OleInitialize
+/// needed, see build.rs).
+fn text_document(hwnd: HWND) -> Result<ITextDocument, String> {
+    let mut raw: *mut core::ffi::c_void = core::ptr::null_mut();
+    let ok = send(hwnd, EM_GETOLEINTERFACE, 0, &mut raw as *mut _ as isize);
+    if ok == 0 || raw.is_null() {
+        return Err("EM_GETOLEINTERFACE gave no interface".to_string());
+    }
+    // The message hands over a reference (AddRef'd): `from_raw` owns it.
+    let ole = unsafe { windows::core::IUnknown::from_raw(raw) };
+    ole.cast::<ITextDocument>().map_err(|e| format!("ITextDocument unavailable ({e})"))
 }
 
 /// CHARFORMAT2W layout (pack(4), 116 bytes), see highlight.rs.
@@ -922,6 +972,60 @@ mod tests {
                 assert_eq!(spaced[2] - spaced[1], line_pitch(natural), "font {font_height}: uniform pitch");
                 assert_eq!(spaced[0], single[0], "font {font_height}: first line does not move");
             }
+        }
+
+        fn text_of(ed: HWND) -> String {
+            let mut buf = [0u16; 256];
+            let n = send(ed, 0x000D, buf.len(), buf.as_mut_ptr() as isize); // WM_GETTEXT
+            String::from_utf16_lossy(&buf[..n.max(0) as usize])
+        }
+
+        fn consolas(height: i32) -> isize {
+            let font = unsafe {
+                CreateFontW(
+                    height, 0, 0, 0, 400, 0, 0, 0, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                    CLEARTYPE_QUALITY, 0, w!("Consolas"),
+                )
+            };
+            assert!(!font.is_invalid(), "CreateFontW");
+            font.0 as isize
+        }
+
+        /// The zoom and a new font from the preferences (A2): every line
+        /// takes the new size with the 1.5 spacing, the edit state is the
+        /// one of before (not modified, the undo history unchanged).
+        #[test]
+        fn live_set_font_resizes_every_line_and_keeps_the_edit_state() {
+            let r = make(-15);
+            apply_line_spacing(r.ed).expect("spacing");
+            send(r.ed, EM_SETSEL, 0, 0);
+            let x: Vec<u16> = "X".encode_utf16().chain(std::iter::once(0)).collect();
+            send(r.ed, EM_REPLACESEL, 1, x.as_ptr() as isize);
+            send(r.ed, EM_SETMODIFY, 0, 0);
+            let small = natural_line_height(r.ed).expect("text metrics");
+
+            set_font(r.ed, consolas(-35)).expect("font");
+
+            let natural = natural_line_height(r.ed).expect("text metrics");
+            assert!(natural > small, "the default font grew: {small} -> {natural}");
+            let t = tops(r.ed);
+            assert_eq!(t[1] - t[0], line_pitch(natural), "the first line took the new size and the spacing");
+            assert_eq!(t[2] - t[1], line_pitch(natural), "so did the last one");
+            assert_eq!(send(r.ed, EM_GETMODIFY, 0, 0), 0, "a font is not an edit");
+            assert_eq!(text_of(r.ed), format!("X{TEXT}"), "WM_GETTEXT answers CRLF");
+            // Undo still undoes the typing, not the font.
+            assert_ne!(send(r.ed, EM_CANUNDO, 0, 0), 0);
+            send(r.ed, EM_UNDO, 0, 0);
+            assert_eq!(text_of(r.ed), TEXT);
+            assert_eq!(natural_line_height(r.ed), Some(natural), "the undo kept the font");
+
+            // No history before: none after.
+            send(r.ed, EM_EMPTYUNDOBUFFER, 0, 0);
+            set_font(r.ed, consolas(-21)).expect("font");
+            assert_eq!(send(r.ed, EM_CANUNDO, 0, 0), 0);
+            let natural = natural_line_height(r.ed).expect("text metrics");
+            let t = tops(r.ed);
+            assert_eq!(t[1] - t[0], line_pitch(natural), "smaller again, still spaced");
         }
 
         #[test]

@@ -776,6 +776,17 @@ impl EditorForm {
                             }
                         }
                     }
+                    // WM_MOUSEWHEEL with Ctrl (MK_CONTROL = 0x0008): our zoom
+                    // (A2), never RichEdit's own, which scales the text
+                    // without changing the font and would desync the gutter.
+                    0x020A if w_param & 0x0008 != 0 => {
+                        if !f_ed.input_blocked() {
+                            f_ed.autolock.borrow_mut().reset();
+                            let delta = ((w_param >> 16) & 0xFFFF) as u16 as i16 as i32;
+                            f_ed.on_wheel_zoom(delta);
+                        }
+                        return Some(0);
+                    }
                     // WM_CHAR — swallow the 0x0D that TranslateMessage queues
                     // right after a bullet-handled VK_RETURN.
                     0x0102 => {

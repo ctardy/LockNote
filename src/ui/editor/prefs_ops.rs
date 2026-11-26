@@ -59,6 +59,12 @@ impl EditorForm {
             drop(settings);
             self.mark_modified();
 
+            // A new font applies at once and ends the zoom (A2).
+            if let Err(e) = self.apply_settings_font() {
+                eprintln!("ERROR preferences: the new editor font was not applied: {e}");
+                self.inform("LockNote", &t("settings.font.failed").replace("{detail}", &e));
+            }
+
             // The theme applies live: set the mode and re-apply everything
             // themed (no restart).
             if changes.theme != current.theme {

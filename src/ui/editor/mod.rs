@@ -136,7 +136,13 @@ pub struct EditorForm {
     pub editor: nwg::RichTextBox,
 
     // ── Editor font ──
-    editor_font: nwg::Font,
+    /// The GDI font the editor shows; replaced by the zoom and by a new
+    /// font from the preferences (A2), kept alive while the editor uses it.
+    editor_font: RefCell<nwg::Font>,
+    /// Family and sizes of `editor_font` (session only, never saved).
+    editor_font_state: RefCell<self::zoom::EditorFontState>,
+    /// Wheel rotation short of a notch, carried to the next Ctrl+wheel.
+    zoom_wheel_rest: Cell<i32>,
 
     // ── Status bar ──
     status_bar: nwg::StatusBar,
@@ -482,6 +488,7 @@ mod heading_flow;
 mod compare_flow;
 mod line_ops;
 mod case_ops;
+mod zoom;
 
 #[allow(unused_imports)]
 use self::helpers::*;

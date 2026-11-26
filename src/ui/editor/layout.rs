@@ -55,7 +55,8 @@ impl EditorForm {
         let text = self.editor.text();
         let total_paragraphs = if text.is_empty() { 1 } else { text.matches('\n').count() + 1 };
         let show_line_numbers = self.settings.borrow().show_line_numbers;
-        let gutter_w = shown_gutter_width(show_line_numbers, total_paragraphs) as u32;
+        let font_pt = self.editor_font_state.borrow().size_pt;
+        let gutter_w = shown_gutter_width(show_line_numbers, total_paragraphs, font_pt) as u32;
 
         // Side panel widths: the user's width (or the one being dragged),
         // bounded so the editor keeps its minimum (ui/side_panel.rs).

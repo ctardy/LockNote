@@ -19,6 +19,18 @@ pub(super) fn font_size_to_nwg(pt: f64) -> u32 {
     (pt * 17.0 / 9.0).round() as u32
 }
 
+/// The editor font: at startup, for the zoom and for a new font from the
+/// preferences (A2), always built the same way.
+pub(super) fn build_editor_font(family: &str, size_pt: f64) -> Result<nwg::Font, String> {
+    let mut font = nwg::Font::default();
+    nwg::Font::builder()
+        .family(family)
+        .size(font_size_to_nwg(size_pt))
+        .build(&mut font)
+        .map_err(|e| format!("font {family} {size_pt} pt: {e:?}"))?;
+    Ok(font)
+}
+
 /// Format a Unix timestamp as "YYYY-MM-DD HH:MM:SS" (UTC).
 /// Simple implementation without chrono.
 pub(in crate::ui) fn format_timestamp(secs: u64) -> String {
