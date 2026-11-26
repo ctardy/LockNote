@@ -44,6 +44,17 @@ jobs:
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
 
+      # Never package an unsigned or badly signed exe.
+      - name: Check the Authenticode signature
+        shell: pwsh
+        run: |
+          $sig = Get-AuthenticodeSignature build\LockNote.exe
+          Write-Host "Authenticode status: $($sig.Status) signer: $($sig.SignerCertificate.Subject)"
+          if ($sig.Status -ne 'Valid') {
+            Write-Error "build\LockNote.exe is not validly signed (status: $($sig.Status))"
+            exit 1
+          }
+
       - name: Package
         shell: bash
         run: |
@@ -126,10 +137,13 @@ jobs:
         with:
           persist-credentials: false
 
+      # By name, into the folder the files below are read from (a single
+      # artifact is extracted directly into `path` since v5 / v8).
       - name: Download artifact
         uses: actions/download-artifact@v8
         with:
-          path: artifacts
+          name: LockNote-windows-x64
+          path: artifacts/LockNote-windows-x64
 
       # Published in this repository, the one the updater reads
       # (`GITHUB_REPO` in src/updater.rs). No mirror any more (issue 059).
@@ -137,6 +151,8 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
+          # A missing asset fails the release instead of publishing it empty.
+          fail_on_unmatched_files: true
           files: |
             artifacts/LockNote-windows-x64/LockNote-windows-x64.zip
             artifacts/LockNote-windows-x64/SHA256SUMS.txt
