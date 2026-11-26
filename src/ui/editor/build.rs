@@ -214,6 +214,13 @@ impl EditorForm {
             .build(&mut menu_edit_replace)
             .expect("Failed to build Find & Replace menu item");
 
+        let mut menu_edit_search_all = nwg::MenuItem::default();
+        nwg::MenuItem::builder()
+            .text(&t("menu.edit.searchall"))
+            .parent(&menu_edit)
+            .build(&mut menu_edit_search_all)
+            .expect("Failed to build Search All Tabs menu item");
+
         let mut menu_edit_goto_line = nwg::MenuItem::default();
         nwg::MenuItem::builder()
             .text(&t("menu.edit.goto"))
@@ -1369,6 +1376,7 @@ impl EditorForm {
             menu_edit_sep1,
             menu_edit_find,
             menu_edit_replace,
+            menu_edit_search_all,
             menu_edit_goto_line,
             menu_edit_goto_heading,
             menu_edit_sep2,

@@ -384,7 +384,7 @@ pub(super) fn expand_word_selection(text: &str, start: usize, end: usize) -> Opt
 /// Find all case-insensitive occurrences of `needle` in `text`.
 /// Returns byte-offset pairs `(start, end)` in the **original** `text`,
 /// so they can safely index into a UTF-16 offset map built from `text`.
-pub(super) fn find_all_case_insensitive(text: &str, needle: &str) -> Vec<(usize, usize)> {
+pub(in crate::ui) fn find_all_case_insensitive(text: &str, needle: &str) -> Vec<(usize, usize)> {
     if needle.is_empty() {
         return vec![];
     }

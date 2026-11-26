@@ -177,6 +177,7 @@ impl EditorForm {
         } else if ctrl && shift {
             match vk {
                 0x56 => { self.on_paste_plain(); return true; } // Ctrl+Shift+V
+                0x46 => { self.on_search_all_tabs(); return true; } // Ctrl+Shift+F
                 0x4B => { self.on_delete_line(); return true; } // Ctrl+Shift+K
                 0x4F => { self.on_goto_heading(); return true; } // Ctrl+Shift+O
                 0x09 => { self.on_prev_tab(); return true; }    // Ctrl+Shift+Tab

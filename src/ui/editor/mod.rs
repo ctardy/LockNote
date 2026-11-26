@@ -56,6 +56,7 @@ pub struct EditorForm {
     menu_edit_sep1: nwg::MenuSeparator,
     menu_edit_find: nwg::MenuItem,
     menu_edit_replace: nwg::MenuItem,
+    menu_edit_search_all: nwg::MenuItem,
     menu_edit_goto_line: nwg::MenuItem,
     menu_edit_goto_heading: nwg::MenuItem,
     menu_edit_sep2: nwg::MenuSeparator,
@@ -446,6 +447,7 @@ mod edit_ops;
 mod help_ops;
 mod vault_ops;
 mod prompts_ops;
+mod search_all_ops;
 mod ssh_ops;
 mod attach_ops;
 mod highlight;
@@ -474,6 +476,8 @@ use self::helpers::*;
 pub(in crate::ui) use self::helpers::format_timestamp;
 // Regex Find / Replace (ui/dialogs/regex_search.rs) maps its matches with it.
 pub(in crate::ui) use self::helpers::build_utf16_offset_map;
+// Search in all tabs (ui/search_all.rs) ignores case with the highlight's rule.
+pub(in crate::ui) use self::helpers::find_all_case_insensitive;
 #[allow(unused_imports)]
 use self::content::*;
 #[allow(unused_imports)]

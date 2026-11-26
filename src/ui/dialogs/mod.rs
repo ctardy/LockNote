@@ -8,6 +8,7 @@ pub mod goto_heading;
 pub mod compare_dialog;
 pub mod find_replace;
 pub mod regex_search;
+pub mod search_all;
 pub mod about;
 pub mod settings_dialog;
 pub mod preferences_dialog;
