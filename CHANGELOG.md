@@ -36,10 +36,14 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   saves and locks for good once no window is open; if the save fails,
   nothing is lost: the notes stay hidden with their changes, the save is
   retried every 10 seconds, and the password brings them back with the
-  reason. LockNote cannot be closed while the notes are hidden. While
+  reason. The hidden screen names the window LockNote still waits for,
+  auto-save waits while the notes are hidden, and a password being typed
+  there is kept when the lock completes. LockNote cannot be closed while
+  the notes are hidden (a Windows logoff follows the rule above). While
   locked the menus only allow Quit and About. A Quit still waiting for a
   window after 10 seconds names it and offers "Keep waiting" or "Close
-  without saving" (#30).
+  without saving"; that offer and the close question stay open when Quit
+  is clicked again (#30).
 - **"Copied" shown after a failed copy**: the TOTP panel and dialogs and
   the vault said "Copied" even when Windows refused the clipboard write.
   Now a failed copy says "Copy failed: ..." and "Copied" appears only after
