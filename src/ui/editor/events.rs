@@ -815,13 +815,16 @@ impl EditorForm {
         // This handler also (a) tells IsDialogMessage — which nwg's dispatch
         // loop uses — that the editor wants Tab itself, so pressing Tab
         // inserts \t instead of moving focus; and (b) implements bullet-list
-        // continuation on plain Enter when the current line starts with "• ".
+        // continuation on plain Enter when the current line starts with "• ";
+        // (c) block indent / outdent on Tab and Shift+Tab (indent.rs).
         let f_ed = form.clone();
         // Set by the Enter handler when bullet logic consumed a VK_RETURN, so
         // the trailing WM_CHAR(0x0D) gets swallowed and RichEdit doesn't add
         // an extra newline on top of the one we inserted.
         use std::sync::atomic::{AtomicBool, Ordering as SuppressOrd};
         static BULLET_SUPPRESS_ENTER_CHAR: AtomicBool = AtomicBool::new(false);
+        // Same for the WM_CHAR(0x09) after a VK_TAB consumed by indent.rs.
+        static TAB_SUPPRESS_CHAR: AtomicBool = AtomicBool::new(false);
         let editor_key_handler = nwg::bind_raw_event_handler(
             &form.editor.handle,
             0x10001,
@@ -851,6 +854,12 @@ impl EditorForm {
                             BULLET_SUPPRESS_ENTER_CHAR.store(true, SuppressOrd::SeqCst);
                             return Some(0);
                         }
+                        // Tab / Shift+Tab: block indent, outdent. Ctrl+Tab
+                        // stays the tab switch of handle_shortcut.
+                        if vk == 0x09 && !ctrl && f_ed.handle_tab_indent(shift) {
+                            TAB_SUPPRESS_CHAR.store(true, SuppressOrd::SeqCst);
+                            return Some(0);
+                        }
                         if f_ed.handle_shortcut(vk) {
                             return Some(0);
                         }
@@ -863,6 +872,11 @@ impl EditorForm {
                         }
                         if w_param == 0x0D
                             && BULLET_SUPPRESS_ENTER_CHAR.swap(false, SuppressOrd::SeqCst)
+                        {
+                            return Some(0);
+                        }
+                        if w_param == 0x09
+                            && TAB_SUPPRESS_CHAR.swap(false, SuppressOrd::SeqCst)
                         {
                             return Some(0);
                         }
