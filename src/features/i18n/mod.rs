@@ -263,6 +263,10 @@ fn build_en() -> Dict {
     m.insert("menu.edit.goto", "&Go to Line...\tCtrl+G");
     m.insert("menu.edit.dupline", "&Duplicate Line\tCtrl+D");
     m.insert("menu.edit.delline", "De&lete Line\tCtrl+Shift+K");
+    m.insert("menu.edit.case", "Convert Ca&se");
+    m.insert("menu.edit.case.upper", "&UPPERCASE\tCtrl+Shift+U");
+    m.insert("menu.edit.case.lower", "&lowercase\tCtrl+U");
+    m.insert("menu.edit.case.title", "&Title Case");
     m.insert("menu.edit.lines", "Li&nes");
     m.insert("menu.edit.lines.sortasc", "Sort Lines &Ascending");
     m.insert("menu.edit.lines.sortdesc", "Sort Lines &Descending");
@@ -979,6 +983,10 @@ fn build_fr() -> Dict {
     m.insert("menu.edit.goto", "&Aller \u{00e0} la ligne...\tCtrl+G");
     m.insert("menu.edit.dupline", "&Dupliquer la ligne\tCtrl+D");
     m.insert("menu.edit.delline", "Supprimer la &ligne\tCtrl+Shift+K");
+    m.insert("menu.edit.case", "Convertir la ca&sse");
+    m.insert("menu.edit.case.upper", "&MAJUSCULES\tCtrl+Shift+U");
+    m.insert("menu.edit.case.lower", "m&inuscules\tCtrl+U");
+    m.insert("menu.edit.case.title", "&Premi\u{00e8}re lettre des mots en majuscule");
     m.insert("menu.edit.lines", "Lig&nes");
     m.insert("menu.edit.lines.sortasc", "Trier par ordre &croissant");
     m.insert("menu.edit.lines.sortdesc", "Trier par ordre &d\u{00e9}croissant");
@@ -1672,6 +1680,10 @@ fn build_es() -> Dict {
     m.insert("menu.edit.goto", "&Ir a la l\u{00ed}nea...\tCtrl+G");
     m.insert("menu.edit.dupline", "&Duplicar l\u{00ed}nea\tCtrl+D");
     m.insert("menu.edit.delline", "E&liminar l\u{00ed}nea\tCtrl+Shift+K");
+    m.insert("menu.edit.case", "Ca&mbiar may\u{00fa}sculas/min\u{00fa}sculas");
+    m.insert("menu.edit.case.upper", "&MAY\u{00da}SCULAS\tCtrl+Shift+U");
+    m.insert("menu.edit.case.lower", "mi&n\u{00fa}sculas\tCtrl+U");
+    m.insert("menu.edit.case.title", "&Tipo T\u{00ed}tulo");
     m.insert("menu.edit.lines", "L\u{00ed}&neas");
     m.insert("menu.edit.lines.sortasc", "Ordenar l\u{00ed}neas &ascendente");
     m.insert("menu.edit.lines.sortdesc", "Ordenar l\u{00ed}neas &descendente");
@@ -2366,6 +2378,10 @@ fn build_de() -> Dict {
     m.insert("menu.edit.goto", "&Gehe zu Zeile...\tStrg+G");
     m.insert("menu.edit.dupline", "Zeile &duplizieren\tStrg+D");
     m.insert("menu.edit.delline", "Zeile &l\u{00f6}schen\tStrg+Umschalt+K");
+    m.insert("menu.edit.case", "Gr&o\u{00df}-/Kleinschreibung");
+    m.insert("menu.edit.case.upper", "&GROSSBUCHSTABEN\tStrg+Umschalt+U");
+    m.insert("menu.edit.case.lower", "&kleinbuchstaben\tStrg+U");
+    m.insert("menu.edit.case.title", "&Wortanf\u{00e4}nge gro\u{00df}");
     m.insert("menu.edit.lines", "Ze&ilen");
     m.insert("menu.edit.lines.sortasc", "&Aufsteigend sortieren");
     m.insert("menu.edit.lines.sortdesc", "Ab&steigend sortieren");
@@ -3153,6 +3169,37 @@ mod tests {
                 assert!(k.is_some(), "{} of {lang:?} has no access key", lines[i]);
                 assert!(!keys[..i].contains(k), "{} of {lang:?} repeats an access key", lines[i]);
             }
+        }
+    }
+
+    // Edit > Convert Case (feature A4): its access key is free in the Edit
+    // menu, its items have distinct keys and show their shortcuts.
+    #[test]
+    fn convert_case_menu_access_keys_are_unique_in_every_language() {
+        let key_of = |label: &str| -> Option<char> {
+            let i = label.find('&')?;
+            label[i + 1..].chars().next().map(|c| c.to_lowercase().next().unwrap_or(c))
+        };
+        let edit = [
+            "menu.edit.cut", "menu.edit.copy", "menu.edit.paste", "menu.edit.pasteplain", "menu.edit.find",
+            "menu.edit.replace", "menu.edit.goto", "menu.edit.dupline", "menu.edit.delline",
+            "menu.edit.lines", "menu.edit.selectall", "menu.edit.timestamp",
+        ];
+        let items = ["menu.edit.case.upper", "menu.edit.case.lower", "menu.edit.case.title"];
+        for lang in [Language::English, Language::French, Language::Spanish, Language::German] {
+            let d = dict_for(lang);
+            let mine = key_of(d["menu.edit.case"]).unwrap_or_else(|| panic!("no access key {lang:?}"));
+            for item in edit {
+                assert_ne!(key_of(d[item]), Some(mine), "{item} of {lang:?} uses the key of Convert Case");
+            }
+            let keys: Vec<Option<char>> = items.iter().map(|k| key_of(d[k])).collect();
+            for (i, k) in keys.iter().enumerate() {
+                assert!(k.is_some(), "{} of {lang:?} has no access key", items[i]);
+                assert!(!keys[..i].contains(k), "{} of {lang:?} repeats an access key", items[i]);
+            }
+            assert!(d["menu.edit.case.upper"].ends_with("+U") && d["menu.edit.case.upper"].contains("+Shift+") != (lang == Language::German));
+            assert!(d["menu.edit.case.lower"].ends_with("\tCtrl+U") || d["menu.edit.case.lower"].ends_with("\tStrg+U"));
+            assert!(!d["menu.edit.case.title"].contains('\t'), "Title Case has no shortcut");
         }
     }
 

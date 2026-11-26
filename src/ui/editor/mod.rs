@@ -68,6 +68,10 @@ pub struct EditorForm {
     menu_edit_lines_dedup: nwg::MenuItem,
     menu_edit_lines_join: nwg::MenuItem,
     menu_edit_lines_trim: nwg::MenuItem,
+    menu_edit_case: nwg::Menu,
+    menu_edit_case_upper: nwg::MenuItem,
+    menu_edit_case_lower: nwg::MenuItem,
+    menu_edit_case_title: nwg::MenuItem,
     menu_edit_select_all: nwg::MenuItem,
     menu_edit_insert_timestamp: nwg::MenuItem,
 
@@ -476,6 +480,7 @@ mod palette_ops;
 mod heading_flow;
 mod compare_flow;
 mod line_ops;
+mod case_ops;
 
 #[allow(unused_imports)]
 use self::helpers::*;

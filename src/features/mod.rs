@@ -9,6 +9,9 @@ pub mod tabs;
 // Edit > Lines: sort, remove duplicates, join, trim (pure transforms).
 pub mod line_ops;
 
+// Edit > Convert Case: UPPERCASE, lowercase, Title Case (pure transforms).
+pub mod case_convert;
+
 pub mod vault;
 
 // Stored prompts, copied from the Prompts panel (issue 058).

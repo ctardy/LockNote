@@ -172,8 +172,8 @@ where
     Ok(true)
 }
 
-/// `LineEditSteps` on the main editor.
-struct EditorLineSteps<'a>(&'a EditorForm);
+/// `LineEditSteps` on the main editor (also used by case_ops.rs).
+pub(super) struct EditorLineSteps<'a>(pub(super) &'a EditorForm);
 
 impl LineEditSteps for EditorLineSteps<'_> {
     fn text(&self) -> String {
@@ -230,7 +230,7 @@ impl EditorForm {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use std::cell::RefCell;
 
@@ -393,14 +393,15 @@ mod tests {
 
     /// A fake RichEdit: a text with "\r\n" breaks (as WM_GETTEXT returns
     /// them), positions counted like RichEdit, and a log of the calls.
-    struct Fake {
-        text: RefCell<String>,
-        sel: RefCell<(u32, u32)>,
-        log: RefCell<Vec<String>>,
+    /// Also used by the case_ops.rs tests.
+    pub(in crate::ui::editor) struct Fake {
+        pub(in crate::ui::editor) text: RefCell<String>,
+        pub(in crate::ui::editor) sel: RefCell<(u32, u32)>,
+        pub(in crate::ui::editor) log: RefCell<Vec<String>>,
     }
 
     impl Fake {
-        fn new(text: &str, sel: (u32, u32)) -> Self {
+        pub(in crate::ui::editor) fn new(text: &str, sel: (u32, u32)) -> Self {
             Fake { text: RefCell::new(text.to_string()), sel: RefCell::new(sel), log: RefCell::new(Vec::new()) }
         }
     }
@@ -533,7 +534,8 @@ mod tests {
 
     // ── Live RichEdit: the conventions the edit relies on ──
 
-    mod live {
+    /// A real RICHEDIT50W, also used by the case_ops.rs tests.
+    pub(in crate::ui::editor) mod live {
         use super::*;
         use windows::core::w;
         use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
@@ -543,9 +545,9 @@ mod tests {
             WINDOW_EX_STYLE, WINDOW_STYLE, WS_CHILD, WS_POPUP,
         };
 
-        struct Rich {
+        pub(in crate::ui::editor) struct Rich {
             top: HWND,
-            ed: HWND,
+            pub(in crate::ui::editor) ed: HWND,
         }
 
         impl Drop for Rich {
@@ -556,11 +558,11 @@ mod tests {
             }
         }
 
-        fn send(ed: HWND, msg: u32, w: usize, l: isize) -> isize {
+        pub(in crate::ui::editor) fn send(ed: HWND, msg: u32, w: usize, l: isize) -> isize {
             unsafe { SendMessageW(ed, msg, Some(WPARAM(w)), Some(LPARAM(l))).0 }
         }
 
-        fn make(text: &str) -> Rich {
+        pub(in crate::ui::editor) fn make(text: &str) -> Rich {
             unsafe {
                 LoadLibraryW(w!("msftedit.dll")).expect("msftedit.dll");
                 let top = CreateWindowExW(

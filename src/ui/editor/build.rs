@@ -298,6 +298,36 @@ impl EditorForm {
             .build(&mut menu_edit_lines_trim)
             .expect("Failed to build Trim Trailing Whitespace menu item");
 
+        // Edit > Convert Case: on the selection, or the word under the caret
+        // (case_ops.rs).
+        let mut menu_edit_case = nwg::Menu::default();
+        nwg::Menu::builder()
+            .text(&t("menu.edit.case"))
+            .parent(&menu_edit)
+            .build(&mut menu_edit_case)
+            .expect("Failed to build Convert Case submenu");
+
+        let mut menu_edit_case_upper = nwg::MenuItem::default();
+        nwg::MenuItem::builder()
+            .text(&t("menu.edit.case.upper"))
+            .parent(&menu_edit_case)
+            .build(&mut menu_edit_case_upper)
+            .expect("Failed to build UPPERCASE menu item");
+
+        let mut menu_edit_case_lower = nwg::MenuItem::default();
+        nwg::MenuItem::builder()
+            .text(&t("menu.edit.case.lower"))
+            .parent(&menu_edit_case)
+            .build(&mut menu_edit_case_lower)
+            .expect("Failed to build lowercase menu item");
+
+        let mut menu_edit_case_title = nwg::MenuItem::default();
+        nwg::MenuItem::builder()
+            .text(&t("menu.edit.case.title"))
+            .parent(&menu_edit_case)
+            .build(&mut menu_edit_case_title)
+            .expect("Failed to build Title Case menu item");
+
         let mut menu_edit_select_all = nwg::MenuItem::default();
         nwg::MenuItem::builder()
             .text(&t("menu.edit.selectall"))
@@ -1431,6 +1461,10 @@ impl EditorForm {
             menu_edit_lines_dedup,
             menu_edit_lines_join,
             menu_edit_lines_trim,
+            menu_edit_case,
+            menu_edit_case_upper,
+            menu_edit_case_lower,
+            menu_edit_case_title,
             menu_edit_select_all,
             menu_edit_insert_timestamp,
             // View menu

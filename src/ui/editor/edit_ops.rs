@@ -3,6 +3,7 @@
 
 #[allow(unused_imports)]
 use super::*;
+use crate::features::case_convert::CaseOp;
 
 impl EditorForm {
     // =====================================================================
@@ -160,6 +161,7 @@ impl EditorForm {
                 0x48 => { self.on_show_replace(); return true; }// Ctrl+H
                 0x47 => { self.on_goto_line(); return true; }   // Ctrl+G
                 0x44 => { self.on_duplicate_line(); return true; } // Ctrl+D
+                0x55 => { self.on_convert_case(CaseOp::Lower); return true; } // Ctrl+U
                 0xBE => { self.on_toggle_bullet(); return true; } // Ctrl+.
                 0x0D => { self.on_toggle_checkbox(); return true; } // Ctrl+Enter
                 0x41 => { self.on_select_all(); return true; }  // Ctrl+A
@@ -180,6 +182,7 @@ impl EditorForm {
                 0x46 => { self.on_search_all_tabs(); return true; } // Ctrl+Shift+F
                 0x4B => { self.on_delete_line(); return true; } // Ctrl+Shift+K
                 0x4F => { self.on_goto_heading(); return true; } // Ctrl+Shift+O
+                0x55 => { self.on_convert_case(CaseOp::Upper); return true; } // Ctrl+Shift+U
                 0x09 => { self.on_prev_tab(); return true; }    // Ctrl+Shift+Tab
                 0x50 => { self.on_command_palette(); return true; } // Ctrl+Shift+P
                 _ => {}
