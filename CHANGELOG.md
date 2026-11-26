@@ -6,6 +6,8 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-11-26
+
 ### Changed
 - Dependencies updated to their current versions (crypto, Windows API,
   updater, build actions); ssh-encoding stays on 0.2, the version ssh-key
