@@ -230,8 +230,13 @@ it from the next start.
 What happens with unsaved changes depends on File > Settings > Preferences >
 **On close:**
 
-- **Ask** (default): "You have unsaved changes. Save before closing?" Yes saves,
-  No closes without saving, Cancel keeps LockNote open.
+- **Ask** (default): "Unsaved changes. Save before closing?" **Save** saves,
+  **Don't Save** closes without saving, **Cancel** keeps LockNote open.
+  **Remember my choice** with Save sets On close to Always save, so the
+  question is not asked again. With Don't Save it cannot be remembered: the
+  settings are stored inside the note, which is not saved; LockNote says so
+  (choose Never save in the Preferences and save instead). Cancel never
+  changes the setting.
 - **Always save**: saves without asking.
 - **Never save**: closes without saving.
 

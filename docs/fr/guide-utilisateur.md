@@ -249,9 +249,14 @@ partir du démarrage suivant.
 de la fenêtre. Ce qui arrive aux modifications non enregistrées dépend de
 Fichier > Paramètres... > Préférences... > **À la fermeture :**
 
-- **Demander** (par défaut) : « You have unsaved changes. Save before
-  closing? » (en anglais : enregistrer avant de fermer ?). Oui enregistre, Non
-  ferme sans enregistrer, Annuler laisse LockNote ouvert.
+- **Demander** (par défaut) : « Modifications non enregistrées. Enregistrer
+  avant de fermer ? » **Enregistrer** enregistre, **Ne pas enregistrer** ferme
+  sans enregistrer, **Annuler** laisse LockNote ouvert. **Se souvenir de mon
+  choix** avec Enregistrer règle À la fermeture sur Toujours enregistrer : la
+  question n'est plus posée. Avec Ne pas enregistrer, le choix ne peut pas être
+  retenu : les paramètres sont rangés dans la note, qui n'est pas enregistrée ;
+  LockNote le signale (choisissez plutôt Ne jamais enregistrer dans les
+  Préférences, puis enregistrez). Annuler ne change jamais le réglage.
 - **Toujours enregistrer** : enregistre sans demander.
 - **Ne jamais enregistrer** : ferme sans enregistrer.
 

@@ -7,6 +7,11 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
 ## [Unreleased]
 
 ### Fixed
+- **Close prompt**: the English "Unsaved Changes" message box is replaced by
+  the translated close dialog with **Remember my choice**. Remembering Save
+  sets On close to Always save. Remembering Don't Save cannot be stored (the
+  settings are inside the note, which is not saved) and LockNote says so.
+  Cancel never changes the setting (#27).
 - **A failed save at close lost the changes**: the save error was shown,
   then LockNote closed anyway. Now a save that fails while closing keeps
   LockNote open with the text and the password, to retry or copy it (#22).

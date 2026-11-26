@@ -742,6 +742,7 @@ fn build_en() -> Dict {
     // Close confirm
     m.insert("close.title", "Unsaved Changes");
     m.insert("close.msg", "Unsaved changes. Save before closing?");
+    m.insert("close.remember_not_saved", "Your choice was not remembered: LockNote keeps its settings inside the note, and the note is not saved. To stop this question, choose it in File > Settings > Preferences, then save.");
 
     m
 }
@@ -1339,6 +1340,7 @@ fn build_fr() -> Dict {
 
     m.insert("close.title", "Modifications non enregistr\u{00e9}es");
     m.insert("close.msg", "Modifications non enregistr\u{00e9}es. Enregistrer avant de fermer ?");
+    m.insert("close.remember_not_saved", "Votre choix n'a pas \u{00e9}t\u{00e9} m\u{00e9}moris\u{00e9} : LockNote garde ses param\u{00e8}tres dans la note, et la note n'est pas enregistr\u{00e9}e. Pour ne plus voir cette question, choisissez-le dans Fichier > Param\u{00e8}tres > Pr\u{00e9}f\u{00e9}rences, puis enregistrez.");
 
     m
 }
@@ -1937,6 +1939,7 @@ fn build_es() -> Dict {
 
     m.insert("close.title", "Cambios sin guardar");
     m.insert("close.msg", "Cambios sin guardar. \u{00bf}Guardar antes de cerrar?");
+    m.insert("close.remember_not_saved", "Su elecci\u{00f3}n no se ha recordado: LockNote guarda sus ajustes dentro de la nota, y la nota no se guarda. Para no ver m\u{00e1}s esta pregunta, el\u{00ed}jala en Archivo > Ajustes > Preferencias y guarde.");
 
     m
 }
@@ -2535,6 +2538,7 @@ fn build_de() -> Dict {
 
     m.insert("close.title", "Ungespeicherte \u{00c4}nderungen");
     m.insert("close.msg", "Ungespeicherte \u{00c4}nderungen. Vor dem Schlie\u{00df}en speichern?");
+    m.insert("close.remember_not_saved", "Ihre Wahl wurde nicht gemerkt: LockNote speichert seine Einstellungen in der Notiz, und die Notiz wird nicht gespeichert. Um diese Frage nicht mehr zu sehen, w\u{00e4}hlen Sie es unter Datei > Einstellungen > Einstellungen und speichern Sie.");
 
     m
 }

@@ -92,11 +92,35 @@ pub(super) enum CloseOutcome {
 pub(super) trait CloseSteps {
     /// The "unsaved changes" prompt.
     fn ask(&mut self) -> crate::ui::dialogs::close_confirm::CloseConfirmResult;
+    /// Store the "Remember my choice" answer in `save_on_close` (memory; the
+    /// next save writes it).
+    fn remember(&mut self, action: crate::settings::CloseAction);
+    /// Tell the user that "Remember my choice" with Don't save cannot be
+    /// stored (see `run_close`).
+    fn tell_choice_not_remembered(&mut self);
     /// `EditorForm::on_save`: it shows its own error message.
     fn save(&mut self) -> Result<(), String>;
     fn unload_agent_keys(&mut self);
     /// Wipe the password and the editor text.
     fn wipe(&mut self);
+}
+
+/// The `save_on_close` value a prompt answer asks to remember (issue #27):
+/// Save -> Always, Don't save -> Never, only with "Remember my choice"
+/// checked; Cancel never stores anything.
+pub(super) fn remembered_close_action(
+    r: crate::ui::dialogs::close_confirm::CloseConfirmResult,
+) -> Option<crate::settings::CloseAction> {
+    use crate::settings::CloseAction;
+    use crate::ui::dialogs::close_confirm::CloseAction as Choice;
+    if !r.remember {
+        return None;
+    }
+    match r.action {
+        Choice::Save => Some(CloseAction::Always),
+        Choice::DontSave => Some(CloseAction::Never),
+        Choice::Cancel => None,
+    }
 }
 
 /// The close flow once the window state is captured: prompt (setting `Ask`),
@@ -116,14 +140,26 @@ pub(super) fn run_close(
         let save_now = match save_on_close {
             CloseAction::Always => true,
             CloseAction::Never => false,
-            CloseAction::Ask => match steps.ask().action {
-                Choice::Save => true,
-                Choice::DontSave => false,
-                Choice::Cancel => {
+            CloseAction::Ask => {
+                let answer = steps.ask();
+                if answer.action == Choice::Cancel {
                     eprintln!("INFO close: cancelled at the prompt");
                     return CloseOutcome::StayOpen;
                 }
-            },
+                match remembered_close_action(answer) {
+                    // Set before the save below, which writes it.
+                    Some(CloseAction::Always) => steps.remember(CloseAction::Always),
+                    // Settings live in the encrypted note: storing Never
+                    // would mean saving the changes the user just declined.
+                    Some(CloseAction::Never) => {
+                        steps.remember(CloseAction::Never);
+                        eprintln!("WARN close: remember=never not stored, the note is not saved");
+                        steps.tell_choice_not_remembered();
+                    }
+                    Some(CloseAction::Ask) | None => {}
+                }
+                answer.action == Choice::Save
+            }
         };
         if save_now {
             if let Err(msg) = steps.save() {
@@ -159,19 +195,23 @@ struct FormCloseSteps<'a> {
 
 impl CloseSteps for FormCloseSteps<'_> {
     fn ask(&mut self) -> crate::ui::dialogs::close_confirm::CloseConfirmResult {
-        use crate::ui::dialogs::close_confirm::{CloseAction as Choice, CloseConfirmResult};
-        let params = nwg::MessageParams {
-            title: "Unsaved Changes",
-            content: "You have unsaved changes. Save before closing?",
-            buttons: nwg::MessageButtons::YesNoCancel,
-            icons: nwg::MessageIcons::Warning,
-        };
-        let action = match nwg::message(&params) {
-            nwg::MessageChoice::Yes => Choice::Save,
-            nwg::MessageChoice::No => Choice::DontSave,
-            _ => Choice::Cancel,
-        };
-        CloseConfirmResult { action, remember: false }
+        // The translated dialog with "Remember my choice" (issue #27). It runs
+        // its own message loop: a second close request meanwhile (tray menu,
+        // title bar) is refused by the modal_dialog_open check of on_close.
+        self.form.modal_dialog_open.set(true);
+        let answer = crate::ui::dialogs::close_confirm::CloseConfirmDialog::show();
+        self.form.modal_dialog_open.set(false);
+        eprintln!("INFO close: prompt action={:?} remember={}", answer.action, answer.remember);
+        answer
+    }
+
+    fn remember(&mut self, action: crate::settings::CloseAction) {
+        eprintln!("INFO close: remember save_on_close={:?}", action);
+        self.form.settings.borrow_mut().save_on_close = action;
+    }
+
+    fn tell_choice_not_remembered(&mut self) {
+        nwg::modal_info_message(&self.form.window, "LockNote", &t("close.remember_not_saved"));
     }
 
     fn save(&mut self) -> Result<(), String> {
@@ -220,6 +260,16 @@ mod tests {
         fn ask(&mut self) -> CloseConfirmResult {
             self.log.push("ask");
             self.answer
+        }
+        fn remember(&mut self, action: CloseAction) {
+            self.log.push(match action {
+                CloseAction::Always => "remember:always",
+                CloseAction::Never => "remember:never",
+                CloseAction::Ask => "remember:ask",
+            });
+        }
+        fn tell_choice_not_remembered(&mut self) {
+            self.log.push("not_remembered");
         }
         fn save(&mut self) -> Result<(), String> {
             self.log.push("save");
@@ -282,6 +332,44 @@ mod tests {
         let mut f = Fake::new(Choice::Cancel, vec![]);
         assert_eq!(run_close(true, CloseAction::Never, &mut f), CloseOutcome::Close);
         assert_eq!(f.log, ["unload", "wipe"]);
+    }
+
+    fn answer(action: Choice, remember: bool) -> CloseConfirmResult {
+        CloseConfirmResult { action, remember }
+    }
+
+    /// Issue #27: dialog result -> `save_on_close`.
+    #[test]
+    fn remember_maps_save_to_always_and_dont_save_to_never() {
+        assert_eq!(remembered_close_action(answer(Choice::Save, true)), Some(CloseAction::Always));
+        assert_eq!(remembered_close_action(answer(Choice::DontSave, true)), Some(CloseAction::Never));
+        assert_eq!(remembered_close_action(answer(Choice::Save, false)), None);
+        assert_eq!(remembered_close_action(answer(Choice::DontSave, false)), None);
+    }
+
+    #[test]
+    fn cancel_never_remembers_a_choice() {
+        assert_eq!(remembered_close_action(answer(Choice::Cancel, true)), None);
+        let mut f = Fake::new(Choice::Cancel, vec![]);
+        f.answer.remember = true;
+        assert_eq!(run_close(true, CloseAction::Ask, &mut f), CloseOutcome::StayOpen);
+        assert_eq!(f.log, ["ask"]);
+    }
+
+    #[test]
+    fn remembered_save_is_stored_before_the_save_that_writes_it() {
+        let mut f = Fake::new(Choice::Save, vec![Ok(()), Ok(())]);
+        f.answer.remember = true;
+        assert_eq!(run_close(true, CloseAction::Ask, &mut f), CloseOutcome::Close);
+        assert_eq!(f.log, ["ask", "remember:always", "save", "unload", "save", "wipe"]);
+    }
+
+    #[test]
+    fn remembered_dont_save_is_not_saved_and_the_user_is_told() {
+        let mut f = Fake::new(Choice::DontSave, vec![]);
+        f.answer.remember = true;
+        assert_eq!(run_close(true, CloseAction::Ask, &mut f), CloseOutcome::Close);
+        assert_eq!(f.log, ["ask", "remember:never", "not_remembered", "unload", "wipe"]);
     }
 
     #[test]
