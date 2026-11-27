@@ -11,7 +11,8 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   list of every menu command (with its shortcut), one "Tab: <name>" row per
   tab, one "Vault: <name>" row per secret and one "Prompt: <name>" row per
   prompt. Fuzzy, case-insensitive filtering ("dl" finds "Delete Line").
-  Up/Down move, Enter runs, Esc closes. A command row does what its menu item
+  Up/Down move, Page Up/Page Down move one visible page, Enter or a double
+  click on a row runs it, Esc closes. A command row does what its menu item
   does, a tab row switches to it, a vault row copies the secret as a click in
   the vault panel does (the value is never shown), a prompt row inserts the
   prompt into the note. Two secrets with the same name show their category.

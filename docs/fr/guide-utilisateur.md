@@ -507,8 +507,10 @@ LockNote est verrouillé).
   « Dupliquer la ligne »). Les libellés qui commencent par le texte tapé
   viennent en premier. Les lettres accentuées doivent être tapées telles
   quelles (« e » ne trouve pas « é »).
-- Haut/Bas déplacent la sélection, Entrée exécute la ligne sélectionnée, Échap
-  ferme la palette et revient à l'éditeur.
+- Haut/Bas déplacent la sélection d'une ligne, Page précédente/Page suivante
+  d'une page visible (en s'arrêtant à la première ou à la dernière ligne).
+  Entrée exécute la ligne sélectionnée, comme un double-clic sur une ligne.
+  Échap ferme la palette et revient à l'éditeur.
 - Une commande fait ce que fait son entrée de menu. Une ligne d'onglet affiche
   cet onglet. Une ligne de coffre copie le secret comme un clic dans le
   panneau Coffre (le panneau s'ouvre, « Copié : <nom> », presse-papiers effacé

@@ -463,8 +463,10 @@ locked).
   order, not necessarily side by side ("dl" finds "Delete Line"). Labels that
   start with the typed text come first. Accented letters must be typed as they
   are ("e" does not find "é").
-- Up/Down move the selection, Enter runs the selected row, Esc closes the
-  palette and returns to the editor.
+- Up/Down move the selection by one row, Page Up/Page Down by one visible
+  page (stopping at the first or last row). Enter runs the selected row, as
+  does a double click on a row. Esc closes the palette and returns to the
+  editor.
 - A command row does what its menu item does. A tab row switches to that tab.
   A vault row copies the secret as a click in the vault panel does (the panel
   opens, "Copied: <name>", clipboard cleared after the configured delay); the
