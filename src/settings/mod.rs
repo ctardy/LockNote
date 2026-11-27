@@ -459,15 +459,19 @@ impl Settings {
                 }
             }
             "totp_2fa_secret" => {
-                self.totp_2fa_secret = value.to_string();
+                // A later line replaces the secret: the earlier one is wiped
+                // in place first, never freed as it stands (issue #41).
+                zeroize::Zeroize::zeroize(&mut self.totp_2fa_secret);
+                self.totp_2fa_secret.push_str(value);
             }
             "totp_entry" => {
-                // Format: name|BASE32SECRET
-                if let Some(pipe) = value.find('|') {
-                    let name = value[..pipe].to_string();
-                    let secret = value[pipe + 1..].to_string();
+                // Format: name|BASE32SECRET. Checked before anything is
+                // copied: the secret is copied once, straight into the entry
+                // (wiped on drop), never into a String dropped when the name
+                // is empty (issue #41).
+                if let Some((name, secret)) = value.split_once('|') {
                     if !name.is_empty() && !secret.is_empty() {
-                        self.totp_entries.push(TotpEntry { name, secret });
+                        self.totp_entries.push(TotpEntry { name: name.to_string(), secret: secret.to_string() });
                     }
                 }
             }
@@ -558,63 +562,89 @@ impl Settings {
     }
 
     /// Serialize settings + note text into the stored format.
+    ///
+    /// The text holds the 2FA and TOTP secrets and the whole note: it is
+    /// written into one buffer allocated at its exact size (a first pass
+    /// counts the bytes), so no reallocation leaves a freed, unwiped copy,
+    /// and the secrets go straight into it, never through a `format!`
+    /// temporary (issue #41). The caller wraps the result in `Zeroizing`.
     pub fn serialize(&self, note_text: &str) -> String {
-        let mut out = String::new();
-        out.push_str(HEADER);
-        out.push('\n');
+        let mut len = ByteCount(0);
+        self.write_serialized(note_text, &mut len)
+            .expect("counting bytes never fails");
+        let mut out = String::with_capacity(len.0);
+        self.write_serialized(note_text, &mut out)
+            .expect("writing into a String never fails");
+        debug_assert_eq!(out.capacity(), len.0, "the serialized text outgrew its buffer");
+        out
+    }
 
-        out.push_str(&format!("save_on_close={}\n", self.save_on_close.as_str()));
-        out.push_str(&format!("theme={}\n", self.theme.as_str()));
-        out.push_str(&format!("word_wrap={}\n", bool_str(self.word_wrap)));
-        out.push_str(&format!("minimize_to_tray={}\n", bool_str(self.minimize_to_tray)));
-        out.push_str(&format!("min_password_length={}\n", self.min_password_length));
-        out.push_str(&format!("font_family={}\n", self.font_family));
+    /// The stored format, written into `w` piece by piece (`write!` formats
+    /// straight into `w`, without a temporary). Called twice by `serialize`:
+    /// to count, then to write.
+    fn write_serialized<W: std::fmt::Write>(&self, note_text: &str, w: &mut W) -> std::fmt::Result {
+        w.write_str(HEADER)?;
+        w.write_char('\n')?;
+
+        write!(w, "save_on_close={}\n", self.save_on_close.as_str())?;
+        write!(w, "theme={}\n", self.theme.as_str())?;
+        write!(w, "word_wrap={}\n", bool_str(self.word_wrap))?;
+        write!(w, "minimize_to_tray={}\n", bool_str(self.minimize_to_tray))?;
+        write!(w, "min_password_length={}\n", self.min_password_length)?;
+        write!(w, "font_family={}\n", self.font_family)?;
 
         // Serialize font_size: avoid trailing zeros but keep one decimal
         if self.font_size == self.font_size.floor() {
-            out.push_str(&format!("font_size={:.1}\n", self.font_size));
+            write!(w, "font_size={:.1}\n", self.font_size)?;
         } else {
-            out.push_str(&format!("font_size={}\n", self.font_size));
+            write!(w, "font_size={}\n", self.font_size)?;
         }
-        out.push_str(&format!("save_key={}\n", self.save_key));
-        out.push_str(&format!("save_modifiers={}\n", self.save_modifiers));
+        write!(w, "save_key={}\n", self.save_key)?;
+        write!(w, "save_modifiers={}\n", self.save_modifiers)?;
 
         // Window position/size (only if explicitly set)
         if self.window_x != i32::MIN {
-            out.push_str(&format!("window_width={}\n", self.window_width));
-            out.push_str(&format!("window_height={}\n", self.window_height));
-            out.push_str(&format!("window_x={}\n", self.window_x));
-            out.push_str(&format!("window_y={}\n", self.window_y));
-            out.push_str(&format!("window_maximized={}\n", bool_str(self.window_maximized)));
+            write!(w, "window_width={}\n", self.window_width)?;
+            write!(w, "window_height={}\n", self.window_height)?;
+            write!(w, "window_x={}\n", self.window_x)?;
+            write!(w, "window_y={}\n", self.window_y)?;
+            write!(w, "window_maximized={}\n", bool_str(self.window_maximized))?;
         }
 
         {
-            out.push_str(&format!("language={}\n", self.language.as_str()));
-            out.push_str(&format!("active_tab={}\n", self.active_tab));
-            out.push_str(&format!("auto_lock={}\n", self.auto_lock));
-            out.push_str(&format!("clipboard_clear={}\n", self.clipboard_clear));
-            out.push_str(&format!("auto_save={}\n", self.auto_save));
-            out.push_str(&format!("show_line_numbers={}\n", bool_str(self.show_line_numbers)));
-            out.push_str(&format!("totp_2fa={}\n", bool_str(self.totp_2fa)));
-            out.push_str(&format!("totp_2fa_secret={}\n", self.totp_2fa_secret));
+            write!(w, "language={}\n", self.language.as_str())?;
+            write!(w, "active_tab={}\n", self.active_tab)?;
+            write!(w, "auto_lock={}\n", self.auto_lock)?;
+            write!(w, "clipboard_clear={}\n", self.clipboard_clear)?;
+            write!(w, "auto_save={}\n", self.auto_save)?;
+            write!(w, "show_line_numbers={}\n", bool_str(self.show_line_numbers))?;
+            write!(w, "totp_2fa={}\n", bool_str(self.totp_2fa))?;
+            // The secrets: written as they stand, no formatting (issue #41).
+            w.write_str("totp_2fa_secret=")?;
+            w.write_str(&self.totp_2fa_secret)?;
+            w.write_char('\n')?;
             for entry in &self.totp_entries {
-                out.push_str(&format!("totp_entry={}|{}\n", entry.name, entry.secret));
+                w.write_str("totp_entry=")?;
+                w.write_str(&entry.name)?;
+                w.write_char('|')?;
+                w.write_str(&entry.secret)?;
+                w.write_char('\n')?;
             }
             for cat in &self.vault_categories {
-                out.push_str(&format!("vault_category={}\n", cat));
+                write!(w, "vault_category={}\n", cat)?;
             }
-            out.push_str(&format!("hotkey_modifiers={}\n", self.hotkey_modifiers));
-            out.push_str(&format!("hotkey_key={}\n", self.hotkey_key));
-            out.push_str(&format!("max_attachment_size_mb={}\n", self.max_attachment_size_mb));
-            out.push_str(&format!("max_total_attachments_mb={}\n", self.max_total_attachments_mb));
-            out.push_str(&format!("passgen_length={}\n", self.passgen.length));
-            out.push_str(&format!("passgen_upper={}\n", bool_str(self.passgen.upper)));
-            out.push_str(&format!("passgen_lower={}\n", bool_str(self.passgen.lower)));
-            out.push_str(&format!("passgen_digits={}\n", bool_str(self.passgen.digits)));
-            out.push_str(&format!("passgen_symbols={}\n", bool_str(self.passgen.symbols)));
-            out.push_str(&format!("passgen_exclude_ambiguous={}\n", bool_str(self.passgen.exclude_ambiguous)));
+            write!(w, "hotkey_modifiers={}\n", self.hotkey_modifiers)?;
+            write!(w, "hotkey_key={}\n", self.hotkey_key)?;
+            write!(w, "max_attachment_size_mb={}\n", self.max_attachment_size_mb)?;
+            write!(w, "max_total_attachments_mb={}\n", self.max_total_attachments_mb)?;
+            write!(w, "passgen_length={}\n", self.passgen.length)?;
+            write!(w, "passgen_upper={}\n", bool_str(self.passgen.upper))?;
+            write!(w, "passgen_lower={}\n", bool_str(self.passgen.lower))?;
+            write!(w, "passgen_digits={}\n", bool_str(self.passgen.digits))?;
+            write!(w, "passgen_symbols={}\n", bool_str(self.passgen.symbols))?;
+            write!(w, "passgen_exclude_ambiguous={}\n", bool_str(self.passgen.exclude_ambiguous))?;
             // ASCII punctuation only (no space, no line break): safe on one line.
-            out.push_str(&format!("passgen_symbol_set={}\n", self.passgen.symbol_set));
+            write!(w, "passgen_symbol_set={}\n", self.passgen.symbol_set)?;
             // Side panel widths: only once resized, so a note whose panels
             // were never resized keeps the header of earlier versions.
             use crate::ui::side_panel::{default_width, SidePanel};
@@ -625,15 +655,24 @@ impl Settings {
                 ("prompts_panel_width", self.prompts_panel_width, SidePanel::Prompts),
             ] {
                 if width != default_width(panel) {
-                    out.push_str(&format!("{key}={width}\n"));
+                    write!(w, "{key}={width}\n")?;
                 }
             }
         }
 
-        out.push_str(FOOTER);
-        out.push('\n');
-        out.push_str(note_text);
-        out
+        w.write_str(FOOTER)?;
+        w.write_char('\n')?;
+        w.write_str(note_text)
+    }
+}
+
+/// The first pass of `Settings::serialize`: counts the bytes it would write.
+struct ByteCount(usize);
+
+impl std::fmt::Write for ByteCount {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        self.0 += s.len();
+        Ok(())
     }
 }
 
@@ -1301,4 +1340,79 @@ mod tests {
             [("X".to_string(), "ONE".to_string()), ("X".to_string(), "ONE".to_string())]
         );
     }
+
+    /// Issue #41: the serialized text (secrets and the whole note) is
+    /// written into one buffer allocated at its exact size: a buffer that
+    /// grows leaves a freed, unwiped copy at every reallocation, and a
+    /// larger one would not be what the callers wrap and wipe.
+    #[test]
+    fn serialize_allocates_the_exact_size_once() {
+        let big_note = "x\u{e9}\r\n".repeat(50_000);
+        let mut no_window = every_field_set();
+        no_window.window_x = i32::MIN;
+        for (s, note) in [
+            (every_field_set(), EVERY_FIELD_NOTE),
+            (every_field_set(), ""),
+            (every_field_set(), big_note.as_str()),
+            (no_window, "n"),
+            (Settings::default(), ""),
+            (Settings::parse_fallback(), big_note.as_str()),
+        ] {
+            let out = s.serialize(note);
+            assert_eq!(out.capacity(), out.len(), "buffer not sized up front ({} bytes)", out.len());
+        }
+    }
+
+    /// The source of `rel` (from the crate root), from `start` to the first
+    /// `end` after it.
+    fn source_region(rel: &str, start: &str, end: &str) -> String {
+        let src = crate::read_source(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(rel));
+        let at = src.find(start).unwrap_or_else(|| panic!("{start} in {rel}"));
+        let len = src[at..].find(end).unwrap_or_else(|| panic!("end of {start} in {rel}"));
+        src[at..at + len].to_string()
+    }
+
+    /// `first` occurs in `body`, and `then` after it.
+    fn in_order(body: &str, first: &str, then: &str) -> bool {
+        match body.find(first) {
+            Some(i) => body[i + first.len()..].contains(then),
+            None => false,
+        }
+    }
+
+    /// Issue #41: the secrets go into the serialized text as they stand: no
+    /// `format!` temporary in serialize (the exact-size test cannot see one:
+    /// a temporary pushed into a buffer large enough leaves no trace in it).
+    #[test]
+    fn serialize_writes_the_secrets_without_temporaries() {
+        let ser = source_region("src/settings/mod.rs", "    pub fn serialize(&self", "\nstruct ByteCount");
+        assert!(!ser.contains("format!("), "a format! temporary in serialize");
+        assert!(ser.contains("let mut out = String::with_capacity(len.0);"));
+        assert!(ser.contains("w.write_str(&self.totp_2fa_secret)?;"), "the 2FA secret");
+        assert!(ser.contains("w.write_str(&entry.secret)?;"), "the TOTP entry secrets");
+        for line in ser.lines().filter(|l| l.contains("write!(")) {
+            assert!(!line.contains("secret"), "a secret formatted: {line}");
+        }
+    }
+
+    /// Issue #41: parse wipes a 2FA secret a later line replaces, and copies
+    /// a TOTP secret once, straight into its entry, after the checks.
+    #[test]
+    fn parse_wipes_a_replaced_2fa_secret_and_copies_an_entry_secret_once() {
+        let two_fa = source_region("src/settings/mod.rs", "            \"totp_2fa_secret\" => {", "            \"totp_entry\" => {");
+        assert!(
+            in_order(&two_fa, "zeroize::Zeroize::zeroize(&mut self.totp_2fa_secret);", "self.totp_2fa_secret.push_str(value);"),
+            "the previous 2FA secret is not wiped before the new one is written"
+        );
+        let entry = source_region("src/settings/mod.rs", "            \"totp_entry\" => {", "            \"vault_category\" => {");
+        assert!(entry.contains("value.split_once('|')"));
+        assert!(
+            in_order(&entry, "if !name.is_empty() && !secret.is_empty() {", "secret: secret.to_string() });"),
+            "the secret is copied before the checks"
+        );
+        assert_eq!(entry.matches("to_string()").count(), 2, "copies in totp_entry (the name and the secret)");
+        let code = source_region("src/settings/mod.rs", "impl Settings {", "#[cfg(test)]");
+        assert!(!code.contains("self.totp_2fa_secret ="), "the 2FA secret is assigned, freeing the previous one");
+    }
+
 }
