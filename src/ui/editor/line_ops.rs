@@ -702,6 +702,7 @@ pub(super) mod tests {
     /// A real RICHEDIT50W, also used by the case_ops.rs tests.
     pub(in crate::ui::editor) mod live {
         use super::*;
+        use crate::ui::editor::live_rich_edit::LiveRichEdit;
         use windows::core::w;
         use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
         use windows::Win32::System::LibraryLoader::LoadLibraryW;
@@ -713,6 +714,8 @@ pub(super) mod tests {
         pub(in crate::ui::editor) struct Rich {
             top: HWND,
             pub(in crate::ui::editor) ed: HWND,
+            // Last: released once the control is destroyed (see live_rich_edit.rs).
+            _live: LiveRichEdit,
         }
 
         impl Drop for Rich {
@@ -728,6 +731,7 @@ pub(super) mod tests {
         }
 
         pub(in crate::ui::editor) fn make(text: &str) -> Rich {
+            let live = crate::ui::editor::live_rich_edit::guard();
             unsafe {
                 LoadLibraryW(w!("msftedit.dll")).expect("msftedit.dll");
                 let top = CreateWindowExW(
@@ -744,7 +748,7 @@ pub(super) mod tests {
                 let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
                 SetWindowTextW(ed, windows::core::PCWSTR(wide.as_ptr())).expect("set text");
                 send(ed, 0x00CD, 0, 0); // EM_EMPTYUNDOBUFFER
-                Rich { top, ed }
+                Rich { top, ed, _live: live }
             }
         }
 

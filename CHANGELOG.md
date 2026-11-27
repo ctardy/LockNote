@@ -95,6 +95,11 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
 - **Select All with emoji**: Edit > Select All / Ctrl+A now selects the whole
   text when it contains emoji or other characters outside the BMP (the end
   was cut short by one position per such character).
+- **Test suite**: the tests that drive a real RichEdit control (`live_*`) no
+  longer run at the same time. Several test threads using RichEdit at once
+  sometimes killed the test binary with an access violation in `gdi32full`,
+  or made a test read wrong font metrics. The application is not affected:
+  it uses RichEdit from its one UI thread only.
 
 ## [2.1.1] - 2026-11-26
 

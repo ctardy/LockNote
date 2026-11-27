@@ -981,6 +981,8 @@ mod tests {
         struct Rich {
             top: HWND,
             ed: HWND,
+            // Last: released once the control is destroyed (see live_rich_edit.rs).
+            _live: crate::ui::editor::live_rich_edit::LiveRichEdit,
         }
 
         impl Drop for Rich {
@@ -997,6 +999,7 @@ mod tests {
 
         /// `make` with more window styles (`extra`) on the editor.
         fn make_with(font_height: i32, extra: u32) -> Rich {
+            let live = crate::ui::editor::live_rich_edit::guard();
             unsafe {
                 LoadLibraryW(w!("msftedit.dll")).expect("msftedit.dll");
                 let top = CreateWindowExW(
@@ -1016,7 +1019,7 @@ mod tests {
                 send(ed, WM_SETFONT, font.0 as usize, 1);
                 send(ed, 0x00D3, 1, 20); // EM_SETMARGINS left, as the editor
                 set_text(ed, TEXT);
-                Rich { top, ed }
+                Rich { top, ed, _live: live }
             }
         }
 
@@ -1491,6 +1494,8 @@ mod tests {
             // sunken edge: three rows of system greys (and white on the
             // right / bottom) around the text, whatever the theme.
             use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongPtrW, GWL_EXSTYLE, GWL_STYLE};
+            // First: dropped after the window (see live_rich_edit.rs).
+            let _live = crate::ui::editor::live_rich_edit::guard();
             let _ = nwg::init();
             let mut window = nwg::Window::default();
             nwg::Window::builder().size((400, 300)).flags(nwg::WindowFlags::WINDOW).build(&mut window).expect("window");

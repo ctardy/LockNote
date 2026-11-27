@@ -729,10 +729,13 @@ mod tests {
         struct Rig {
             _window: nwg::Window,
             editor: nwg::RichTextBox,
+            // Last: released once the window is destroyed (see live_rich_edit.rs).
+            _live: crate::ui::editor::live_rich_edit::LiveRichEdit,
         }
 
         /// The editor showing tab A ("aaa") of two tabs (B holds "bbb").
         fn rig() -> (Rig, RefCell<TabBar>) {
+            let live = crate::ui::editor::live_rich_edit::guard();
             let _ = nwg::init();
             let mut window = nwg::Window::default();
             nwg::Window::builder().size((400, 300)).flags(nwg::WindowFlags::WINDOW).build(&mut window).expect("window");
@@ -745,7 +748,7 @@ mod tests {
             tabs.set_tab_content(1, "bbb");
             tabs.set_active(0);
             editor.load_tab_text("aaa");
-            (Rig { _window: window, editor }, RefCell::new(tabs))
+            (Rig { _window: window, editor, _live: live }, RefCell::new(tabs))
         }
 
         fn send(ed: &nwg::RichTextBox, msg: u32, w: usize, l: isize) -> isize {

@@ -512,6 +512,9 @@ use self::lock_overlay::*;
 
 #[cfg(test)]
 mod tests;
+// Tests only: one thread at a time drives a live RichEdit (live_* tests).
+#[cfg(test)]
+mod live_rich_edit;
 
 /// The source of every file of this module, joined, for tests that check the
 /// code as text (see `features::payload` and `ui::window_geometry`). Reads the
