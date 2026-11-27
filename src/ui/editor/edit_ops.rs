@@ -305,64 +305,14 @@ impl EditorForm {
         self.editor.set_selection(0..len);
     }
 
-    /// Duplicate the current line.
+    /// Duplicate the current line (Ctrl+D): one undoable EM_REPLACESEL.
     pub(super) fn on_duplicate_line(&self) {
-        let text = self.get_content();
-        let sel = self.editor.selection();
-        let sel_start = (sel.start as usize).min(text.len());
-
-        // Find line boundaries
-        let line_start = text[..sel_start]
-            .rfind('\n')
-            .map(|p| p + 1)
-            .unwrap_or(0);
-        let line_end = text[sel_start..]
-            .find('\n')
-            .map(|p| sel_start + p)
-            .unwrap_or(text.len());
-
-        let line = &text[line_start..line_end];
-        let insertion = format!("\n{}", line);
-
-        // Insert after the current line
-        self.editor.set_selection(line_end as u32..line_end as u32);
-        // Use the Windows EM_REPLACESEL approach — for now, rebuild text
-        let new_text = format!("{}{}{}", &text[..line_end], insertion, &text[line_end..]);
-        self.editor.set_text(&new_text);
-        let new_pos = (line_end + insertion.len()) as u32;
-        self.editor.set_selection(new_pos..new_pos);
-        self.mark_modified();
-        self.layout_controls();
+        self.on_current_line_edit("duplicate", super::line_ops::duplicate_line_edit);
     }
 
-    /// Delete the current line.
+    /// Delete the current line (Ctrl+Shift+K): one undoable EM_REPLACESEL.
     pub(super) fn on_delete_line(&self) {
-        let text = self.get_content();
-        let sel = self.editor.selection();
-        let sel_start = (sel.start as usize).min(text.len());
-
-        let line_start = text[..sel_start]
-            .rfind('\n')
-            .map(|p| p + 1)
-            .unwrap_or(0);
-        let line_end = text[sel_start..]
-            .find('\n')
-            .map(|p| sel_start + p + 1) // include the newline
-            .unwrap_or(text.len());
-
-        // If deleting last line (no trailing \n), also remove preceding \n
-        let del_start = if line_end == text.len() && line_start > 0 {
-            line_start - 1
-        } else {
-            line_start
-        };
-
-        let new_text = format!("{}{}", &text[..del_start], &text[line_end..]);
-        self.editor.set_text(&new_text);
-        let new_pos = del_start.min(new_text.len()) as u32;
-        self.editor.set_selection(new_pos..new_pos);
-        self.mark_modified();
-        self.layout_controls();
+        self.on_current_line_edit("delete", super::line_ops::delete_line_edit);
     }
 
     /// Toggle a "• " bullet prefix on the current line (Ctrl+.).
@@ -398,24 +348,13 @@ impl EditorForm {
     }
 
     /// Insert a timestamp at the cursor position: the local time of the
-    /// machine, read by the same clock as the prompt variables.
+    /// machine, read by the same clock as the prompt variables. It replaces
+    /// the selection as one undoable EM_REPLACESEL.
     pub(super) fn on_insert_timestamp(&self) {
         let timestamp = local_now();
-
-        let text = self.get_content();
-        let sel = self.editor.selection();
-        let sel_start = (sel.start as usize).min(text.len());
-        let sel_end = (sel.end as usize).min(text.len());
-        let new_text = format!(
-            "{}{}{}",
-            &text[..sel_start],
-            timestamp,
-            &text[sel_end..]
-        );
-        self.editor.set_text(&new_text);
-        let new_pos = sel_start as u32 + timestamp.len() as u32;
-        self.editor.set_selection(new_pos..new_pos);
-        self.mark_modified();
+        super::line_ops::insert_at_selection(&super::line_ops::EditorLineSteps(self), &timestamp);
+        self.reset_occurrence_highlights();
+        self.send_editor_message(0x00B7, 0, 0); // EM_SCROLLCARET
     }
 
     // =====================================================================
@@ -528,19 +467,8 @@ impl EditorForm {
     /// Move the caret to the first column of the given zero-based line and
     /// scroll it into view. Out-of-range lines are clamped to the document.
     pub(super) fn apply_cursor_line(&self, line: u32) {
-        let text = self.get_content();
-        let byte_offset: usize = if line == 0 {
-            0
-        } else {
-            text.split('\n')
-                .take(line as usize)
-                .map(|l| l.len() + 1)
-                .sum::<usize>()
-                .min(text.len())
-        };
-        let u16_map = build_utf16_offset_map(&text);
-        let u16_off = u16_map[byte_offset] as u32;
-        self.editor.set_selection(u16_off..u16_off);
+        let pos = line_start_position(&self.get_content(), line);
+        self.editor.set_selection(pos..pos);
         self.editor.set_focus();
         self.send_editor_message(0x00B7, 0, 0); // EM_SCROLLCARET
     }
@@ -549,31 +477,13 @@ impl EditorForm {
         use crate::ui::dialogs::goto_line::GoToLineDialog;
 
         let text = self.get_content();
-        let lines: Vec<&str> = text.split('\n').collect();
-        let max_lines = lines.len().max(1) as u32;
+        let max_lines = text.split('\n').count().max(1) as u32;
+        let current = current_line(&text, self.editor.selection().start);
 
-        // Determine the current line from cursor position
-        let sel = self.editor.selection();
-        let cursor_pos = sel.start as usize;
-        let current_line = text[..cursor_pos.min(text.len())]
-            .matches('\n')
-            .count() as u32
-            + 1;
-
-        if let Some(target_line) = GoToLineDialog::show(current_line, max_lines) {
-            // Calculate character offset of the target line
-            let offset: usize = lines
-                .iter()
-                .take((target_line - 1) as usize)
-                .map(|l| l.len() + 1) // +1 for the '\n'
-                .sum();
-            let offset = offset.min(text.len()) as u32;
-
-            self.editor.set_selection(offset..offset);
-            self.editor.set_focus();
-
-            // EM_SCROLLCARET (0x00B7) — scroll the caret into view
-            self.send_editor_message(0x00B7, 0, 0);
+        // The dialog guarantees 1 <= target <= max_lines; the text and the
+        // caret are read again by apply_cursor_line, after the dialog.
+        if let Some(target_line) = GoToLineDialog::show(current, max_lines) {
+            self.apply_cursor_line(target_line - 1);
         }
     }
 
@@ -587,6 +497,22 @@ impl EditorForm {
             outcome => eprintln!("INFO outline: go to heading {:?}", outcome),
         }
     }
+}
+
+/// Ctrl+G: the 1-based line of the RichEdit position `caret` (UTF-16
+/// units, a line break = 1), as the status bar counts it.
+pub(super) fn current_line(text: &str, caret: u32) -> u32 {
+    let p = caret as usize;
+    caret_status(text, p, p, p).line as u32
+}
+
+/// RichEdit position of the first column of the zero-based `line` of
+/// `text` (the `get_content` text, "\r\n" breaks). A line past the end
+/// gives the end of the text.
+pub(super) fn line_start_position(text: &str, line: u32) -> u32 {
+    // Each line counted with its "\r" and its "\n": a char boundary.
+    let byte_offset: usize = text.split('\n').take(line as usize).map(|l| l.len() + 1).sum::<usize>().min(text.len());
+    build_utf16_offset_map(text)[byte_offset] as u32
 }
 
 /// The steps of `heading_flow` on the window.
@@ -644,5 +570,37 @@ impl zoom::FontSteps for FormFont<'_> {
         // follow the new line pitch.
         self.0.layout_controls();
         self.0.paint_gutter();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn goto_current_line_counts_richedit_positions() {
+        // "\r\n" is one position: the caret at 2 is on line 2.
+        assert_eq!(current_line("a\r\nb", 2), 2);
+        assert_eq!(current_line("a\r\nb\r\n", 4), 3);
+        // A caret after "é" or an emoji used to slice inside it (panic).
+        assert_eq!(current_line("é", 1), 1);
+        assert_eq!(current_line("😀\r\nx", 3), 2);
+        assert_eq!(current_line("• \r\n• ", 5), 2);
+        assert_eq!(current_line("", 0), 1);
+    }
+
+    #[test]
+    fn goto_target_is_a_richedit_position() {
+        // Ten lines "x": line 6 (zero-based 5) starts at position 10, not
+        // at byte 15 (which is line 8).
+        let ten = vec!["x"; 10].join("\r\n");
+        assert_eq!(line_start_position(&ten, 5), 10);
+        assert_eq!(line_start_position("a\r\nb\r\nc", 2), 4);
+        assert_eq!(line_start_position("é\r\n😀\r\nz", 2), 5);
+        assert_eq!(line_start_position("é\r\n😀\r\nz", 1), 2);
+        assert_eq!(line_start_position("abc", 0), 0);
+        assert_eq!(line_start_position("", 0), 0);
+        // Past the last line: the end of the text.
+        assert_eq!(line_start_position("a\r\nb", 9), 3);
     }
 }

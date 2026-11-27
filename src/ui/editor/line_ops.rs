@@ -1,5 +1,7 @@
 // Line operations: Alt+Up / Alt+Down move lines, Edit > Lines transforms
-// the lines of the selection or of the whole tab (features::line_ops).
+// the lines of the selection or of the whole tab (features::line_ops),
+// Ctrl+D / Ctrl+Shift+K duplicate / delete the current line, F5 inserts at
+// the selection.
 //
 // Positions are RichEdit character positions (UTF-16 code units, a line
 // break = 1, see helpers.rs). The text comes from WM_GETTEXT, so breaks are
@@ -166,6 +168,49 @@ pub(super) fn user_locale_line_op_edit(
     line_op_edit(text, sel, op, crate::ui::vault_panel::sort_key_user_locale)
 }
 
+/// Index of the line holding the start of the RichEdit selection `sel`
+/// (either direction), as Ctrl+D and Ctrl+Shift+K have always picked it.
+/// The start must fall on a character of `text`, except one position past
+/// the end: the final paragraph mark of Select All (as `case_edit`).
+fn line_of_selection_start(text: &str, lines: &[(usize, usize)], sel: (u32, u32)) -> Result<usize, Utf16RangeError> {
+    let max = utf16_len(text) as u32;
+    let lo = sel.0.min(sel.1);
+    let lo = if lo == max + 1 { max } else { lo };
+    Ok(line_of(lines, utf16_to_byte_exact(text, lo as usize)?))
+}
+
+/// Ctrl+D: insert a copy of the line holding the selection start under it,
+/// caret at the end of the copy. A RichEdit position that does not fall on
+/// the text is an error (nothing is edited).
+pub(super) fn duplicate_line_edit(text: &str, sel: (u32, u32)) -> Result<Option<LineEdit>, Utf16RangeError> {
+    let lines = line_ranges(text);
+    let i = line_of_selection_start(text, &lines, sel)?;
+    let line = &text[lines[i].0..lines[i].1];
+    let at = position_of(text, lines[i].1);
+    // "\n" is one paragraph break for EM_REPLACESEL; the line holds no break.
+    let caret = at + 1 + utf16_len(line) as u32;
+    Ok(Some(LineEdit { start: at, end: at, text: format!("\n{line}"), sel: (caret, caret) }))
+}
+
+/// Ctrl+Shift+K: remove the line holding the selection start with its
+/// break (the break before it for the last line), caret where it was.
+/// `Ok(None)` on an empty tab.
+pub(super) fn delete_line_edit(text: &str, sel: (u32, u32)) -> Result<Option<LineEdit>, Utf16RangeError> {
+    let lines = line_ranges(text);
+    let i = line_of_selection_start(text, &lines, sel)?;
+    let (start, end) = if i + 1 < lines.len() {
+        (position_of(text, lines[i].0), position_of(text, lines[i + 1].0))
+    } else if i > 0 {
+        (position_of(text, lines[i - 1].1), position_of(text, lines[i].1))
+    } else {
+        (0, position_of(text, lines[i].1))
+    };
+    if start == end {
+        return Ok(None);
+    }
+    Ok(Some(LineEdit { start, end, text: String::new(), sel: (start, start) }))
+}
+
 /// What applying a `LineEdit` does to the editor, so the sequence can be
 /// tested with a fake.
 pub(super) trait LineEditSteps {
@@ -200,6 +245,16 @@ where
     s.select(edit.sel.0, edit.sel.1);
     s.mark_modified();
     Ok(true)
+}
+
+/// F5: replace the selection (or insert at the caret) with `inserted`, as
+/// one undo step. No position is computed: EM_REPLACESEL takes the
+/// selection in either direction, Select All's final mark included, and
+/// leaves the caret after the insertion.
+pub(super) fn insert_at_selection<S: LineEditSteps>(s: &S, inserted: &str) {
+    s.stop_group_typing();
+    s.replace_selection(inserted);
+    s.mark_modified();
 }
 
 /// `LineEditSteps` on the main editor (also used by case_ops.rs).
@@ -252,12 +307,33 @@ impl EditorForm {
         }
     }
 
+    /// Ctrl+D (`duplicate_line_edit`) and Ctrl+Shift+K (`delete_line_edit`):
+    /// one undoable EM_REPLACESEL. The line count changes, so the gutter
+    /// width is laid out again. A selection that does not map onto the text
+    /// leaves it untouched and is shown, as Convert Case does.
+    pub(super) fn on_current_line_edit(&self, what: &str, compute: fn(&str, (u32, u32)) -> Result<Option<LineEdit>, Utf16RangeError>) {
+        match run_line_edit(&EditorLineSteps(self), compute) {
+            Ok(changed) => {
+                eprintln!("INFO lines: {} changed={}", what, changed);
+                if changed {
+                    self.reset_occurrence_highlights();
+                    self.layout_controls();
+                    self.send_editor_message(0x00B7, 0, 0); // EM_SCROLLCARET
+                }
+            }
+            Err(e) => {
+                eprintln!("ERROR lines: {} selection not mapped onto the text: {:?}", what, e);
+                self.inform(&t("lines.error.title"), &t("lines.error.mapping").replace("{msg}", &format!("{:?}", e)));
+            }
+        }
+    }
+
     /// EM_REPLACESEL formats the inserted lines like the start of the
     /// replaced range, which may be a highlighted occurrence. Forgetting
     /// the last term makes the next highlight tick clear and repaint all
     /// (as theme_switch.rs does), even when the selected term is unchanged.
     /// An empty term means nothing is highlighted: no pass is needed.
-    fn reset_occurrence_highlights(&self) {
+    pub(super) fn reset_occurrence_highlights(&self) {
         if !self.last_highlighted.borrow().is_empty() {
             *self.last_highlighted.borrow_mut() = "\0".to_string();
         }
@@ -537,10 +613,14 @@ pub(super) mod tests {
             self.log.borrow_mut().push(format!("replace:{:?}", text));
             let current = self.text.borrow().clone();
             let (s, e) = *self.sel.borrow();
-            let (b0, b1) = utf16_range_to_byte_range(&current, s as usize, e as usize);
+            let (lo, hi) = (s.min(e), s.max(e));
+            let (b0, b1) = utf16_range_to_byte_range(&current, lo as usize, hi as usize);
             // RichEdit stores a "\n" as a paragraph break, read back as "\r\n".
             let inserted = text.replace('\n', "\r\n");
             *self.text.borrow_mut() = format!("{}{}{}", &current[..b0], inserted, &current[b1..]);
+            // As EM_REPLACESEL: the caret ends after the inserted text.
+            let caret = build_utf16_offset_map(&current)[b0] as u32 + utf16_len(&inserted) as u32;
+            *self.sel.borrow_mut() = (caret, caret);
         }
         fn mark_modified(&self) {
             self.log.borrow_mut().push("modified".into());
@@ -614,6 +694,159 @@ pub(super) mod tests {
         assert_eq!(*f.sel.borrow(), (5, 8));
     }
 
+    // ── Ctrl+D / Ctrl+Shift+K / F5: RichEdit positions, never byte offsets ──
+
+    type Compute = fn(&str, (u32, u32)) -> Result<Option<LineEdit>, Utf16RangeError>;
+
+    /// Text and selection after `compute` ran on a fake editor.
+    fn after(compute: Compute, text: &str, sel: (u32, u32)) -> (String, (u32, u32)) {
+        let f = Fake::new(text, sel);
+        run_line_edit(&f, compute).expect("maps");
+        let text = f.text.borrow().clone();
+        let sel = *f.sel.borrow();
+        (text, sel)
+    }
+
+    fn s(text: &str, sel: (u32, u32)) -> (String, (u32, u32)) {
+        (text.to_string(), sel)
+    }
+
+    #[test]
+    fn duplicate_after_a_multi_byte_character() {
+        // A caret after "é", "😀" or the bullet of Ctrl+. used to slice
+        // inside the character: a panic, and the app closed (panic = abort).
+        assert_eq!(after(duplicate_line_edit, "é", (1, 1)), s("é\r\né", (3, 3)));
+        assert_eq!(after(duplicate_line_edit, "😀", (2, 2)), s("😀\r\n😀", (5, 5)));
+        assert_eq!(after(duplicate_line_edit, "• ", (2, 2)), s("• \r\n• ", (5, 5)));
+        assert_eq!(after(duplicate_line_edit, "x é y\r\nz", (3, 3)), s("x é y\r\nx é y\r\nz", (11, 11)));
+    }
+
+    #[test]
+    fn duplicate_counts_a_line_break_as_one_position() {
+        // Caret at the start of "c" (position 4): "c" is duplicated, not "b".
+        assert_eq!(after(duplicate_line_edit, "a\r\nb\r\nc", (4, 4)), s("a\r\nb\r\nc\r\nc", (7, 7)));
+        // Caret at the very end.
+        assert_eq!(after(duplicate_line_edit, "ab\r\ncd", (5, 5)), s("ab\r\ncd\r\ncd", (8, 8)));
+        // Caret on the empty line after a final break: that empty line.
+        assert_eq!(after(duplicate_line_edit, "a\r\n", (2, 2)), s("a\r\n\r\n", (3, 3)));
+        // Emoji and breaks before the caret.
+        assert_eq!(after(duplicate_line_edit, "😀\r\né\r\nlast", (5, 5)), s("😀\r\né\r\nlast\r\nlast", (14, 14)));
+    }
+
+    #[test]
+    fn duplicate_acts_on_the_line_of_the_selection_start() {
+        // Today's rule, kept: the line holding the start, in both directions.
+        assert_eq!(after(duplicate_line_edit, "aa\r\nbb\r\ncc", (1, 7)), s("aa\r\naa\r\nbb\r\ncc", (5, 5)));
+        assert_eq!(after(duplicate_line_edit, "aa\r\nbb\r\ncc", (7, 1)), s("aa\r\naa\r\nbb\r\ncc", (5, 5)));
+        // Select All (EM_SETSEL(0, -1)) ends one past the text (final mark).
+        assert_eq!(after(duplicate_line_edit, "x😀\r\ny", (0, 6)), s("x😀\r\nx😀\r\ny", (7, 7)));
+        assert_eq!(after(duplicate_line_edit, "", (0, 0)), s("\r\n", (1, 1)));
+    }
+
+    #[test]
+    fn duplicate_inserts_only_the_copy() {
+        // One insertion after the line, not a rebuild of the whole text.
+        let e = duplicate_line_edit("a\r\nb😀", (3, 3)).expect("maps").expect("changes");
+        assert_eq!(e, LineEdit { start: 5, end: 5, text: "\nb😀".into(), sel: (9, 9) });
+    }
+
+    #[test]
+    fn delete_after_a_multi_byte_character() {
+        assert_eq!(after(delete_line_edit, "é", (1, 1)), s("", (0, 0)));
+        assert_eq!(after(delete_line_edit, "😀\r\nb", (2, 2)), s("b", (0, 0)));
+        assert_eq!(after(delete_line_edit, "a\r\n• ", (4, 4)), s("a", (1, 1)));
+    }
+
+    #[test]
+    fn delete_counts_a_line_break_as_one_position() {
+        // Caret at the start of "c": "c" is deleted, not "b".
+        assert_eq!(after(delete_line_edit, "a\r\nb\r\nc", (4, 4)), s("a\r\nb", (3, 3)));
+        // Caret at the start of "b": "b" is deleted, not "a".
+        assert_eq!(after(delete_line_edit, "a\r\nb", (2, 2)), s("a", (1, 1)));
+        // Caret at the very end: the last line and its break go, no lone CR.
+        assert_eq!(after(delete_line_edit, "a\r\nb", (3, 3)), s("a", (1, 1)));
+        // The empty line after a final break.
+        assert_eq!(after(delete_line_edit, "a\r\n", (2, 2)), s("a", (1, 1)));
+        assert_eq!(after(delete_line_edit, "a\r\nb\r\nc", (0, 0)), s("b\r\nc", (0, 0)));
+        assert_eq!(after(delete_line_edit, "\r\n", (0, 0)), s("", (0, 0)));
+        assert_eq!(after(delete_line_edit, "abc", (1, 1)), s("", (0, 0)));
+    }
+
+    #[test]
+    fn delete_acts_on_the_line_of_the_selection_start() {
+        assert_eq!(after(delete_line_edit, "aa\r\nbb\r\ncc", (1, 7)), s("bb\r\ncc", (0, 0)));
+        assert_eq!(after(delete_line_edit, "aa\r\nbb\r\ncc", (7, 1)), s("bb\r\ncc", (0, 0)));
+        assert_eq!(after(delete_line_edit, "x😀\r\ny", (0, 6)), s("y", (0, 0)));
+    }
+
+    #[test]
+    fn delete_removes_only_the_line() {
+        let e = delete_line_edit("a\r\nbb\r\nc", (3, 3)).expect("maps").expect("changes");
+        assert_eq!(e, LineEdit { start: 2, end: 5, text: String::new(), sel: (2, 2) });
+    }
+
+    #[test]
+    fn delete_on_an_empty_tab_touches_nothing() {
+        // No change, no undo step, the tab is not marked modified.
+        let f = Fake::new("", (0, 0));
+        assert_eq!(run_line_edit(&f, delete_line_edit), Ok(false));
+        assert!(f.log.borrow().is_empty());
+    }
+
+    #[test]
+    fn caret_not_on_the_text_is_an_error_and_nothing_changes() {
+        // Inside a surrogate pair, or past the final mark: the text read
+        // back does not match the control (a bug), so nothing is edited.
+        for compute in [duplicate_line_edit as Compute, delete_line_edit] {
+            assert_eq!(compute("a😀", (2, 2)), Err(Utf16RangeError::MidSurrogate { pos: 2 }));
+            assert_eq!(compute("ab", (5, 5)), Err(Utf16RangeError::OutOfBounds { max: 5, len_u16: 2 }));
+            let f = Fake::new("a😀", (2, 2));
+            assert!(run_line_edit(&f, compute).is_err());
+            assert!(f.log.borrow().is_empty());
+        }
+    }
+
+    const TS: &str = "2026-11-27 10:00:00";
+
+    fn insert(text: &str, sel: (u32, u32)) -> (String, (u32, u32)) {
+        let f = Fake::new(text, sel);
+        insert_at_selection(&f, TS);
+        let text = f.text.borrow().clone();
+        let sel = *f.sel.borrow();
+        (text, sel)
+    }
+
+    #[test]
+    fn insert_after_a_multi_byte_character() {
+        assert_eq!(insert("é", (1, 1)), s(&format!("é{TS}"), (20, 20)));
+        assert_eq!(insert("😀", (2, 2)), s(&format!("😀{TS}"), (21, 21)));
+        assert_eq!(insert("• ", (2, 2)), s(&format!("• {TS}"), (21, 21)));
+    }
+
+    #[test]
+    fn insert_counts_a_line_break_as_one_position() {
+        assert_eq!(insert("ab\r\ncd", (5, 5)), s(&format!("ab\r\ncd{TS}"), (24, 24)));
+        assert_eq!(insert("ab\r\ncd", (3, 3)), s(&format!("ab\r\n{TS}cd"), (22, 22)));
+        assert_eq!(insert("", (0, 0)), s(TS, (19, 19)));
+    }
+
+    #[test]
+    fn insert_replaces_the_selection_in_either_direction() {
+        assert_eq!(insert("ab\r\ncd", (1, 4)), s(&format!("a{TS}d"), (20, 20)));
+        assert_eq!(insert("ab\r\ncd", (4, 1)), s(&format!("a{TS}d"), (20, 20)));
+        // Select All: the final mark past the text is replaced with the rest.
+        assert_eq!(insert("x\r\ny😀", (0, 6)), s(TS, (19, 19)));
+    }
+
+    #[test]
+    fn insert_is_one_replacement_of_the_selection() {
+        // No read of the text, no position computed: EM_REPLACESEL replaces
+        // the selection and leaves the caret after the insertion.
+        let f = Fake::new("a\r\nb", (2, 2));
+        insert_at_selection(&f, TS);
+        assert_eq!(*f.log.borrow(), vec!["stop_group".to_string(), format!("replace:{TS:?}"), "modified".into()]);
+    }
+
     // ── Code reading: wiring of the shortcuts and the menu ──
 
     fn src(file: &str) -> String {
@@ -662,6 +895,48 @@ pub(super) mod tests {
         let guard = reset.find("if !self.last_highlighted.borrow().is_empty() {").expect("empty-term guard");
         let set = reset.find("*self.last_highlighted.borrow_mut() = \"\\0\".to_string()").expect("reset");
         assert!(guard < set);
+    }
+
+    fn fn_body<'a>(code: &'a str, head: &str) -> &'a str {
+        let body = &code[code.find(head).unwrap_or_else(|| panic!("{head}"))..];
+        &body[..body.find("\n    }\n").unwrap_or_else(|| panic!("end of {head}"))]
+    }
+
+    #[test]
+    fn line_commands_edit_through_one_replace_selection() {
+        // Ctrl+D, Ctrl+Shift+K, F5 and Ctrl+G never slice the text with a
+        // RichEdit position nor rebuild it with set_text (undo history and
+        // scroll lost).
+        let ed = src("edit_ops.rs");
+        let ed = &ed[..ed.find("#[cfg(test)]").expect("test module")];
+        for f in ["fn on_duplicate_line(", "fn on_delete_line(", "fn on_insert_timestamp(", "fn on_goto_line(", "fn apply_cursor_line("] {
+            let body = fn_body(ed, f);
+            assert!(!body.contains("set_text("), "{f} rebuilds the text");
+            assert!(!body.contains("text[") && !body.contains("&text[.."), "{f} slices the text");
+        }
+        assert!(fn_body(ed, "fn on_duplicate_line(").contains("self.on_current_line_edit(\"duplicate\", super::line_ops::duplicate_line_edit)"));
+        assert!(fn_body(ed, "fn on_delete_line(").contains("self.on_current_line_edit(\"delete\", super::line_ops::delete_line_edit)"));
+        let f5 = fn_body(ed, "fn on_insert_timestamp(");
+        assert!(f5.contains("super::line_ops::insert_at_selection(&super::line_ops::EditorLineSteps(self), &timestamp)"));
+        assert!(f5.contains("self.reset_occurrence_highlights()"), "F5 may land in a highlighted occurrence");
+        assert!(f5.contains("self.send_editor_message(0x00B7, 0, 0)"));
+        let goto = fn_body(ed, "fn on_goto_line(");
+        assert!(goto.contains("current_line(&text, self.editor.selection().start)"));
+        assert!(goto.contains("self.apply_cursor_line(target_line - 1)"));
+        assert!(fn_body(ed, "fn apply_cursor_line(").contains("line_start_position(&self.get_content(), line)"));
+
+        // The shared handler: highlights reset (the copy may carry one),
+        // gutter width laid out again (the line count changed), caret
+        // scrolled into view, and a mapping error shown, never swallowed.
+        let lo = src("line_ops.rs");
+        let lo = &lo[..lo.find("#[cfg(test)]").expect("test module")];
+        let h = fn_body(lo, "fn on_current_line_edit(");
+        assert!(h.contains("run_line_edit(&EditorLineSteps(self), compute)"));
+        let changed = h.find("if changed {").expect("only after a change");
+        for call in ["self.reset_occurrence_highlights()", "self.layout_controls()", "self.send_editor_message(0x00B7, 0, 0)"] {
+            assert!(h[changed..].contains(call), "{call}");
+        }
+        assert!(h.contains("eprintln!(\"ERROR lines:") && h.contains("t(\"lines.error.mapping\")") && h.contains("self.inform("));
     }
 
     #[test]
@@ -853,6 +1128,175 @@ pub(super) mod tests {
             r.replace_selection("x");
             send(r.ed, 0x00C7, 0, 0); // EM_UNDO
             assert_eq!(r.text(), "one\r\ntwo");
+        }
+
+        // ── Ctrl+D / Ctrl+Shift+K / F5 on the real control ──
+
+        fn em_getsel(r: &Rich) -> (u32, u32) {
+            let (mut s, mut e) = (0u32, 0u32);
+            send(r.ed, 0x00B0, &mut s as *mut u32 as usize, &mut e as *mut u32 as isize); // EM_GETSEL
+            (s, e)
+        }
+
+        /// Keyboard typing (WM_CHAR), grouped by RichEdit into one undo step.
+        fn type_chars(r: &Rich, s: &str) {
+            for c in s.encode_utf16() {
+                send(r.ed, 0x0102, c as usize, 0);
+            }
+        }
+
+        fn undo(r: &Rich) {
+            send(r.ed, 0x00C7, 0, 0); // EM_UNDO
+        }
+
+        fn redo(r: &Rich) {
+            send(r.ed, 0x0454, 0, 0); // EM_REDO
+        }
+
+        fn select_all(r: &Rich) {
+            send(r.ed, 0x00B1, 0, -1); // EM_SETSEL(0, -1), RichEdit's own Ctrl+A
+        }
+
+        #[test]
+        fn live_richedit_counts_a_break_as_one_position() {
+            // Probes that do not depend on a LineEdit: the counting the fix
+            // relies on, read from the control itself.
+            let r = make("ab\r\ncd😀");
+            assert_eq!(r.text(), "ab\r\ncd😀", "WM_GETTEXT gives \\r\\n breaks");
+            // A caret pushed past the end lands on the UTF-16 length with a
+            // break counted once: 7, where the text holds 10 UTF-8 bytes.
+            send(r.ed, 0x00B1, 100, 100);
+            assert_eq!(em_getsel(&r), (7, 7));
+            // Select All ends one past the text: the final paragraph mark.
+            select_all(&r);
+            assert_eq!(em_getsel(&r), (0, 8));
+            // Four positions from the start are "ab", the break and "c".
+            r.select(0, 4);
+            r.replace_selection("");
+            assert_eq!(r.text(), "d😀");
+        }
+
+        #[test]
+        fn live_insert_after_an_accent_is_one_undo_step() {
+            let r = make("é\r\nab");
+            r.select(1, 1);
+            insert_at_selection(&r, TS);
+            assert_eq!(r.text(), format!("é{TS}\r\nab"));
+            assert_eq!(em_getsel(&r), (20, 20), "caret after the timestamp");
+            undo(&r);
+            assert_eq!(r.text(), "é\r\nab");
+            redo(&r);
+            assert_eq!(r.text(), format!("é{TS}\r\nab"));
+        }
+
+        #[test]
+        fn live_insert_over_a_selection_or_select_all() {
+            let r = make("ab\r\ncd😀");
+            r.select(4, 1); // backward, across the break
+            insert_at_selection(&r, TS);
+            assert_eq!(r.text(), format!("a{TS}d😀"));
+            assert_eq!(em_getsel(&r), (20, 20));
+            let r = make("x\r\ny😀");
+            select_all(&r);
+            insert_at_selection(&r, TS);
+            assert_eq!(r.text(), TS);
+            assert_eq!(em_getsel(&r), (19, 19));
+        }
+
+        #[test]
+        fn live_typing_then_insert_then_typing_undo_one_step_each() {
+            let r = make("");
+            type_chars(&r, "hi");
+            insert_at_selection(&r, TS);
+            type_chars(&r, "z");
+            assert_eq!(r.text(), format!("hi{TS}z"));
+            undo(&r);
+            assert_eq!(r.text(), format!("hi{TS}"), "the typing after only");
+            undo(&r);
+            assert_eq!(r.text(), "hi", "the timestamp only");
+            undo(&r);
+            assert_eq!(r.text(), "");
+        }
+
+        #[test]
+        fn live_duplicate_after_an_emoji_is_one_undo_step() {
+            let r = make("a😀\r\nb");
+            r.select(3, 3);
+            assert_eq!(run_line_edit(&r, duplicate_line_edit), Ok(true));
+            assert_eq!(r.text(), "a😀\r\na😀\r\nb", "one break between the lines, not two");
+            assert_eq!(em_getsel(&r), (7, 7), "caret at the end of the copy");
+            undo(&r);
+            assert_eq!(r.text(), "a😀\r\nb");
+            redo(&r);
+            assert_eq!(r.text(), "a😀\r\na😀\r\nb");
+        }
+
+        #[test]
+        fn live_delete_of_the_last_line_is_one_undo_step() {
+            let r = make("a\r\nb\r\nc");
+            r.select(4, 4);
+            assert_eq!(run_line_edit(&r, delete_line_edit), Ok(true));
+            assert_eq!(r.text(), "a\r\nb", "the caret line, not the one above");
+            assert_eq!(em_getsel(&r), (3, 3));
+            undo(&r);
+            assert_eq!(r.text(), "a\r\nb\r\nc");
+            redo(&r);
+            assert_eq!(r.text(), "a\r\nb");
+        }
+
+        #[test]
+        fn live_typing_around_duplicate_and_delete_undo_one_step_each() {
+            let r = make("one\r\ntwo");
+            r.select(7, 7);
+            type_chars(&r, "!");
+            assert_eq!(run_line_edit(&r, duplicate_line_edit), Ok(true));
+            assert_eq!(r.text(), "one\r\ntwo!\r\ntwo!");
+            type_chars(&r, "x");
+            assert_eq!(run_line_edit(&r, delete_line_edit), Ok(true));
+            assert_eq!(r.text(), "one\r\ntwo!");
+            for expected in ["one\r\ntwo!\r\ntwo!x", "one\r\ntwo!\r\ntwo!", "one\r\ntwo!", "one\r\ntwo"] {
+                undo(&r);
+                assert_eq!(r.text(), expected);
+            }
+        }
+
+        #[test]
+        fn live_select_all_then_duplicate_or_delete() {
+            let r = make("x😀\r\ny");
+            select_all(&r);
+            assert_eq!(run_line_edit(&r, duplicate_line_edit), Ok(true));
+            assert_eq!(r.text(), "x😀\r\nx😀\r\ny");
+            let r = make("x😀\r\ny");
+            select_all(&r);
+            assert_eq!(run_line_edit(&r, delete_line_edit), Ok(true));
+            assert_eq!(r.text(), "y");
+        }
+
+        #[test]
+        fn live_wm_settext_empties_the_undo_history() {
+            // Why the commands no longer rebuild the text with set_text
+            // (nwg's set_text is SetWindowTextW, a WM_SETTEXT).
+            let r = make("abc");
+            r.select(3, 3);
+            r.replace_selection("d");
+            assert_eq!(send(r.ed, 0x00C6, 0, 0), 1, "EM_CANUNDO after EM_REPLACESEL");
+            let wide: Vec<u16> = "abcd!".encode_utf16().chain(std::iter::once(0)).collect();
+            send(r.ed, 0x000C, 0, wide.as_ptr() as isize); // WM_SETTEXT
+            assert_eq!(send(r.ed, 0x00C6, 0, 0), 0, "EM_CANUNDO after WM_SETTEXT");
+        }
+
+        #[test]
+        fn live_duplicate_keeps_the_scroll() {
+            let text: Vec<String> = (1..=100).map(|n| format!("line {n}")).collect();
+            let r = make(&text.join("\r\n"));
+            send(r.ed, 0x00B6, 0, 40); // EM_LINESCROLL: 40 lines down
+            let first = send(r.ed, 0x00CE, 0, 0); // EM_GETFIRSTVISIBLELINE
+            assert!(first > 0, "scrolled: {first}");
+            let pos = crate::ui::editor::edit_ops::line_start_position(&r.text(), first as u32 + 2);
+            r.select(pos, pos);
+            assert_eq!(run_line_edit(&r, duplicate_line_edit), Ok(true));
+            assert_eq!(send(r.ed, 0x00CE, 0, 0), first, "the view stays where it was");
+            assert_eq!(r.text().lines().nth(first as usize + 3), Some(text[first as usize + 2].as_str()), "the copy is under its line");
         }
 
         #[test]

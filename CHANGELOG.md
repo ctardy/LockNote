@@ -104,6 +104,18 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   is replaced, the TOTP setup and copy, each code refresh) are wiped too (#38).
 
 ### Fixed
+- **Duplicate Line, Delete Line, Insert Timestamp and Go to Line with
+  accents, emoji or several lines**: these commands counted positions in
+  bytes, where the editor counts characters and a line break as one.
+  With the caret just after an accented letter, an emoji or a `• ` bullet,
+  Ctrl+D, Ctrl+Shift+K, F5 and Ctrl+G closed LockNote at once, and unsaved
+  changes were lost. With lines above the caret, Ctrl+D duplicated and
+  Ctrl+Shift+K deleted the wrong line, F5 put the timestamp in the wrong
+  place, and Ctrl+G opened on the wrong line number and moved to the wrong
+  line. Ctrl+D, Ctrl+Shift+K and F5 now act at the caret and are one
+  Ctrl+Z step each. Before, they rewrote the whole text, so Ctrl+Z could
+  not bring back a line deleted by mistake. Ctrl+Shift+K on an empty tab
+  no longer marks the note modified.
 - **Windows logoff during a close answered "Don't save"**: a logoff while a
   message of that close was still shown (the "Remember my choice" notice,
   an SSH key error) saved the changes the user had just declined. The answer

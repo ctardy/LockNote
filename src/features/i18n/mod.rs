@@ -333,6 +333,7 @@ fn build_en() -> Dict {
     m.insert("menu.edit.lines.trim", "&Trim Trailing Whitespace");
     m.insert("lines.error.title", "Lines");
     m.insert("lines.error.sort", "The lines were not sorted: {msg}");
+    m.insert("lines.error.mapping", "The line was not changed: {msg}");
     m.insert("menu.edit.selectall", "Select &All\tCtrl+A");
     m.insert("menu.edit.timestamp", "Insert &Timestamp\tF5");
 
@@ -1069,6 +1070,7 @@ fn build_fr() -> Dict {
     m.insert("menu.edit.lines.trim", "Supprimer les &espaces de fin");
     m.insert("lines.error.title", "Lignes");
     m.insert("lines.error.sort", "Les lignes n'ont pas \u{00e9}t\u{00e9} tri\u{00e9}es : {msg}");
+    m.insert("lines.error.mapping", "La ligne n'a pas \u{00e9}t\u{00e9} modifi\u{00e9}e : {msg}");
     m.insert("menu.edit.selectall", "&Tout s\u{00e9}lectionner\tCtrl+A");
     m.insert("menu.edit.timestamp", "Ins\u{00e9}rer un &horodatage\tF5");
 
@@ -1782,6 +1784,7 @@ fn build_es() -> Dict {
     m.insert("menu.edit.lines.trim", "Quitar espacios &finales");
     m.insert("lines.error.title", "L\u{00ed}neas");
     m.insert("lines.error.sort", "No se ordenaron las l\u{00ed}neas: {msg}");
+    m.insert("lines.error.mapping", "No se modific\u{00f3} la l\u{00ed}nea: {msg}");
     m.insert("menu.edit.selectall", "Seleccionar &todo\tCtrl+A");
     m.insert("menu.edit.timestamp", "Insertar marca de &tiempo\tF5");
 
@@ -2496,6 +2499,7 @@ fn build_de() -> Dict {
     m.insert("menu.edit.lines.trim", "&Leerzeichen am Zeilenende entfernen");
     m.insert("lines.error.title", "Zeilen");
     m.insert("lines.error.sort", "Die Zeilen wurden nicht sortiert: {msg}");
+    m.insert("lines.error.mapping", "Die Zeile wurde nicht ge\u{00e4}ndert: {msg}");
     m.insert("menu.edit.selectall", "Alles aus&w\u{00e4}hlen\tStrg+A");
     m.insert("menu.edit.timestamp", "&Zeitstempel einf\u{00fc}gen\tF5");
 
@@ -3317,6 +3321,18 @@ mod tests {
             }
             assert!(d["case.error.mapping"].contains("{msg}"), "case.error.mapping of {lang:?} shows the cause");
             assert!(!d["menu.edit.case.title"].contains('\t'), "Title Case has no shortcut");
+        }
+    }
+
+    // Ctrl+D / Ctrl+Shift+K: a selection not mapped onto the text is shown
+    // in every language, with its cause.
+    #[test]
+    fn line_edit_mapping_error_is_translated_everywhere() {
+        for lang in [Language::English, Language::French, Language::Spanish, Language::German] {
+            let d = dict_for(lang);
+            let msg = d.get("lines.error.mapping").unwrap_or_else(|| panic!("lines.error.mapping of {lang:?}"));
+            assert!(msg.contains("{msg}"), "lines.error.mapping of {lang:?} shows the cause");
+            assert!(d.contains_key("lines.error.title"), "lines.error.title of {lang:?}");
         }
     }
 
