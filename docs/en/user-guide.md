@@ -741,7 +741,8 @@ and copies them in one click.
 **Variables.** A prompt text may contain `{date}` (YYYY-MM-DD), `{time}`
 (HH:MM:SS), `{datetime}` (YYYY-MM-DD HH:MM:SS), `{clipboard}` (the current
 clipboard text, empty if there is none) and `{tab}` (the name of the active
-tab). Date and time are UTC, like Insert Timestamp (F5). Write `{{` and `}}`
+tab). Date and time are the local time of the computer, in the same format
+as Insert Timestamp (F5), which stays in UTC. Write `{{` and `}}`
 for literal braces. Unknown names (`{xyz}`), another case (`{Date}`) and lone
 braces stay as written. Variables are expanded when the prompt is copied or
 inserted; the stored prompt keeps them.

@@ -257,6 +257,24 @@ impl EditorForm {
     }
 }
 
+/// A local date and time as "YYYY-MM-DD HH:MM:SS", the Insert Timestamp
+/// format. Milliseconds and the day of the week are ignored (truncated, as
+/// `format_timestamp` truncates the Unix seconds).
+fn format_local(st: &windows::Win32::Foundation::SYSTEMTIME) -> String {
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond
+    )
+}
+
+/// Now on the local clock of the machine (Windows time zone and daylight
+/// saving time), for the prompt variables (B6). One GetLocalTime call, which
+/// cannot fail.
+fn local_now() -> String {
+    // SAFETY: GetLocalTime only fills and returns a SYSTEMTIME by value.
+    format_local(&unsafe { windows::Win32::System::SystemInformation::GetLocalTime() })
+}
+
 /// `PromptSteps` on the real window.
 struct FormPromptSteps<'a> {
     form: &'a EditorForm,
@@ -271,13 +289,9 @@ impl panel::PromptSteps for FormPromptSteps<'_> {
         self.form.prompts_panel.get(index)
     }
 
-    /// The clock and the format of Insert Timestamp (F5): UTC.
+    /// The local clock, in the format of Insert Timestamp (F5, which stays UTC).
     fn now(&self) -> String {
-        let secs = std::time::SystemTime::now()
-            .duration_since(std::time::SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        format_timestamp(secs)
+        local_now()
     }
 
     fn active_tab_name(&self) -> String {
@@ -340,13 +354,50 @@ mod tests {
         assert!(body(&ed, "pub(super) fn replace_selection_utf16(").contains("self.send_editor_message(0x00C2, 1,"));
     }
 
-    /// `{date}`/`{time}` follow Insert Timestamp: the same UTC formatter.
+    /// `{date}`/`{time}`/`{datetime}` read the local clock of the machine;
+    /// Insert Timestamp (F5) stays on the UTC formatter.
     #[test]
-    fn the_clock_is_the_insert_timestamp_one() {
+    fn prompts_use_the_local_clock_and_f5_stays_utc() {
         let ops = source("prompts_ops.rs");
-        assert!(body(&ops, "    fn now(&self)").contains("format_timestamp(secs)"));
+        let now = body(&ops, "    fn now(&self)");
+        assert_eq!(now.matches("local_now()").count(), 1, "one clock read per call");
+        assert!(!now.contains("format_timestamp"));
+        assert!(!now.contains("SystemTime"));
         let ed = source("edit_ops.rs");
-        assert!(body(&ed, "pub(super) fn on_insert_timestamp(").contains("format_timestamp(secs)"));
+        let f5 = body(&ed, "pub(super) fn on_insert_timestamp(");
+        assert!(f5.contains("format_timestamp(secs)"));
+        assert!(!f5.contains("local_now"));
+    }
+
+    fn st(y: u16, mo: u16, d: u16, h: u16, mi: u16, s: u16, ms: u16) -> windows::Win32::Foundation::SYSTEMTIME {
+        windows::Win32::Foundation::SYSTEMTIME {
+            wYear: y, wMonth: mo, wDayOfWeek: 0, wDay: d,
+            wHour: h, wMinute: mi, wSecond: s, wMilliseconds: ms,
+        }
+    }
+
+    /// The Insert Timestamp shape, zero-padded; milliseconds dropped (never
+    /// rounded up into the next second).
+    #[test]
+    fn local_time_is_formatted_like_insert_timestamp() {
+        assert_eq!(super::format_local(&st(2026, 3, 5, 7, 8, 9, 999)), "2026-03-05 07:08:09");
+        assert_eq!(super::format_local(&st(2026, 12, 31, 23, 59, 59, 0)), "2026-12-31 23:59:59");
+        assert_eq!(super::format_local(&st(2027, 1, 1, 0, 0, 0, 0)), "2027-01-01 00:00:00");
+        assert_eq!(super::format_local(&st(999, 1, 2, 3, 4, 5, 6)), "0999-01-02 03:04:05");
+        let (date, time) = super::panel::split_datetime("2026-03-05 07:08:09");
+        assert_eq!((date, time), ("2026-03-05", "07:08:09"));
+    }
+
+    /// `local_now` is the real local clock (GetLocalTime), read once: its
+    /// value lies between two direct reads taken around it.
+    #[test]
+    fn local_now_reads_the_local_clock() {
+        use windows::Win32::System::SystemInformation::GetLocalTime;
+        let before = super::format_local(&unsafe { GetLocalTime() });
+        let got = super::local_now();
+        let after = super::format_local(&unsafe { GetLocalTime() });
+        assert_eq!(got.len(), 19, "{got}");
+        assert!(before <= got && got <= after, "{before} <= {got} <= {after}");
     }
 
     #[test]

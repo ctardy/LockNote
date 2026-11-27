@@ -101,6 +101,8 @@ windows = { version = "0.62", features = [
     # around the occurrence highlights, selection direction (line ops)
     "Win32_UI_Controls_RichEdit",
     "Win32_System_Com",
+    # GetLocalTime: prompt variables {date}/{time} in local time (B6)
+    "Win32_System_SystemInformation",
 ] }
 
 [build-dependencies]

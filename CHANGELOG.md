@@ -57,7 +57,7 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   Session only: never saved, not an edit, not an undo step.
 - **Caret position in the status bar**: "Ln X, Col Y", plus "(N selected)"
   when text is selected.
-- **Prompt variables and Insert**: `{date}`, `{time}`, `{datetime}` (UTC),
+- **Prompt variables and Insert**: `{date}`, `{time}`, `{datetime}` (local time),
   `{clipboard}` and `{tab}` are expanded when a prompt is copied or inserted;
   `{{` and `}}` write a brace. The prompts panel has a new **Insert** button
   that puts the expanded prompt into the note at the caret (one Ctrl+Z).

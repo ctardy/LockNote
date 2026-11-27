@@ -814,8 +814,8 @@ prompts pour un outil d'IA) et les copie en un clic.
 **Variables.** Le texte d'un prompt peut contenir `{date}` (AAAA-MM-JJ),
 `{time}` (HH:MM:SS), `{datetime}` (AAAA-MM-JJ HH:MM:SS), `{clipboard}` (le
 texte actuel du presse-papiers, vide s'il n'y en a pas) et `{tab}` (le nom de
-l'onglet actif). La date et l'heure sont en UTC, comme Insérer un horodatage
-(F5). Écrivez `{{` et `}}` pour des accolades littérales. Les noms inconnus
+l'onglet actif). La date et l'heure sont l'heure locale de l'ordinateur, au
+même format qu'Insérer un horodatage (F5), qui reste en UTC. Écrivez `{{` et `}}` pour des accolades littérales. Les noms inconnus
 (`{xyz}`), une autre casse (`{Date}`) et les accolades isolées restent tels
 quels. Les variables sont remplacées quand le prompt est copié ou inséré ; le
 prompt enregistré les garde.

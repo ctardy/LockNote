@@ -290,8 +290,8 @@ pub fn expand_variables(text: &str, value: &mut dyn FnMut(PromptVar) -> String) 
     out
 }
 
-/// Date and time of a "YYYY-MM-DD HH:MM:SS" timestamp (`format_timestamp`,
-/// the Insert Timestamp format). A text without a space is all date.
+/// Date and time of a "YYYY-MM-DD HH:MM:SS" timestamp (the Insert Timestamp
+/// format). A text without a space is all date.
 pub fn split_datetime(datetime: &str) -> (&str, &str) {
     datetime.split_once(' ').unwrap_or((datetime, ""))
 }
@@ -302,7 +302,8 @@ pub trait PromptSteps {
     /// Locked or under the curtain: nothing may change the note.
     fn blocked(&self) -> bool;
     fn prompt(&self, index: usize) -> Option<PromptEntry>;
-    /// Now as "YYYY-MM-DD HH:MM:SS", UTC (the Insert Timestamp convention).
+    /// Now as "YYYY-MM-DD HH:MM:SS" (the Insert Timestamp format), on the
+    /// local clock of the machine.
     fn now(&self) -> String;
     fn active_tab_name(&self) -> String;
     /// The clipboard text, empty if there is none.
