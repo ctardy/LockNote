@@ -62,6 +62,17 @@ pub(crate) fn paged_selection(vk: usize, current: Option<usize>, len: usize, pag
     }
 }
 
+/// Entry run by a row: the entry `shown` on that row, or `None` for no
+/// row, a row past the list, or when an entry was `already_chosen` (input
+/// queued behind the first choice is still dispatched before the dialog
+/// returns: the first choice wins). Pure, like `moved_selection`.
+pub(crate) fn picked_entry(already_chosen: bool, row: Option<usize>, shown: &[usize]) -> Option<usize> {
+    if already_chosen {
+        return None;
+    }
+    row.and_then(|row| shown.get(row).copied())
+}
+
 /// Rows of one visible page: the whole rows that fit in the list's client
 /// height (`item_height` from LB_GETITEMHEIGHT), at least one. An error
 /// when the list gave no row height (LB_ERR or 0).
@@ -171,11 +182,13 @@ impl CommandPaletteDialog {
         refill("");
 
         // Run a row: the selected one (Enter) or the one double-clicked.
+        // The first choice wins (see picked_entry).
         let choose = {
             let shown = shown.clone();
             let result = result.clone();
             move |row: Option<usize>| {
-                let picked = row.and_then(|row| shown.borrow().get(row).copied());
+                let already_chosen = result.borrow().is_some();
+                let picked = picked_entry(already_chosen, row, &shown.borrow());
                 if let Some(i) = picked {
                     *result.borrow_mut() = Some(i);
                     nwg::stop_thread_dispatch();
@@ -302,7 +315,7 @@ impl CommandPaletteDialog {
 
 #[cfg(test)]
 mod tests {
-    use super::{moved_selection, page_rows, paged_selection};
+    use super::{moved_selection, page_rows, paged_selection, picked_entry};
 
     #[test]
     fn arrows_move_and_clamp_the_selection() {
@@ -371,6 +384,37 @@ mod tests {
         assert!(page_rows(335, 0).is_err());
     }
 
+    #[test]
+    fn a_row_runs_the_entry_it_shows() {
+        // Rows show entries 4, 0, 7 after ranking.
+        let shown = [4, 0, 7];
+        assert_eq!(picked_entry(false, Some(0), &shown), Some(4));
+        assert_eq!(picked_entry(false, Some(2), &shown), Some(7));
+        assert_eq!(picked_entry(false, None, &shown), None, "no selection");
+        assert_eq!(picked_entry(false, Some(3), &shown), None, "past the last row");
+        assert_eq!(picked_entry(false, Some(0), &[]), None, "empty list");
+    }
+
+    #[test]
+    fn the_first_choice_wins() {
+        // Input already queued after the first choice (Enter after a double
+        // click, a repeated Enter) is still dispatched before the dialog
+        // returns: it must not replace the entry already chosen.
+        assert_eq!(picked_entry(true, Some(1), &[4, 0, 7]), None);
+        assert_eq!(picked_entry(true, Some(0), &[4, 0, 7]), None);
+    }
+
+    #[test]
+    fn a_double_click_off_the_rows_runs_nothing() {
+        use crate::ui::prompts_panel::clicked_row;
+        // LB_ITEMFROMPOINT: HIWORD 1 = outside the client area / no row.
+        assert_eq!(clicked_row(0x0001_0000, 0), None, "empty list");
+        assert_eq!(clicked_row(0x0001_0002, 3), None, "below the last row");
+        assert_eq!(clicked_row(3, 3), None, "index past the list");
+        assert_eq!(clicked_row(2, 3), Some(2));
+        assert_eq!(picked_entry(false, clicked_row(0x0001_0000, 0), &[]), None);
+    }
+
     /// The pure decisions are the ones the dialog runs: Page Up / Page Down
     /// in the filter field go through paged_selection with the visible rows
     /// of the list, and a double click runs the row under the pointer
@@ -384,11 +428,13 @@ mod tests {
             .join("command_palette.rs");
         let src = crate::read_source(path);
         let code = &src[..src.find("#[cfg(test)]").expect("test module")];
-        assert!(code.contains("paged_selection(vk, current, len, page)"), "page keys");
-        assert!(code.contains("page_rows(client.bottom - client.top, item_height.0)"), "visible page");
-        assert!(code.contains("msg == WM_LBUTTONDBLCLK"), "double click handled");
-        assert!(code.contains("choose(crate::ui::prompts_panel::clicked_row(hit.0 as u32, list.len()))"), "row under the pointer");
+        assert!(code.contains("paged_selection(vk,"), "page keys");
+        assert!(code.contains("page_rows(client.bottom - client.top,"), "visible page");
+        assert!(code.contains("WM_LBUTTONDBLCLK"), "double click handled");
+        assert!(code.contains("LB_ITEMFROMPOINT"), "row under the pointer");
+        assert!(code.contains("choose(crate::ui::prompts_panel::clicked_row("), "double click runs that row");
         assert!(code.contains("choose(list.selection())"), "Enter runs the selected row");
+        assert!(code.contains("picked_entry(already_chosen,"), "the first choice wins");
         assert!(code.contains("for raw in [keys, enter, dblclick]"), "raw handlers unbound");
     }
 }
