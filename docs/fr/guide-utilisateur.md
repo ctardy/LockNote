@@ -1079,8 +1079,9 @@ pendant cette durée, aucune touche n'a été frappée, la souris n'a ni bougé 
 cliqué sur sa fenêtre et le texte n'a pas changé. Taper, cliquer ou bouger la
 souris dans une fenêtre ou un message de LockNote (une boîte de dialogue comme
 celle où vous tapez un secret, une question) compte aussi ; ce que vous faites
-dans d'autres applications ne compte pas. Il vérifie toutes les 10 secondes. Les modifications non enregistrées sont d'abord enregistrées ; si
-cet enregistrement échoue, LockNote ne se verrouille pas et réessaie après une
+dans d'autres applications ne compte pas. Il vérifie toutes les 10 secondes.
+Les modifications non enregistrées sont d'abord enregistrées ; si cet
+enregistrement échoue, LockNote ne se verrouille pas et réessaie après une
 nouvelle période. Une nouvelle valeur s'applique tout de suite.
 
 Tant qu'une fenêtre ou un message de LockNote est ouvert sur la fenêtre
@@ -1097,9 +1098,11 @@ les mots de passe erronés sont ralentis comme sur l'écran de verrouillage).
 réponse sans danger : la question de fermeture est annulée, « Fermer sans
 enregistrer ? » garde LockNote ouvert, une question Oui/Non reçoit la
 réponse **Non**, les autres fenêtres sont fermées comme par Annuler (ce que
-vous y aviez tapé est perdu, vos notes non). Cela n'arrive qu'à une fenêtre
-laissée ouverte sans personne, puisque s'en servir compte comme une activité.
-Une réponse cliquée ensuite n'a aucun effet.
+vous y aviez tapé est perdu, vos notes non). Avec le délai du verrouillage
+auto, cela n'arrive qu'à une fenêtre dont personne ne se sert : y taper,
+cliquer ou bouger la souris compte comme une activité. Le bouton Verrouiller
+et Ctrl+L ferment les fenêtres même pendant que vous vous en servez. Une
+réponse cliquée ensuite n'a aucun effet.
 
 LockNote enregistre puis se verrouille pour de bon dès qu'aucune fenêtre
 n'est plus ouverte. Si une fenêtre ne peut pas se fermer tout de suite (la

@@ -64,7 +64,7 @@ pub(super) trait LockSteps {
 
 /// A tick of the auto-lock timer (every 10 s, also inside a dialog's own
 /// loop), not locked. `dialog_input`: when the last input in a LockNote
-/// dialog happened since the previous tick (`dialog_activity`, issue #32);
+/// dialog happened since the previous tick (`dialogs::activity::take_input`, issue #32);
 /// it counts as activity like input in the main window, except under the
 /// curtain: there a lock is already due and only the password lifts it.
 /// Then a lock is requested if the delay ran out. Returns whether one was.

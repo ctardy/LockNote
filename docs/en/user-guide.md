@@ -1002,8 +1002,10 @@ screen). At that moment every open LockNote window or question gets its
 harmless answer: the close question is cancelled, "Close without saving?"
 keeps LockNote open, a Yes/No question is answered **No**, other windows
 are closed as Cancel (what you typed in them is lost, your notes are not).
-This only happens to a window left open with nobody at it, since using it
-counts as activity. An answer clicked after that does nothing.
+With the auto-lock delay, this only happens to a window nobody is using:
+typing, clicking or moving the mouse in it counts as activity. The Lock
+button and Ctrl+L close the windows even while you use them. An answer
+clicked after that does nothing.
 
 LockNote then saves and locks for good as soon as no window is open any
 more. If a window cannot close at once (the temporary files window while it
