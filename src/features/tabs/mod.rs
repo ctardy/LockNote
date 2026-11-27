@@ -195,6 +195,13 @@ fn strip_trailing_newline(s: &str) -> String {
     result
 }
 
+/// Default name of the `n`-th tab created in `lang` ("Note 3", "Notiz 3"),
+/// issue #34. Only for a tab being created: a stored name never changes
+/// with the language.
+pub fn default_name(lang: crate::features::i18n::Language, n: usize) -> String {
+    crate::features::i18n::get_for(lang, "tab.default_name").replace("{n}", &n.to_string())
+}
+
 /// Generate next tab name: "Note N" where N = max existing "Note N" + 1
 pub fn next_tab_name(tabs: &[NoteTab]) -> String {
     let mut max_n: u32 = 0;
@@ -469,5 +476,42 @@ mod tests {
             let (_, rgb) = found.unwrap();
             assert_eq!(rgb, exp_rgb, "Color {} RGB mismatch", exp_name);
         }
+    }
+
+    /// Issue #34: a tab being created is named in the given language.
+    #[test]
+    fn default_name_follows_the_language() {
+        use crate::features::i18n::Language;
+        assert_eq!(default_name(Language::English, 3), "Note 3");
+        assert_eq!(default_name(Language::French, 3), "Note 3");
+        assert_eq!(default_name(Language::Spanish, 3), "Nota 3");
+        assert_eq!(default_name(Language::German, 12), "Notiz 12");
+    }
+
+    /// Issue #34: a stored default name is read back as it is, whatever
+    /// the language (a legacy note without tabs block stays "Note 1").
+    #[test]
+    fn stored_default_names_do_not_follow_the_language() {
+        let _g = crate::features::i18n::test_support::lang_guard();
+        crate::features::i18n::set_language(crate::features::i18n::Language::German);
+        assert_eq!(parse("plain text")[0].name, "Note 1");
+        assert_eq!(parse("")[0].name, "Note 1");
+        let stored = serialize(&[NoteTab::new("Nota 1"), NoteTab::new("Note 2")]);
+        let names: Vec<String> = parse(&stored).into_iter().map(|t| t.name).collect();
+        assert_eq!(names, vec!["Nota 1", "Note 2"]);
+    }
+
+    /// Issue #34: the editor names a new tab with `default_name` in the
+    /// current language, not a hard-coded English "Note N".
+    #[test]
+    fn the_new_tab_command_uses_the_translated_default_name() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
+        let tab_ops = crate::read_source(root.join("tab_ops.rs"));
+        let body = &tab_ops[tab_ops.find("fn on_new_tab").expect("on_new_tab")..];
+        let body = &body[..body.find("\n    }\n").expect("end of on_new_tab")];
+        assert!(body.contains("tabs::default_name(crate::features::i18n::current_language(),"), "{}", body);
+        assert!(!body.contains("format!(\"Note "), "{}", body);
+        let stego = crate::read_source(root.join("stego_ops.rs"));
+        assert!(!stego.contains("unwrap_or(\"Extracted\")"), "hard-coded tab name in stego_ops.rs");
     }
 }

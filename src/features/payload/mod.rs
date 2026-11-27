@@ -48,6 +48,18 @@ pub struct ParsedPayload {
 /// Name of the tab a new note starts with.
 pub const DEFAULT_TAB_NAME: &str = "Note 1";
 
+/// Note text a new note starts with in `lang` (issue #34): empty when its
+/// first tab is named `DEFAULT_TAB_NAME` (English and French, as before),
+/// otherwise a tabs block holding one empty tab named in `lang` ("Nota 1"),
+/// so the name is stored with the note and never changes afterwards.
+pub fn new_note_text(lang: crate::features::i18n::Language) -> String {
+    let name = crate::features::tabs::default_name(lang, 1);
+    if name == DEFAULT_TAB_NAME {
+        return String::new();
+    }
+    crate::features::tabs::serialize(&[NoteTab::new(&name)])
+}
+
 /// True for the single tab of a note that never used tabs: one tab, default
 /// name, no color.
 fn is_default_single_tab(tabs: &[NoteTab]) -> bool {
@@ -1523,5 +1535,60 @@ mod tests {
         }
         // A plain text ending with a whole block goes to the tabs block.
         assert!(compose_alone(inside).starts_with("[LOCKNOTE_TABS]\n"));
+    }
+    /// Issue #34: a new note starts with its first tab named in its
+    /// language. English and French give the empty text of before.
+    #[test]
+    fn new_note_text_names_the_first_tab_in_its_language() {
+        use crate::features::i18n::Language;
+        assert_eq!(new_note_text(Language::English), "");
+        assert_eq!(new_note_text(Language::French), "");
+        for (lang, name) in [(Language::Spanish, "Nota 1"), (Language::German, "Notiz 1")] {
+            let text = new_note_text(lang);
+            let p = parse_defaults(&text);
+            assert_eq!(tab_view(&p.tabs), vec![(name.to_string(), String::new(), None)], "{lang:?}");
+            assert!(p.secrets.is_empty() && p.prompts.is_empty() && p.session.is_none(), "{lang:?}");
+        }
+    }
+
+    /// Issue #34: once created, the translated name is stored: a save and
+    /// a reload in another language keep it.
+    #[test]
+    fn a_translated_first_tab_name_survives_a_save_in_another_language() {
+        let _g = crate::features::i18n::test_support::lang_guard();
+        let p = parse_defaults(&new_note_text(crate::features::i18n::Language::German));
+        let mut tabs = p.tabs;
+        tabs[0].content = "hallo".to_string();
+        crate::features::i18n::set_language(crate::features::i18n::Language::French);
+        let saved = compose(&tabs, &[], &[], &[], &SessionState::default());
+        let back = parse_defaults(&saved);
+        assert_eq!(tab_view(&back.tabs), vec![("Notiz 1".to_string(), "hallo".to_string(), None)]);
+    }
+
+    /// Issue #34: an existing note with the English default names (default
+    /// tab "Note 1" saved as plain text, secrets in default categories, no
+    /// saved category list) loads with them in every language, and saves
+    /// back byte for byte.
+    #[test]
+    fn an_existing_note_keeps_its_english_default_names_in_every_language() {
+        use crate::features::i18n::{set_language, test_support::lang_guard, Language};
+        let _g = lang_guard();
+        let tabs = vec![NoteTab::with_content(DEFAULT_TAB_NAME, "my notes", None)];
+        let secrets = vec![
+            SecretEntry::in_category("gmail", "pw", "Email"),
+            SecretEntry::in_category("aws", "key", "API Keys"),
+            SecretEntry::in_category("misc", "x", "General"),
+        ];
+        let stored = compose(&tabs, &[], &secrets, &[], &SessionState::default());
+        assert!(!stored.contains("[LOCKNOTE_TABS]"), "default tab saved as plain text: {stored}");
+        for lang in [Language::English, Language::French, Language::Spanish, Language::German] {
+            set_language(lang);
+            let cats = crate::features::vault::categories::effective(&[]);
+            let p = parse_payload(&stored, &cats);
+            assert_eq!(tab_view(&p.tabs), vec![("Note 1".to_string(), "my notes".to_string(), None)], "{lang:?}");
+            assert_eq!(p.secrets, secrets, "{lang:?}");
+            let again = compose(&p.tabs, &p.prompts, &p.secrets, &p.attachments, &SessionState::default());
+            assert_eq!(again, stored, "{lang:?}");
+        }
     }
 }

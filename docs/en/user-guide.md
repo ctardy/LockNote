@@ -75,9 +75,15 @@ LockNote asks you to choose the password that encrypts them.
 - There is no way to recover a forgotten password. Your notes are encrypted
   with it (AES-256-CBC + HMAC-SHA256, key derived with Argon2id, 64 MiB,
   3 iterations, 4 lanes).
-- This window, the unlock window and the startup messages are shown in
-  English: the language you choose is stored inside the encrypted notes and is
-  only known once they are decrypted.
+- This window, the unlock window and the startup messages are shown in the
+  language of Windows when it is English, French, Spanish or German, and in
+  English otherwise: the language you choose is stored inside the encrypted
+  notes and is only known once they are decrypted. After that, your choice
+  applies.
+- A new note starts in that same language: its language setting, the name of
+  its first tab and its vault categories. You can change the language later
+  (see [section 19](#19-language-and-theme)); names already created stay as
+  they are.
 
 ## 2. How your notes are stored
 
@@ -282,7 +288,9 @@ text, name and optional colour.
 **How to use it.**
 
 - **New tab**: the **+** button, Tab > New Tab or **Ctrl+T**. New tabs are
-  named "Note N". At 20 tabs: "Maximum number of tabs reached (20)."
+  named "Note N" ("Nota N" in Spanish, "Notiz N" in German), N being the
+  number of tabs. The name is kept if you change the language later. At 20
+  tabs: "Maximum number of tabs reached (20)."
 - **Switch**: click a tab, or **Ctrl+Tab** / **Ctrl+Shift+Tab** (Tab > Next Tab /
   Previous Tab).
 - **Close**: the close box on the tab, Tab > Close Tab, **Ctrl+W**, or right
@@ -717,7 +725,9 @@ Rules: 1 to 40 characters, no `:`, `[` or `]`, names unique (ignoring case and
 accents), 50 categories at most. **General** always exists and cannot be renamed
 or deleted. Deleting a category moves its secrets to General after confirmation.
 A new note starts with General, Email, Cloud, Finance, API Keys, Passwords and
-Crypto.
+Crypto, translated when the note is created in French, Spanish or German
+(General keeps its name in every language). Notes created before keep their
+categories as they are, whatever the language.
 
 **Drag and drop.** Drag a secret onto a category (or onto a secret of that
 category) to move it there. Esc cancels the drag.
@@ -1065,9 +1075,12 @@ offers **Restore** and **Quit**.
 ## 19. Language and theme
 
 **Language.** File > Settings > Preferences > **Language:** English, Français,
-Español or Deutsch (default English). After OK: "Please restart LockNote to
-apply the language change." The choice is saved with the note. The startup
-windows stay in English ([section 1](#1-first-launch-and-password)).
+Español or Deutsch (default: the language of Windows when the note was
+created, English if Windows uses another language). After OK: "Please restart LockNote to
+apply the language change." The choice is saved with the note. The windows
+shown before the note is decrypted follow the language of Windows
+([section 1](#1-first-launch-and-password)). Changing the language does not
+rename tabs or categories that already exist.
 
 **Theme.** File > Settings > Preferences > **Theme:** Dark (default) or Light.
 It applies at once, without restart.
@@ -1269,7 +1282,7 @@ The settings are stored inside the encrypted note and travel in a full backup
 | Section | Option | Values | Default | Applies |
 |---|---|---|---|---|
 | Appearance | Theme: | Dark, Light | Dark | at once |
-| Appearance | Language: | English, Français, Español, Deutsch | English | after restart |
+| Appearance | Language: | English, Français, Español, Deutsch | language of Windows at creation (English otherwise) | after restart |
 | Appearance | Editor font: | Consolas, Courier New, Lucida Console, Cascadia Mono, Segoe UI | Consolas | at once |
 | Appearance | Font size: | 8, 9, 10, 11, 12, 14, 16, 18, 20, 24 | 11 | at once |
 | Behavior | On close: | Ask, Always save, Never save | Ask | at once |

@@ -99,7 +99,8 @@ pub(crate) fn copy_feedback(result: &Result<(), String>, copied: &str) -> String
 ///
 /// Shown before the notes are decrypted, so before the language of the
 /// encrypted settings is known: like the unlock window, it is in the
-/// language in force at startup (English).
+/// language in force at startup (the Windows display language when LockNote
+/// has it, English otherwise: `i18n::apply_startup_language`, issue #34).
 fn conflict_message(
     tmp_unix: u64,
     exe_unix: u64,
@@ -227,6 +228,27 @@ fn settle_and_open(exe_path: &std::path::Path) -> Result<Option<Vec<u8>>, ()> {
     crate::storage::open_session(exe_path).map_err(|detail| fail("open", detail))
 }
 
+/// Settings language matching a UI language.
+fn settings_language(lang: crate::features::i18n::Language) -> crate::settings::Language {
+    match lang {
+        crate::features::i18n::Language::English => crate::settings::Language::En,
+        crate::features::i18n::Language::French => crate::settings::Language::Fr,
+        crate::features::i18n::Language::Spanish => crate::settings::Language::Es,
+        crate::features::i18n::Language::German => crate::settings::Language::De,
+    }
+}
+
+/// Settings of a new note created in `lang`, the language of the windows
+/// before decryption (issue #34): the note keeps that language, and its
+/// vault category list is the translated defaults (`new_note_list`). In
+/// English this is exactly `Settings::default()`.
+fn new_note_settings(lang: crate::features::i18n::Language) -> crate::settings::Settings {
+    let mut settings = crate::settings::Settings::default();
+    settings.language = settings_language(lang);
+    settings.vault_categories = crate::features::vault::categories::new_note_list(lang);
+    settings
+}
+
 /// The session itself: startup dialogs, then the editor until it closes.
 fn run_session(exe_path: PathBuf) {
     // Initialize NWG
@@ -250,13 +272,17 @@ fn run_session(exe_path: PathBuf) {
 
     match data {
         None => {
-            // No existing data — first run, create a new password
-            let settings = crate::settings::Settings::default();
+            // No existing data — first run, create a new password. The new
+            // note takes the startup language (issue #34): its language
+            // setting, its first tab name and its vault categories.
+            let lang = crate::features::i18n::current_language();
+            let settings = new_note_settings(lang);
             let password = match dialogs::create_password::show(settings.min_password_length) {
                 Some(result) => result,
                 None => return, // User cancelled
             };
-            editor::EditorForm::run(exe_path, password, String::new(), settings);
+            eprintln!("INFO startup: new note lang={}", lang.code());
+            editor::EditorForm::run(exe_path, password, crate::features::payload::new_note_text(lang), settings);
         }
         Some(raw_payload) => {
             // Strip legacy hint prefix if present (backward compatibility)
@@ -422,5 +448,54 @@ mod tests {
         assert!(without.starts_with(&with_data));
         assert!(without.ends_with("the program file holds no notes at all."), "{}", without);
         assert!(!with_data.contains("holds no notes"), "{}", with_data);
+    }
+    /// Issue #34: a new note created in English has exactly the settings
+    /// of before.
+    #[test]
+    fn new_note_settings_in_english_are_the_defaults() {
+        let s = new_note_settings(crate::features::i18n::Language::English);
+        assert_eq!(s, crate::settings::Settings::default());
+        assert_eq!(s.serialize(""), crate::settings::Settings::default().serialize(""));
+    }
+
+    /// Issue #34: a new note created in another language keeps that
+    /// language and stores the translated default categories; nothing
+    /// else differs from the defaults.
+    #[test]
+    fn new_note_settings_follow_the_startup_language() {
+        use crate::features::i18n::Language;
+        for (lang, setting) in [
+            (Language::French, crate::settings::Language::Fr),
+            (Language::Spanish, crate::settings::Language::Es),
+            (Language::German, crate::settings::Language::De),
+        ] {
+            let mut s = new_note_settings(lang);
+            assert_eq!(s.language, setting, "{lang:?}");
+            assert_eq!(s.vault_categories, crate::features::vault::categories::new_note_list(lang), "{lang:?}");
+            assert!(!s.vault_categories.is_empty(), "{lang:?}");
+            // Stored, so a reload gives them back.
+            let (back, _) = crate::settings::Settings::parse(&s.serialize(""));
+            assert_eq!(back.vault_categories, s.vault_categories, "{lang:?}");
+            assert_eq!(back.language, setting, "{lang:?}");
+            s.language = crate::settings::Language::En;
+            s.vault_categories.clear();
+            assert_eq!(s, crate::settings::Settings::default(), "{lang:?}");
+        }
+    }
+
+    /// Issue #34: the first run creates the note with the settings and the
+    /// text of the startup language; an existing note still sets the
+    /// language of its own settings once decrypted.
+    #[test]
+    fn the_new_note_path_uses_the_startup_language() {
+        let src = crate::read_source(Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("mod.rs"));
+        let body = &src[src.find("fn run_session(").expect("run_session")..];
+        let none = &body[body.find("None => {").expect("new note branch")..body.find("Some(raw_payload) =>").expect("unlock branch")];
+        assert!(none.contains("let lang = crate::features::i18n::current_language();"), "{}", none);
+        assert!(none.contains("new_note_settings(lang)"), "{}", none);
+        assert!(none.contains("crate::features::payload::new_note_text(lang)"), "{}", none);
+        assert!(!none.contains("Settings::default()"), "{}", none);
+        let unlock = &body[body.find("Some(raw_payload) =>").unwrap()..];
+        assert!(unlock.contains("crate::features::i18n::set_language(i18n_lang);"), "the note's language must win after decryption");
     }
 }

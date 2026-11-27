@@ -44,6 +44,31 @@ pub fn effective(saved: &[String]) -> Vec<String> {
     list
 }
 
+/// Category list stored in a new note created in `lang` (issue #34): empty
+/// in English (the defaults of `CATEGORIES`, as before), otherwise the
+/// defaults translated, `General` first and unchanged: it is the fixed
+/// fallback name of the data format (secrets without a category, imports).
+/// Once stored the list is the note's own: an existing note never gets
+/// translated names, and an empty list keeps meaning the English defaults.
+pub fn new_note_list(lang: crate::features::i18n::Language) -> Vec<String> {
+    use crate::features::i18n::{get_for, Language};
+    if lang == Language::English {
+        return Vec::new();
+    }
+    // Same order as `CATEGORIES` (General first, then these).
+    let translated = [
+        "vault.default_cat.email",
+        "vault.default_cat.cloud",
+        "vault.default_cat.finance",
+        "vault.default_cat.api_keys",
+        "vault.default_cat.passwords",
+        "vault.default_cat.crypto",
+    ];
+    std::iter::once(GENERAL.to_string())
+        .chain(translated.iter().map(|key| get_for(lang, key).to_string()))
+        .collect()
+}
+
 /// Validate a new category name; returns it trimmed. `renaming` is the
 /// current name when renaming (it does not count as a duplicate).
 pub fn validate_name(
@@ -228,5 +253,40 @@ mod tests {
         let mut l = defaults();
         add(&mut l, "Vide", &same).unwrap();
         assert!(effective(&l).contains(&"Vide".to_string()));
+    }
+
+    /// Issue #34: a new note created in English stores no list (the
+    /// defaults, byte-identical to before); in another language it stores
+    /// the translated defaults, General first and unchanged.
+    #[test]
+    fn new_note_list_is_translated_except_general() {
+        use crate::features::i18n::Language;
+        assert!(new_note_list(Language::English).is_empty());
+        let fr = ["General", "E-mail", "Cloud", "Finances", "Cl\u{e9}s API", "Mots de passe", "Crypto"];
+        let es = ["General", "Correo", "Nube", "Finanzas", "Claves API", "Contrase\u{f1}as", "Cripto"];
+        let de = ["General", "E-Mail", "Cloud", "Finanzen", "API-Schl\u{fc}ssel", "Passw\u{f6}rter", "Krypto"];
+        for (lang, expected) in [(Language::French, fr), (Language::Spanish, es), (Language::German, de)] {
+            let list = new_note_list(lang);
+            assert_eq!(list, expected.iter().map(|c| c.to_string()).collect::<Vec<_>>(), "{lang:?}");
+            assert_eq!(list.len(), CATEGORIES.len(), "{lang:?}");
+            // A valid user list: no extra General, every name accepted.
+            assert_eq!(effective(&list), list, "{lang:?}");
+            for (i, name) in list.iter().enumerate() {
+                let others: Vec<String> = list.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, c)| c.clone()).collect();
+                assert_eq!(validate_name(name, &others, None, &same), Ok(name.clone()), "{lang:?} {name}");
+            }
+        }
+    }
+
+    /// Issue #34: a note that never customized its list keeps the English
+    /// defaults whatever the language (its secrets are stored under them).
+    #[test]
+    fn saved_empty_list_stays_english_in_every_language() {
+        use crate::features::i18n::{set_language, test_support::lang_guard, Language};
+        let _g = lang_guard();
+        for lang in [Language::French, Language::Spanish, Language::German] {
+            set_language(lang);
+            assert_eq!(effective(&[]), defaults(), "{lang:?}");
+        }
     }
 }

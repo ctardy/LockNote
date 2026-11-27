@@ -9,9 +9,11 @@ gratuites ; il n'y a plus d'édition Pro.
 
 Ce guide décrit toutes les fonctions de LockNote 2.1. Les noms de menus et
 de boutons sont ceux de l'interface en français (Fichier > Paramètres... >
-Préférences... > Langue : Français). Quelques fenêtres et messages restent en
-anglais quelle que soit la langue choisie : ils sont cités en anglais, avec
-leur sens en français.
+Préférences... > Langue : Français). Les fenêtres affichées avant le
+déchiffrement des notes suivent la langue de Windows (voir
+[section 1](#1-premier-lancement-et-mot-de-passe)) : ce guide les cite telles
+qu'elles s'affichent sous un Windows en français. Les détails techniques
+ajoutés à certains messages d'erreur restent en anglais.
 
 ## Sommaire
 
@@ -54,10 +56,10 @@ aucune note, LockNote vous demande le mot de passe qui va les chiffrer.
 **Mode d'emploi.**
 
 1. Double-cliquez sur `LockNote.exe`.
-2. La fenêtre **Create Password** (« Créer un mot de passe ») s'ouvre, en
-   anglais : « Welcome to LockNote ». Tapez votre mot de passe dans
-   **Password (min. 6 characters):**, puis le même dans **Confirm:**.
-3. Cliquez sur **Create** (ou appuyez sur Entrée).
+2. La fenêtre **Créer un mot de passe** s'ouvre : « Bienvenue sur LockNote ».
+   Tapez votre mot de passe dans **Mot de passe (min. 6 caractères) :**, puis
+   le même dans **Confirmer :**.
+3. Cliquez sur **Créer** (ou appuyez sur Entrée).
 
 **Options et valeurs par défaut.**
 
@@ -79,8 +81,14 @@ aucune note, LockNote vous demande le mot de passe qui va les chiffrer.
   (AES-256-CBC + HMAC-SHA256, clé dérivée par Argon2id, 64 Mio,
   3 itérations, 4 voies).
 - Cette fenêtre, celle du déverrouillage au démarrage et les messages de
-  démarrage sont en anglais : la langue choisie est enregistrée dans les notes
-  chiffrées et n'est connue qu'une fois celles-ci déchiffrées.
+  démarrage sont dans la langue de Windows quand c'est le français, l'anglais,
+  l'espagnol ou l'allemand, en anglais sinon : la langue choisie est
+  enregistrée dans les notes chiffrées et n'est connue qu'une fois celles-ci
+  déchiffrées. Ensuite, c'est votre choix qui s'applique.
+- Une nouvelle note commence dans cette même langue : son réglage de langue,
+  le nom de son premier onglet et ses catégories du coffre. Vous pouvez changer
+  de langue ensuite ([section 19](#19-langue-et-thème)) ; les noms déjà créés
+  ne changent pas.
 
 ## 2. Où sont stockées vos notes
 
@@ -111,8 +119,8 @@ réseau).
 **Deux versions de vos notes.** Si, au démarrage, l'exe contient d'autres notes
 que celles sur lesquelles reposait l'enregistrement en attente (l'exe a été
 remplacé ou écrit ailleurs pendant qu'un enregistrement attendait), LockNote
-pose la question avant tout mot de passe, en anglais : « LockNote - Two
-versions of your notes ». Le message donne les deux dates (UTC) et le dossier
+pose la question avant tout mot de passe : « LockNote - Deux versions de vos
+notes ». Le message donne les deux dates (UTC) et le dossier
 où va la version que vous ne gardez pas :
 
 - **Oui** : garder l'enregistrement en attente.
@@ -136,23 +144,24 @@ de passe avant de les afficher.
 
 **Mode d'emploi.**
 
-1. Lancez LockNote. La fenêtre **Unlock** (en anglais) demande : « Enter your
-   password to unlock your notes. »
+1. Lancez LockNote. La fenêtre **Déverrouiller** demande : « Entrez votre mot
+   de passe pour déverrouiller vos notes. »
 2. Tapez le mot de passe. Le bouton en forme d'œil affiche ou masque la saisie.
-   « Caps Lock is on » s'affiche quand la touche Verr. Maj est active et que le
-   champ a le focus.
-3. Appuyez sur Entrée ou cliquez sur **Unlock**. « Decrypting... » s'affiche
-   pendant le calcul de la clé.
+   « Verr. Maj activé » s'affiche quand la touche Verr. Maj est active et que
+   le champ a le focus.
+3. Appuyez sur Entrée ou cliquez sur **Déverrouiller**. « Déchiffrement... »
+   s'affiche pendant le calcul de la clé.
 4. Si l'authentification à deux facteurs est active, le code à 6 chiffres est
    demandé ensuite ([section 12](#12-authentification-à-deux-facteurs-au-déverrouillage)).
 
 **Limites.**
 
-- 5 tentatives. Après un mauvais mot de passe : « Incorrect password. (N/5) ».
-  À partir de la 2e erreur, il faut attendre avant la suivante : 1 s après la
-  2e, 2 s après la 3e, 4 s après la 4e (« Retry in Ns... »). Après la 5e :
-  « Maximum attempts reached. Exiting. » et LockNote se ferme.
-- **Cancel** ou Échap ferme LockNote.
+- 5 tentatives. Après un mauvais mot de passe : « Mot de passe incorrect.
+  (N/5) ». À partir de la 2e erreur, il faut attendre avant la suivante : 1 s
+  après la 2e, 2 s après la 3e, 4 s après la 4e (« Nouvelle tentative dans
+  Ns… »). Après la 5e : « Nombre maximum de tentatives atteint. Fermeture. » et
+  LockNote se ferme.
+- **Annuler** ou Échap ferme LockNote.
 
 ## 4. Verrouillage et écran verrouillé
 
@@ -310,7 +319,9 @@ son texte, son nom et une couleur facultative.
 **Mode d'emploi.**
 
 - **Nouvel onglet** : le bouton **+**, Onglet > Nouvel onglet ou **Ctrl+T**.
-  Les nouveaux onglets s'appellent « Note N ». À 20 onglets : « Nombre maximum
+  Les nouveaux onglets s'appellent « Note N » (« Nota N » en espagnol,
+  « Notiz N » en allemand), N étant le nombre d'onglets ; le nom reste le même
+  si vous changez de langue ensuite. À 20 onglets : « Nombre maximum
   d’onglets atteint (20). »
 - **Changer d'onglet** : cliquez sur l'onglet, ou **Ctrl+Tab** /
   **Ctrl+Maj+Tab** (Onglet > Onglet suivant / Onglet précédent).
@@ -790,8 +801,10 @@ Règles : 1 à 40 caractères, ni `:`, ni `[`, ni `]`, noms uniques (sans tenir
 compte de la casse ni des accents), 50 catégories au plus. **General** existe
 toujours et ne peut être ni renommée ni supprimée. Supprimer une catégorie
 déplace ses secrets dans General après confirmation. Une nouvelle note commence
-avec General, Email, Cloud, Finance, API Keys, Passwords et Crypto (noms en
-anglais).
+avec General, E-mail, Cloud, Finances, Clés API, Mots de passe et Crypto
+quand elle est créée en français (General garde son nom dans toutes les
+langues ; en anglais : Email, Finance, API Keys, Passwords). Les notes créées
+avant gardent leurs catégories telles quelles, quelle que soit la langue.
 
 **Glisser-déposer.** Faites glisser un secret sur une catégorie (ou sur un
 secret de cette catégorie) pour l'y déplacer. Échap annule.
@@ -1171,10 +1184,13 @@ zone de notification pour la faire revenir. Un clic droit sur l'icône propose
 ## 19. Langue et thème
 
 **Langue.** Fichier > Paramètres... > Préférences... > **Langue :** English,
-Français, Español ou Deutsch (English par défaut). Après OK : « Veuillez
+Français, Español ou Deutsch (par défaut, celle de Windows à la création de la
+note, English si Windows est dans une autre langue). Après OK : « Veuillez
 redémarrer LockNote pour appliquer le changement de langue. » Le choix est
-enregistré avec la note. Les fenêtres de démarrage restent en anglais
-([section 1](#1-premier-lancement-et-mot-de-passe)).
+enregistré avec la note. Les fenêtres affichées avant le déchiffrement suivent
+la langue de Windows ([section 1](#1-premier-lancement-et-mot-de-passe)).
+Changer de langue ne renomme pas les onglets ni les catégories qui existent
+déjà.
 
 **Thème.** Fichier > Paramètres... > Préférences... > **Thème :** Sombre (par
 défaut) ou Clair. Il s'applique tout de suite, sans redémarrage.
@@ -1402,7 +1418,7 @@ sur OK pour les appliquer, puis enregistrez la note.
 | Section | Option | Valeurs | Par défaut | S'applique |
 |---|---|---|---|---|
 | Apparence | Thème : | Sombre, Clair | Sombre | tout de suite |
-| Apparence | Langue : | English, Français, Español, Deutsch | English | après redémarrage |
+| Apparence | Langue : | English, Français, Español, Deutsch | langue de Windows à la création (English sinon) | après redémarrage |
 | Apparence | Police de l'éditeur : | Consolas, Courier New, Lucida Console, Cascadia Mono, Segoe UI | Consolas | tout de suite |
 | Apparence | Taille de police : | 8, 9, 10, 11, 12, 14, 16, 18, 20, 24 | 11 | tout de suite |
 | Comportement | À la fermeture : | Demander, Toujours enregistrer, Ne jamais enregistrer | Demander | tout de suite |

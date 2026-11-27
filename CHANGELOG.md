@@ -82,6 +82,18 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   type their characters.
 - **File > Save shortcut text** is the same in the File menu, the command
   palette and Preferences (a function key reads "Ctrl+F5").
+- **Windows before decryption and names of a new note translated**: the
+  windows shown before the notes are decrypted (create password, unlock, the
+  "two versions of your notes" question, the startup errors) now follow the
+  language of Windows when it is English, French, Spanish or German, English
+  otherwise; once the notes are decrypted, the language chosen in the note
+  applies as before. A new note is created in that language: its language
+  setting, its first tab ("Nota 1", "Notiz 1") and its vault categories
+  (General keeps its name). New tabs are named in the current language
+  ("Notiz 3"). Names already stored never change: an existing note keeps its
+  tabs and categories as they are, in every language. Still in English: the
+  "SSH Keys" category of an SSH key import, and the technical details
+  appended to some error messages (#34).
 
 ### Fixed
 - **Windows logoff during a close answered "Don't save"**: a logoff while a
@@ -178,11 +190,8 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   errors, the status bar counts, the file dialog filters, the attachment
   errors, the lock screen buttons, the TOTP dialogs, the tab colour names and
   the Off / sec / min items of the auto-save, auto-lock and clipboard lists
-  are now translated in French, Spanish and German. Still in English: the
-  windows shown before the notes are decrypted (the language is stored
-  inside them), the default vault categories and tab names of a new note
-  (they are saved as data), and the system error details appended to some
-  messages. A test fails if a new hard-coded text is handed to a control, a
+  are now translated in French, Spanish and German (the windows before
+  decryption and the names of a new note followed in #34). A test fails if a new hard-coded text is handed to a control, a
   message box or a `const` list of the UI (#25).
 - **Close prompt**: the English "Unsaved Changes" message box is replaced by
   the translated close dialog with **Remember my choice**. Remembering Save

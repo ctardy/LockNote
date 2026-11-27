@@ -166,8 +166,9 @@ impl EditorForm {
             );
             return;
         }
-        // Generate name based on count
-        let name = format!("Note {}", tb.count() + 1);
+        // Name based on the count, in the current language (issue #34):
+        // stored with the tab, it never changes afterwards.
+        let name = crate::features::tabs::default_name(crate::features::i18n::current_language(), tb.count() + 1);
         drop(tb);
         // Save current tab content, add the new tab and switch to it
         switch_editor_tab(&self.editor, &self.tab_bar, |tb| {

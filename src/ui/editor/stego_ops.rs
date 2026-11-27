@@ -198,8 +198,8 @@ impl EditorForm {
                         // Derive tab name from image filename
                         let tab_name = image_path.file_stem()
                             .and_then(|s| s.to_str())
-                            .unwrap_or("Extracted")
-                            .to_string();
+                            .map(str::to_string)
+                            .unwrap_or_else(|| t("stego.extracted_tab"));
                         // Save current tab content, switch to the new tab
                         super::tab_ops::switch_editor_tab(&self.editor, &self.tab_bar, |tb| {
                             let idx = tb.add_tab(&tab_name);

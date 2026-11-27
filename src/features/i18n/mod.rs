@@ -64,6 +64,45 @@ pub fn current_language() -> Language {
 }
 
 // ---------------------------------------------------------------------------
+// Language before the note is decrypted (issue #34)
+// ---------------------------------------------------------------------------
+
+/// Language of the windows shown before the note is decrypted, from a
+/// Windows LANGID (`GetUserDefaultUILanguage`): its primary language
+/// (low 10 bits) when LockNote has it, whatever the region, English
+/// otherwise. The language setting of the note is inside the encrypted
+/// settings, so it cannot be known before.
+pub fn language_for_langid(langid: u16) -> Language {
+    // PRIMARYLANGID: LANG_ENGLISH 0x09, LANG_FRENCH 0x0C, LANG_SPANISH
+    // 0x0A, LANG_GERMAN 0x07 (winnt.h).
+    match langid & 0x03FF {
+        0x0C => Language::French,
+        0x0A => Language::Spanish,
+        0x07 => Language::German,
+        _ => Language::English,
+    }
+}
+
+/// Set the language from a Windows LANGID (see `language_for_langid`) and
+/// log the choice. Returns the language set.
+pub fn apply_startup_language_from(langid: u16) -> Language {
+    let lang = language_for_langid(langid);
+    eprintln!("INFO i18n: startup language langid=0x{:04x} lang={}", langid, lang.code());
+    set_language(lang);
+    lang
+}
+
+/// Startup: the windows shown before the note is decrypted (pending-save
+/// question, unlock, create password, startup errors) follow the Windows
+/// display language. Once the note is decrypted its own setting wins.
+#[cfg(windows)]
+pub fn apply_startup_language() -> Language {
+    // No failure case: Windows always answers a LANGID.
+    let langid = unsafe { windows::Win32::Globalization::GetUserDefaultUILanguage() };
+    apply_startup_language_from(langid)
+}
+
+// ---------------------------------------------------------------------------
 // Dictionary storage
 // ---------------------------------------------------------------------------
 
@@ -107,7 +146,12 @@ fn dict_for(lang: Language) -> &'static Dict {
 /// For keys containing `{}` placeholders (like `status.stats`), callers must
 /// do their own replacement on the returned template string.
 pub fn get(key: &str) -> &str {
-    let lang = current_language();
+    get_for(current_language(), key)
+}
+
+/// `get` in a given language, whatever the current one (names created for a
+/// new note, issue #34). Same fallback chain.
+pub fn get_for(lang: Language, key: &str) -> &'static str {
     if let Some(val) = dict_for(lang).get(key) {
         return val;
     }
@@ -174,6 +218,16 @@ fn build_en() -> Dict {
     m.insert("heading.no_match", "No heading matches the filter.");
     m.insert("tab.limit.title", "Tab Limit");
     m.insert("tab.limit.msg", "Maximum number of tabs reached (20).");
+    // Names created for a new note / a new tab (issue #34); stored names never change
+    m.insert("tab.default_name", "Note {n}");
+    m.insert("stego.extracted_tab", "Extracted");
+    m.insert("vault.default_cat.email", "Email");
+    m.insert("vault.default_cat.cloud", "Cloud");
+    m.insert("vault.default_cat.finance", "Finance");
+    m.insert("vault.default_cat.api_keys", "API Keys");
+    m.insert("vault.default_cat.passwords", "Passwords");
+    m.insert("vault.default_cat.crypto", "Crypto");
+    m.insert("startup.swap_locked", "LockNote is still writing your last save into the program file, or an earlier attempt is stuck.\n\nNothing was changed. Try again in a moment.\n\n{exe}\n\nDetails: {detail}");
     m.insert("tab.close.title", "Close Tab");
     m.insert("tab.close.msg", "Close tab \"{name}\"?\nIts content will be lost.");
     m.insert("tab.ctx.rename", "Rename Tab...");
@@ -904,6 +958,15 @@ fn build_fr() -> Dict {
     m.insert("heading.no_match", "Aucun titre ne correspond au filtre.");
     m.insert("tab.limit.title", "Limite d\u{2019}onglets");
     m.insert("tab.limit.msg", "Nombre maximum d\u{2019}onglets atteint (20).");
+    m.insert("tab.default_name", "Note {n}");
+    m.insert("stego.extracted_tab", "Extrait");
+    m.insert("vault.default_cat.email", "E-mail");
+    m.insert("vault.default_cat.cloud", "Cloud");
+    m.insert("vault.default_cat.finance", "Finances");
+    m.insert("vault.default_cat.api_keys", "Cl\u{00e9}s API");
+    m.insert("vault.default_cat.passwords", "Mots de passe");
+    m.insert("vault.default_cat.crypto", "Crypto");
+    m.insert("startup.swap_locked", "LockNote est encore en train d\u{2019}\u{00e9}crire votre dernier enregistrement dans le fichier du programme, ou une tentative pr\u{00e9}c\u{00e9}dente est bloqu\u{00e9}e.\n\nRien n\u{2019}a \u{00e9}t\u{00e9} modifi\u{00e9}. R\u{00e9}essayez dans un instant.\n\n{exe}\n\nD\u{00e9}tails : {detail}");
     m.insert("tab.close.title", "Fermer l\u{2019}onglet");
     m.insert("tab.close.msg", "Fermer l\u{2019}onglet \u{00ab} {name} \u{00bb} ?\nSon contenu sera perdu.");
     m.insert("tab.ctx.rename", "Renommer l\u{2019}onglet...");
@@ -1608,6 +1671,15 @@ fn build_es() -> Dict {
     m.insert("heading.no_match", "Ning\u{00fa}n encabezado coincide con el filtro.");
     m.insert("tab.limit.title", "L\u{00ed}mite de pesta\u{00f1}as");
     m.insert("tab.limit.msg", "N\u{00fa}mero m\u{00e1}ximo de pesta\u{00f1}as alcanzado (20).");
+    m.insert("tab.default_name", "Nota {n}");
+    m.insert("stego.extracted_tab", "Extra\u{00ed}do");
+    m.insert("vault.default_cat.email", "Correo");
+    m.insert("vault.default_cat.cloud", "Nube");
+    m.insert("vault.default_cat.finance", "Finanzas");
+    m.insert("vault.default_cat.api_keys", "Claves API");
+    m.insert("vault.default_cat.passwords", "Contrase\u{00f1}as");
+    m.insert("vault.default_cat.crypto", "Cripto");
+    m.insert("startup.swap_locked", "LockNote todav\u{00ed}a est\u{00e1} escribiendo su \u{00fa}ltimo guardado en el archivo del programa, o un intento anterior est\u{00e1} bloqueado.\n\nNo se ha cambiado nada. Int\u{00e9}ntelo de nuevo en un momento.\n\n{exe}\n\nDetalles: {detail}");
     m.insert("tab.close.title", "Cerrar pesta\u{00f1}a");
     m.insert("tab.close.msg", "\u{00bf}Cerrar la pesta\u{00f1}a \u{00ab}{name}\u{00bb}?\nSu contenido se perder\u{00e1}.");
     m.insert("tab.ctx.rename", "Renombrar pesta\u{00f1}a...");
@@ -2313,6 +2385,15 @@ fn build_de() -> Dict {
     m.insert("heading.no_match", "Keine \u{00dc}berschrift passt zum Filter.");
     m.insert("tab.limit.title", "Tab-Limit");
     m.insert("tab.limit.msg", "Maximale Anzahl an Tabs erreicht (20).");
+    m.insert("tab.default_name", "Notiz {n}");
+    m.insert("stego.extracted_tab", "Extrahiert");
+    m.insert("vault.default_cat.email", "E-Mail");
+    m.insert("vault.default_cat.cloud", "Cloud");
+    m.insert("vault.default_cat.finance", "Finanzen");
+    m.insert("vault.default_cat.api_keys", "API-Schl\u{00fc}ssel");
+    m.insert("vault.default_cat.passwords", "Passw\u{00f6}rter");
+    m.insert("vault.default_cat.crypto", "Krypto");
+    m.insert("startup.swap_locked", "LockNote schreibt Ihre letzte Speicherung noch in die Programmdatei, oder ein fr\u{00fc}herer Versuch h\u{00e4}ngt.\n\nEs wurde nichts ge\u{00e4}ndert. Versuchen Sie es gleich noch einmal.\n\n{exe}\n\nDetails: {detail}");
     m.insert("tab.close.title", "Tab schlie\u{00df}en");
     m.insert("tab.close.msg", "Tab \u{201e}{name}\u{201c} schlie\u{00df}en?\nDer Inhalt geht verloren.");
     m.insert("tab.ctx.rename", "Tab umbenennen...");
@@ -3371,6 +3452,15 @@ mod tests {
         // ui/editor/content.rs: caret_status_text (count_text)
         "status.selected.one",
         "status.selected.many",
+        // features/vault/categories.rs: new_note_list (get_for)
+        "vault.default_cat.email",
+        "vault.default_cat.cloud",
+        "vault.default_cat.finance",
+        "vault.default_cat.api_keys",
+        "vault.default_cat.passwords",
+        "vault.default_cat.crypto",
+        // features/tabs/mod.rs: default_name (get_for)
+        "tab.default_name",
         // ui/editor/helpers.rs: tab_color_label, "color." + theme::TAB_COLORS name
         "color.blue",
         "color.green",
@@ -3859,5 +3949,101 @@ mod tests {
         let _g = lang_guard();
         set_language(Language::French);
         assert_eq!(get("vault.tree.error"), "Impossible d'afficher le coffre");
+    }
+
+    /// Issue #34: decision table LANGID -> language of the windows shown
+    /// before the note is decrypted. Any region of a supported language
+    /// (primary language, low 10 bits); anything else is English.
+    #[test]
+    fn startup_language_decision_table() {
+        let table: &[(u16, Language, &str)] = &[
+            (0x0409, Language::English, "en-US"),
+            (0x0809, Language::English, "en-GB"),
+            (0x0009, Language::English, "en neutral"),
+            (0x040C, Language::French, "fr-FR"),
+            (0x080C, Language::French, "fr-BE"),
+            (0x0C0C, Language::French, "fr-CA"),
+            (0x100C, Language::French, "fr-CH"),
+            (0x140C, Language::French, "fr-LU"),
+            (0x000C, Language::French, "fr neutral"),
+            (0x040A, Language::Spanish, "es-ES traditional"),
+            (0x0C0A, Language::Spanish, "es-ES"),
+            (0x080A, Language::Spanish, "es-MX"),
+            (0x540A, Language::Spanish, "es-US"),
+            (0x0407, Language::German, "de-DE"),
+            (0x0807, Language::German, "de-CH"),
+            (0x0C07, Language::German, "de-AT"),
+            (0x1007, Language::German, "de-LU"),
+            (0x1407, Language::German, "de-LI"),
+            (0x0410, Language::English, "it-IT"),
+            (0x0413, Language::English, "nl-NL"),
+            (0x0416, Language::English, "pt-BR"),
+            (0x0411, Language::English, "ja-JP"),
+            (0x0804, Language::English, "zh-CN"),
+            (0x0000, Language::English, "LANG_NEUTRAL"),
+            (0x0400, Language::English, "LOCALE_USER_DEFAULT"),
+            (0x007F, Language::English, "invariant"),
+            (0xFFFF, Language::English, "all bits"),
+            // A sublanguage Windows does not define: the primary decides.
+            (0xFC0C, Language::French, "fr, unknown sublanguage"),
+        ];
+        for (langid, expected, name) in table {
+            assert_eq!(language_for_langid(*langid), *expected, "0x{:04X} {}", langid, name);
+        }
+    }
+
+    /// Issue #34: the startup language is the one the windows before
+    /// decryption read (unlock, create password, conflict question).
+    #[test]
+    fn startup_language_is_what_the_windows_before_decryption_show() {
+        let _g = lang_guard();
+        assert_eq!(apply_startup_language_from(0x040C), Language::French);
+        assert_eq!(current_language(), Language::French);
+        assert_eq!(get("unlock.title"), "D\u{00e9}verrouiller");
+        assert_eq!(get("createpwd.title"), dict_for(Language::French)["createpwd.title"]);
+        assert_eq!(apply_startup_language_from(0x0C07), Language::German);
+        assert_eq!(get("unlock.title"), "Entsperren");
+        assert_eq!(apply_startup_language_from(0x0411), Language::English);
+        assert_eq!(get("unlock.title"), "Unlock");
+    }
+
+    /// Issue #34: the startup error of `main` (before any window) is
+    /// translated and keeps its two details.
+    #[test]
+    fn startup_swap_lock_message_is_translated() {
+        for lang in [Language::English, Language::French, Language::Spanish, Language::German] {
+            let text = get_for(lang, "startup.swap_locked");
+            assert!(!text.starts_with('['), "{lang:?}: {text}");
+            assert!(text.contains("{exe}") && text.contains("{detail}"), "{lang:?}: {text}");
+        }
+        assert_ne!(get_for(Language::French, "startup.swap_locked"), get_for(Language::English, "startup.swap_locked"));
+    }
+
+    /// Issue #34: `main` sets the startup language before its first
+    /// message box (swap lock) and before the UI (pending-save question,
+    /// unlock, create password), and its message box is not hard-coded.
+    #[test]
+    fn main_sets_the_startup_language_before_the_first_window() {
+        let src = crate::read_source(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("main.rs"));
+        let body = &src[src.find("fn main()").expect("fn main")..];
+        let set = body.find("i18n::apply_startup_language()").expect("main must call i18n::apply_startup_language()");
+        for later in ["acquire_swap_lock(", "show_startup_error(&", "ui::run("] {
+            let at = body.find(later).unwrap_or_else(|| panic!("{later} not found in main"));
+            assert!(set < at, "the startup language must be set before {later}");
+        }
+        assert!(src.contains("get(\"startup.swap_locked\")"), "the swap lock message must be translated");
+        assert!(!src.contains("LockNote is still writing your last save"), "hard-coded English left in main.rs");
+    }
+
+    /// `get_for` reads the given language whatever the current one, with
+    /// the same fallback as `get`.
+    #[test]
+    fn get_for_ignores_the_current_language() {
+        let _g = lang_guard();
+        set_language(Language::German);
+        assert_eq!(get_for(Language::French, "unlock.title"), "D\u{00e9}verrouiller");
+        assert_eq!(get_for(Language::English, "unlock.title"), "Unlock");
+        assert_eq!(get_for(Language::Spanish, "nope.nope"), "[nope.nope]");
+        assert_eq!(current_language(), Language::German);
     }
 }
