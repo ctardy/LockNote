@@ -1356,11 +1356,21 @@ const HELPER_END_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 #[cfg(windows)]
 fn end_late_helper(helper: windows::Win32::Foundation::HANDLE) -> String {
     use windows::Win32::Foundation::WAIT_OBJECT_0;
-    use windows::Win32::System::Threading::{TerminateProcess, WaitForSingleObject};
+    use windows::Win32::System::Threading::{GetExitCodeProcess, TerminateProcess, WaitForSingleObject};
     let millis = u32::try_from(HELPER_END_WAIT.as_millis()).unwrap_or(u32::MAX - 1);
     // Exit code 3: the helper's own code for "swap lock not obtained,
     // nothing touched" (`src/bin/locknote_swap.rs`).
     if let Err(e) = unsafe { TerminateProcess(helper, 3) } {
+        // TerminateProcess refuses (access denied) a process that has
+        // already ended: the helper may have ended by itself since the wait.
+        if unsafe { WaitForSingleObject(helper, 0) } == WAIT_OBJECT_0 {
+            let mut code = 0u32;
+            let code = match unsafe { GetExitCodeProcess(helper, &mut code) } {
+                Ok(()) => code.to_string(),
+                Err(e) => format!("unknown: {}", e),
+            };
+            return format!("it had already ended (exit code {}), nothing touched (it held no lock)", code);
+        }
         return format!("it could not be ended (it may still run): {}", e);
     }
     if unsafe { WaitForSingleObject(helper, millis) } != WAIT_OBJECT_0 {

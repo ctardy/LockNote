@@ -1895,6 +1895,38 @@ fn a_helper_late_for_the_hand_over_is_ended_before_the_lock_is_released() {
             .to_string())
     );
 }
+/// Issue #39, challenger: a helper that ends by itself right after the
+/// timeout is not reported as "could not be ended (it may still run)"
+/// (TerminateProcess refuses an ended process): the log says it had ended.
+#[test]
+fn a_late_helper_that_ended_by_itself_is_reported_as_ended() {
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    let mut child = std::process::Command::new("cmd").args(["/c", "exit 7"]).spawn().unwrap();
+    child.wait().unwrap(); // the handle stays open until `child` is dropped
+    assert_eq!(
+        end_late_helper(HANDLE(child.as_raw_handle())),
+        "it had already ended (exit code 7), nothing touched (it held no lock)"
+    );
+}
+
+/// Issue #39, challenger: `launch_swap_helper` ends a late helper (inside
+/// `wait_helper_ready`) before it releases the swap lock, and releases it
+/// only there. Released first, a late helper could reach the lock behind
+/// the next session. Not reachable by a behaviour test: the function starts
+/// the embedded helper and holds the process-wide lock.
+#[test]
+fn the_swap_lock_is_released_only_after_the_wait_for_the_helper() {
+    let src = crate::read_source(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("storage").join("mod.rs"));
+    let start = src.find("pub fn launch_swap_helper(tmp_path").expect("the Windows launch_swap_helper");
+    let end = start + src[start..].find("fn wait_helper_ready(").expect("wait_helper_ready after it");
+    let body = &src[start..end];
+    let wait = body.find("wait_helper_ready(ready, helper,").expect("launch_swap_helper must call wait_helper_ready");
+    let release = body.find("release_swap_lock()").expect("launch_swap_helper must release the swap lock");
+    assert_eq!(body.matches("release_swap_lock()").count(), 1, "the swap lock is released at one place only");
+    assert_eq!(body.matches("SWAP_LOCK").count(), 0, "the lock is released through release_swap_lock only");
+    assert!(wait < release, "the late helper must be ended before the swap lock is released");
+}
 // ── Final touch (refuter pass 3: A1, A1b, A2) ──
 
 /// Open `path` without any sharing (an antivirus or a backup tool holding
