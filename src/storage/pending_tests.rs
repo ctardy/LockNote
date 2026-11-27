@@ -1837,7 +1837,11 @@ fn a_helper_that_ends_before_it_is_ready_is_not_waited_for() {
         unsafe { TerminateProcess(HANDLE(raw as *mut _), 3) }
     });
     let waited = wait_helper_ready(ready, HANDLE(child.as_raw_handle()), Duration::from_secs(60));
-    ender.join().unwrap().unwrap();
+    if let Err(e) = ender.join().unwrap() {
+        // A suspended helper is not killed by dropping the Child.
+        let _ = child.kill();
+        panic!("TerminateProcess failed: {e}");
+    }
     child.wait().unwrap();
     assert_eq!(waited, Err(ENDED.to_string()));
 
