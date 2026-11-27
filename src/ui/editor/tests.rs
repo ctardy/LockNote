@@ -1191,6 +1191,21 @@
         assert!(mouse_really_moved(Some(0x0010_0020), 0x0010_0021));
     }
 
+    // ── Tests that read the code as text (issue #35) ──
+    //
+    // Kept on purpose, in two kinds:
+    // - wiring: the line of the real window (or of a `Form*Steps` impl) that
+    //   feeds a decision or a trait-driven flow (`lock_flow`, `close_flow`,
+    //   `end_session`). The sequence tests drive the flow with a fake, so a
+    //   mutant of that line survives them; only the text check sees it.
+    // - rules: properties of the whole editor that no behaviour test can
+    //   observe (every box through `confirm()` / `inform()`, no borrow held
+    //   across a dialog, no early return in `constant_time_eq`, every menu
+    //   greyed while locked).
+    // What the flows do once called (the order inside `lock_flow::request`
+    // and `try_lock`, `answer_still_valid`, `autolock_tick`) is tested by the
+    // sequence tests in `lock_flow.rs`, not read here.
+
     /// Pass 6: the wiring of the lock and dialog decisions. Each assert
     /// fails if the call is removed or moved back (reasoned per line).
     #[test]
@@ -1203,22 +1218,17 @@
             src[start..end].to_string()
         };
         let lock = read("lock_ops.rs");
-        // Pass 8: lock_flow::try_lock saves before lock_now, the only path
-        // to do_lock (the wipe); the persistence guard is taken only in the
-        // save and lock_now steps.
+        // Pass 8: lock_now is the only path to do_lock (the wipe); the
+        // persistence guard is taken only in the save and lock_now steps.
+        // (That try_lock saves before lock_now and keeps the curtain on a
+        // failed save: lock_flow's sequence tests.)
         let flow = read("lock_flow.rs");
-        // lock_flow's functions are top-level: their body ends at a "}" in
-        // column 0.
+        // Top-level functions: their body ends at a "}" in column 0.
         let top = |src: &str, fun: &str| -> String {
             let start = src.find(fun).unwrap_or_else(|| panic!("{}", fun));
             let end = src[start..].find("\n}\n").map_or(src.len(), |e| start + e);
             src[start..end].to_string()
         };
-        let try_lock = top(&flow, "fn try_lock<");
-        let save = try_lock.find("s.save()").expect("try_lock saves");
-        let lock_now = try_lock.find("s.lock_now()").expect("try_lock locks");
-        assert!(save < lock_now, "lock before the save");
-        assert!(try_lock.contains("Err(reason) =>"), "a failed save keeps the curtain");
         let do_lock = body(&lock, "pub(super) fn do_lock(");
         assert!(do_lock.contains("self.wipe_plaintext_stores()"));
         assert!(do_lock.contains("WARN lock: the shortened ssh-agent list was not saved"));
@@ -1236,10 +1246,8 @@
         assert!(body(&guard, "    fn mark_tried(&mut self) {").contains("p.last_try = Some("));
         assert!(body(&lock, "pub(super) fn update_curtain_subtitle(").contains("curtain_subtitle("));
         assert!(body(&guard, "pub(super) fn request_lock(").contains("lock_flow::request("));
-        let req = top(&flow, "pub(super) fn request<");
-        let curtain = req.find("s.show_curtain()").expect("curtain at once");
-        assert!(req.find("s.bump_epoch()").unwrap() < curtain, "epoch moved before the curtain");
-        assert!(req.contains("s.cancel_dialogs()"));
+        // (The epoch moved before the curtain, the dialogs cancelled:
+        // lock_flow's sequence tests.)
         // Only two acquire() of the persistence guard in the lock path: the
         // save and lock_now steps.
         assert_eq!(guard.matches("persistence_lock::acquire()").count(), 2, "acquire() outside save / lock_now");
@@ -1278,7 +1286,8 @@
         assert!(close.matches("self.form.still_valid(epoch)").count() >= 2, "close prompt and save-failed question");
         assert!(body(&guard, "    fn offer_close_without_saving(&self) {").contains("self.still_valid(epoch)"));
         assert!(body(&guard, "pub(super) fn still_valid(").contains("answer_still_valid("));
-        assert!(top(&flow, "pub(super) fn answer_still_valid<").contains("s.curtain_up(), s.locked()) && !s.exiting()"));
+        // (What answer_still_valid decides, the end of the session included:
+        // lock_flow's sequence tests.)
     }
 
     /// Pass 9: no auto-save under the curtain (its failure box would cover

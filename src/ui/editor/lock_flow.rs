@@ -222,12 +222,17 @@ mod tests {
         now: std::time::Instant,
         last_activity: std::time::Instant,
         delay: Duration,
+        /// The epoch when the curtain was shown (issue #35: the order of
+        /// `request`, seen from the window).
+        curtain_epoch: Option<u64>,
+        /// The Windows session ended.
+        exiting: bool,
     }
 
     impl Fake {
         fn new() -> Fake {
             let start = std::time::Instant::now();
-            Fake { dialogs: Vec::new(), locked: false, curtain: false, epoch: 0, modified: true, save_ok: true, reason: None, pending: false, log: Vec::new(), close_box: None, close_asked: false, tries: 0, now: start, last_activity: start, delay: Duration::from_secs(15 * 60) }
+            Fake { dialogs: Vec::new(), locked: false, curtain: false, epoch: 0, modified: true, save_ok: true, reason: None, pending: false, log: Vec::new(), close_box: None, close_asked: false, tries: 0, now: start, last_activity: start, delay: Duration::from_secs(15 * 60), curtain_epoch: None, exiting: false }
         }
         /// Time passes on the fake's clock.
         fn wait(&mut self, d: Duration) {
@@ -265,13 +270,14 @@ mod tests {
             self.locked
         }
         fn exiting(&self) -> bool {
-            false
+            self.exiting
         }
         fn curtain_up(&self) -> bool {
             self.curtain
         }
         fn show_curtain(&mut self) {
             self.curtain = true;
+            self.curtain_epoch = Some(self.epoch);
             self.log.push("curtain".into());
         }
         fn hide_curtain(&mut self) {
@@ -473,6 +479,42 @@ mod tests {
         request(&mut f);
         assert!(f.close_box.is_none(), "a due lock cancels the offer too");
         assert!(f.curtain && !f.locked, "the busy dialog keeps the curtain");
+    }
+
+    /// Issue #35 (was a text scan of `request`): the epoch moves before the
+    /// curtain shows, so every answer of a dialog opened before is stale
+    /// from the moment the note is hidden, and stays stale once the
+    /// password lifted the curtain.
+    #[test]
+    fn the_epoch_moves_before_the_curtain_shows() {
+        let mut f = Fake::new();
+        f.dialogs.push(("delete this secret?", false));
+        let opened_at = f.epoch;
+        request(&mut f);
+        assert_eq!(f.curtain_epoch, Some(opened_at + 1), "the curtain showed before the epoch moved: {:?}", f.log);
+        assert!(f.curtain && !f.locked, "the dialog was open: no lock yet");
+        assert!(lift(&mut f, true));
+        assert!(!f.answer_returns(opened_at), "an answer from before the curtain acted after the lift");
+        // A second lock moves it again before its own curtain.
+        let mut f = Fake::new();
+        f.save_ok = false;
+        request(&mut f);
+        assert!(lift(&mut f, true));
+        let before_second = f.epoch;
+        request(&mut f);
+        assert_eq!(f.curtain_epoch, Some(before_second + 1), "{:?}", f.log);
+    }
+
+    /// Issue #35 (was a text scan of `answer_still_valid`): once the Windows
+    /// session ended, no dialog answer acts, curtain or not.
+    #[test]
+    fn no_answer_acts_once_the_session_ended() {
+        let mut f = Fake::new();
+        let opened_at = f.epoch;
+        assert!(answer_still_valid(&f, opened_at), "nothing happened: the answer applies");
+        f.exiting = true;
+        assert!(!f.answer_returns(opened_at), "an answer acted after the end of the session");
+        assert!(!f.has("destructive"));
     }
 
     #[test]

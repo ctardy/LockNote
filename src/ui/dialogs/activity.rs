@@ -294,8 +294,10 @@ mod tests {
     /// The production wiring, read as text: the hook is installed, takes
     /// its decision from `counts_as_activity` and `is_own_dialog`, records,
     /// and always passes the message on; the auto-lock timer hands the
-    /// recorded input to `autolock_tick`, which applies it only without a
-    /// curtain; the window step moves the AutoLock clock.
+    /// recorded input to `autolock_tick`; the window step moves the AutoLock
+    /// clock. A trait test cannot see these lines (issue #35); what
+    /// `autolock_tick` does with the input (counted, ignored under the
+    /// curtain) is tested by lock_flow's sequence tests.
     #[test]
     fn the_dialog_input_is_wired_from_the_hook_to_the_auto_lock() {
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui");
@@ -320,12 +322,6 @@ mod tests {
             on_tick
         );
         assert!(body(&guard, "    fn note_activity(&mut self", "\n    }\n").contains("self.form.autolock.borrow_mut().note_activity_at(at);"));
-
-        let flow = read("lock_flow.rs");
-        let tick = body(&flow, "pub(super) fn autolock_tick<", "\n}\n");
-        assert!(tick.contains("if let Some(at) = dialog_input"), "{}", tick);
-        assert!(tick.contains("s.note_activity(at);"), "{}", tick);
-        assert!(tick.contains("if s.curtain_up()"), "{}", tick);
 
         let own = crate::read_source(src.join("dialogs").join("activity.rs"));
         let hook = body(&own, "unsafe extern \"system\" fn hook_proc(", "\n}\n");

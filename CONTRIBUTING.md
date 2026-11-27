@@ -55,7 +55,12 @@ of them.
   unsaved text. No `unwrap` on user input; slice strings on bytes or with
   `get(..)`.
 - **Tests that read the code as text** use `crate::read_source`, which turns
-  CRLF into LF: the CI runner checks out with `core.autocrlf=true`.
+  CRLF into LF: the CI runner checks out with `core.autocrlf=true`. Keep
+  them for wiring only (the line of the real window that feeds a flow or a
+  decision, which a test with a fake cannot see) and for rules over the
+  whole editor; what a flow does once called is tested through its trait.
+  Before removing one, check that the test replacing it fails on the
+  mutant the text check caught.
 - **Test the sequence, not only the decision**: a pure decision function can
   be right while the window chains it wrongly. Flows with several steps get a
   trait (`LockSteps`, `CloseSteps`, ...) and sequence tests with a fake.
