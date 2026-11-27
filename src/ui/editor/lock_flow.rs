@@ -517,6 +517,23 @@ mod tests {
         assert!(!f.has("destructive"));
     }
 
+    /// Issue #35 (was a text scan of `answer_still_valid`): an answer never
+    /// acts under the curtain or once locked, even with the epoch it was
+    /// opened at (each argument of the check has its own case: the other
+    /// tests reach the curtain and the lock through `request`, which also
+    /// moves the epoch).
+    #[test]
+    fn no_answer_acts_under_the_curtain_or_locked() {
+        let mut f = Fake::new();
+        let at = f.epoch;
+        f.curtain = true;
+        assert!(!f.answer_returns(at), "an answer acted under the curtain");
+        f.curtain = false;
+        f.locked = true;
+        assert!(!f.answer_returns(at), "an answer acted while locked");
+        assert!(!f.has("destructive"));
+    }
+
     #[test]
     fn a_due_lock_with_nothing_open_saves_then_locks() {
         let mut f = Fake::new();

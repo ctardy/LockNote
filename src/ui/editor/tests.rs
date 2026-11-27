@@ -1202,9 +1202,13 @@
     //   observe (every box through `confirm()` / `inform()`, no borrow held
     //   across a dialog, no early return in `constant_time_eq`, every menu
     //   greyed while locked).
-    // What the flows do once called (the order inside `lock_flow::request`
-    // and `try_lock`, `answer_still_valid`, `autolock_tick`) is tested by the
-    // sequence tests in `lock_flow.rs`, not read here.
+    // What the flows do once called is tested by the sequence tests in
+    // `lock_flow.rs`, not read here: the order inside `lock_flow::request`
+    // (epoch before the curtain, dialogs cancelled) and `try_lock` (save
+    // before lock_now, curtain kept on a failed save), each argument of
+    // `answer_still_valid` (epoch, curtain, locked, exiting) and what
+    // `autolock_tick` does with dialog input. Each of these text checks was
+    // removed only after its mutant failed a sequence test.
 
     /// Pass 6: the wiring of the lock and dialog decisions. Each assert
     /// fails if the call is removed or moved back (reasoned per line).
