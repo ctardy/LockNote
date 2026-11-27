@@ -20,6 +20,10 @@ impl EditorForm {
         // lazily so a theme switch takes effect on the next Invalidate.
         install_lock_overlay_theme(&form);
 
+        // Input in LockNote's dialogs counts for the auto-lock (#32): one
+        // hook on this thread sees every dialog's own loop.
+        crate::ui::dialogs::activity::install();
+
         Self::bind_status_bar_paint(form.clone());
 
         let f = form.clone();
@@ -137,12 +141,10 @@ impl EditorForm {
                             f.tell_undo_stuck_if_pending();
                         }
                         if handle == f.autolock_timer.handle && !*f.is_locked.borrow() {
-                            // Curtain at once, dialogs answered No / Cancel,
+                            // Input in the dialogs counts (#32); when due:
+                            // curtain at once, dialogs answered No / Cancel,
                             // real lock when possible (lock_flow, #30).
-                            let due = !matches!(f.autolock.borrow().lock_decision(), crate::features::autolock::LockDecision::Wait);
-                            if due {
-                                f.request_lock();
-                            }
+                            f.on_autolock_tick();
                         }
                         if handle == f.autosave_timer.handle {
                             use super::modal_guard::TimerTick;

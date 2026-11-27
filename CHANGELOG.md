@@ -112,6 +112,14 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   dialog is open), and again only if the history came back in between.
   A lock that closes the message before it is read shows it again after
   unlocking.
+- **Auto-lock while typing in a dialog**: typing, clicking or moving the
+  mouse in a LockNote window or message (editing a long vault secret, a
+  prompt, a TOTP name, a question) did not count as activity, so the
+  auto-lock could close the window and lose what was typed. It now counts,
+  as in the main window; input in other applications still does not. A
+  window left open with nobody at it is still closed when the delay runs
+  out, and nothing typed under the "Notes hidden" screen postpones a lock
+  already under way (#32).
 
 ## [2.1.1] - 2026-11-26
 

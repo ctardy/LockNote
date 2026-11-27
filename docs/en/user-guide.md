@@ -983,7 +983,10 @@ or 60 min.
 
 LockNote locks ([section 4](#4-locking-and-the-lock-screen)) when there has been
 no key press, no mouse movement or click on its window and no change to the
-text for that long. It checks every 10 seconds. Unsaved changes are saved
+text for that long. Typing, clicking or moving the mouse in a LockNote window
+or message (a dialog such as the one where you type a secret, a question)
+counts too; input in other applications does not. It checks every 10
+seconds. Unsaved changes are saved
 first; if that save fails, LockNote does not lock and tries again after another
 period. A new value applies at once.
 
@@ -999,7 +1002,8 @@ screen). At that moment every open LockNote window or question gets its
 harmless answer: the close question is cancelled, "Close without saving?"
 keeps LockNote open, a Yes/No question is answered **No**, other windows
 are closed as Cancel (what you typed in them is lost, your notes are not).
-An answer clicked after that does nothing.
+This only happens to a window left open with nobody at it, since using it
+counts as activity. An answer clicked after that does nothing.
 
 LockNote then saves and locks for good as soon as no window is open any
 more. If a window cannot close at once (the temporary files window while it

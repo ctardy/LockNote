@@ -200,6 +200,15 @@ impl EditorForm {
         self.update_curtain_subtitle();
     }
 
+    /// A tick of the auto-lock timer, not locked: the input seen in the
+    /// LockNote dialogs since the last tick counts as activity, then a due
+    /// lock is requested (lock_flow::autolock_tick, issue #32).
+    pub(super) fn on_autolock_tick(&self) {
+        if super::lock_flow::autolock_tick(&mut FormLockSteps { form: self }, crate::ui::dialogs::activity::take_input()) {
+            self.update_curtain_subtitle();
+        }
+    }
+
     /// Close requested under a dialog (tray Quit, title bar): cancel the
     /// dialogs, then run the close flow from the application's own loop.
     pub(super) fn request_close_after_dialogs(&self) {
@@ -404,6 +413,12 @@ impl super::lock_flow::LockSteps for FormLockSteps<'_> {
     }
     fn reset_autolock(&mut self) {
         self.form.autolock.borrow_mut().reset();
+    }
+    fn note_activity(&mut self, at: std::time::Instant) {
+        self.form.autolock.borrow_mut().note_activity_at(at);
+    }
+    fn autolock_due(&self) -> bool {
+        !matches!(self.form.autolock.borrow().lock_decision(), crate::features::autolock::LockDecision::Wait)
     }
 }
 

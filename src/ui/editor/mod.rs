@@ -509,6 +509,9 @@ pub(in crate::ui) use self::helpers::format_timestamp;
 pub(in crate::ui) use self::helpers::build_utf16_offset_map;
 // Search in all tabs (ui/search_all.rs) ignores case with the highlight's rule.
 pub(in crate::ui) use self::helpers::case_insensitive_matches;
+// The input hook of the dialogs (ui/dialogs/activity.rs) uses the same rule
+// for a mouse move as the main window (issue #32).
+pub(in crate::ui) use self::helpers::mouse_really_moved;
 #[allow(unused_imports)]
 use self::content::*;
 #[allow(unused_imports)]

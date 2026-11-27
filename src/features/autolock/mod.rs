@@ -94,6 +94,15 @@ impl AutoLock {
         self.last_activity = Instant::now();
     }
 
+    /// Activity seen at `at` (issue #32: input in a LockNote dialog,
+    /// recorded when it happened and applied at the next timer tick). The
+    /// clock only moves forward: an older input never shortens the delay.
+    pub fn note_activity_at(&mut self, at: Instant) {
+        if at > self.last_activity {
+            self.last_activity = at;
+        }
+    }
+
     /// Register a dirty-state callback. The callback is invoked by
     /// `lock_decision()` to decide between `LockNow` and `SaveThenLock`.
     ///
@@ -326,6 +335,22 @@ mod tests {
             matches!(al.lock_decision(), LockDecision::Wait),
             "set_timeout must reset last_activity so the new window starts fresh"
         );
+    }
+
+    // Issue #32: an input recorded in a dialog moves the activity clock to
+    // when it happened, never backwards.
+    #[test]
+    fn activity_noted_at_a_time_only_moves_the_clock_forward() {
+        let mut al = AutoLock::new(1);
+        let start = Instant::now() - Duration::from_secs(120);
+        al.last_activity = start;
+        assert!(al.should_lock());
+        let typed = Instant::now() - Duration::from_secs(5);
+        al.note_activity_at(typed);
+        assert_eq!(al.last_activity, typed);
+        assert!(matches!(al.lock_decision(), LockDecision::Wait), "input 5 s ago: the delay starts again");
+        al.note_activity_at(start);
+        assert_eq!(al.last_activity, typed, "an older input does not move the clock back");
     }
 
     // Switching from dirty=true to dirty=false across two queries must update

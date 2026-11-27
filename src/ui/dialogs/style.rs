@@ -178,6 +178,12 @@ pub fn registered_dialogs() -> Vec<isize> {
     STATES.with(|s| s.borrow().keys().copied().collect())
 }
 
+/// Whether `window` is a LockNote dialog open on this thread (issue #32:
+/// the input hook asks for every key press or click, no list built).
+pub fn is_registered_dialog(window: isize) -> bool {
+    STATES.with(|s| s.borrow().contains_key(&window))
+}
+
 /// Register a freshly built dialog and queue its styling pass.
 pub fn register(window: &nwg::Window) {
     let Some(hwnd) = hwnd_of(window.handle) else {

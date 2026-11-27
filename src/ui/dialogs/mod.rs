@@ -43,6 +43,8 @@ pub mod password_generator;
 
 pub mod command_palette;
 
+pub mod activity;
+
 use native_windows_gui as nwg;
 
 pub mod metrics;

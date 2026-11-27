@@ -778,7 +778,7 @@ pub(super) fn wipe_or_defer<T: zeroize::Zeroize>(cell: &RefCell<T>, pending: &Ce
 /// Whether a WM_MOUSEMOVE is a real move: its packed position (lParam)
 /// differs from the last one (pass 6: Windows sends one after a dialog
 /// closes, cursor unchanged, which reset the auto-lock).
-pub(super) fn mouse_really_moved(last: Option<isize>, now: isize) -> bool {
+pub(in crate::ui) fn mouse_really_moved(last: Option<isize>, now: isize) -> bool {
     last != Some(now)
 }
 

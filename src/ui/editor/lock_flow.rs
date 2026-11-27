@@ -55,6 +55,40 @@ pub(super) trait LockSteps {
     /// The reason of a failed save, shown after the curtain is lifted.
     fn inform_save_failed(&mut self, reason: &str);
     fn reset_autolock(&mut self);
+    /// Activity seen at `at` (input in a LockNote dialog, issue #32): the
+    /// auto-lock delay counts from then.
+    fn note_activity(&mut self, at: std::time::Instant);
+    /// The auto-lock delay ran out (always false when auto-lock is off).
+    fn autolock_due(&self) -> bool;
+}
+
+/// A tick of the auto-lock timer (every 10 s, also inside a dialog's own
+/// loop), not locked. `dialog_input`: when the last input in a LockNote
+/// dialog happened since the previous tick (`dialog_activity`, issue #32);
+/// it counts as activity like input in the main window, except under the
+/// curtain: there a lock is already due and only the password lifts it.
+/// Then a lock is requested if the delay ran out. Returns whether one was.
+pub(super) fn autolock_tick<S: LockSteps>(s: &mut S, dialog_input: Option<std::time::Instant>) -> bool {
+    if s.locked() {
+        return false;
+    }
+    if let Some(at) = dialog_input {
+        if s.curtain_up() {
+            eprintln!("INFO autolock: input in a dialog under the curtain ignored, the password lifts it");
+        } else {
+            let was_due = s.autolock_due();
+            s.note_activity(at);
+            if was_due && !s.autolock_due() {
+                eprintln!("INFO autolock: input in a LockNote dialog counted, lock postponed");
+            }
+        }
+    }
+    if s.autolock_due() {
+        request(s);
+        true
+    } else {
+        false
+    }
 }
 
 /// A lock is due (auto-lock delay, Lock button, Ctrl+L): curtain at once,
@@ -183,11 +217,21 @@ mod tests {
         close_asked: bool,
         /// Save attempts recorded (`mark_tried`).
         tries: u32,
+        /// The auto-lock clock (issue #32): the fake's "now", the last
+        /// activity and the delay.
+        now: std::time::Instant,
+        last_activity: std::time::Instant,
+        delay: Duration,
     }
 
     impl Fake {
         fn new() -> Fake {
-            Fake { dialogs: Vec::new(), locked: false, curtain: false, epoch: 0, modified: true, save_ok: true, reason: None, pending: false, log: Vec::new(), close_box: None, close_asked: false, tries: 0 }
+            let start = std::time::Instant::now();
+            Fake { dialogs: Vec::new(), locked: false, curtain: false, epoch: 0, modified: true, save_ok: true, reason: None, pending: false, log: Vec::new(), close_box: None, close_asked: false, tries: 0, now: start, last_activity: start, delay: Duration::from_secs(15 * 60) }
+        }
+        /// Time passes on the fake's clock.
+        fn wait(&mut self, d: Duration) {
+            self.now += d;
         }
         fn saves(&self) -> usize {
             self.log.iter().filter(|l| *l == "save").count()
@@ -277,7 +321,19 @@ mod tests {
         fn inform_save_failed(&mut self, reason: &str) {
             self.log.push(format!("inform:{}", reason));
         }
-        fn reset_autolock(&mut self) {}
+        fn reset_autolock(&mut self) {
+            self.last_activity = self.now;
+        }
+        fn note_activity(&mut self, at: std::time::Instant) {
+            // As `AutoLock::note_activity_at`: only forward.
+            if at > self.last_activity {
+                self.last_activity = at;
+            }
+            self.log.push("activity".into());
+        }
+        fn autolock_due(&self) -> bool {
+            self.now.duration_since(self.last_activity) >= self.delay
+        }
     }
 
     impl super::super::modal_guard::CloseWaitSteps for Fake {
@@ -309,6 +365,79 @@ mod tests {
     }
 
     const S2: Duration = Duration::from_secs(2);
+    const MIN: Duration = Duration::from_secs(60);
+
+    /// Issue #32: someone typing in a dialog (a long vault secret) a minute
+    /// before the delay runs out: the tick at the delay does not lock and
+    /// does not cancel the dialog; the delay counts from that input.
+    #[test]
+    fn input_in_a_dialog_before_the_delay_keeps_the_note_open() {
+        let mut f = Fake::new();
+        f.dialogs.push(("edit secret", false));
+        f.wait(14 * MIN);
+        let typed = f.now;
+        f.wait(MIN);
+        assert!(!autolock_tick(&mut f, Some(typed)), "locked although someone typed in the dialog: {:?}", f.log);
+        assert!(!f.curtain && !f.has("cancel") && f.dialogs.len() == 1, "{:?}", f.log);
+        // Nobody since: the lock comes 15 min after that input.
+        f.wait(13 * MIN);
+        assert!(!autolock_tick(&mut f, None));
+        f.wait(MIN);
+        assert!(autolock_tick(&mut f, None), "15 min after the last input");
+        assert!(f.curtain && f.has("cancel") && f.dialogs.is_empty(), "{:?}", f.log);
+    }
+
+    /// Issue #32, #30: a dialog left open with nobody at it is still
+    /// cancelled at the delay, and the note saved and locked.
+    #[test]
+    fn a_dialog_with_nobody_at_it_is_cancelled_at_the_delay() {
+        let mut f = Fake::new();
+        f.dialogs.push(("edit secret", false));
+        f.wait(14 * MIN);
+        assert!(!autolock_tick(&mut f, None));
+        assert!(f.dialogs.len() == 1 && !f.curtain);
+        f.wait(MIN);
+        assert!(autolock_tick(&mut f, None));
+        assert!(f.has("cancel") && f.dialogs.is_empty(), "{:?}", f.log);
+        tick(&mut f, RECANCEL_EVERY, None);
+        assert!(f.locked, "{:?}", f.log);
+        assert!(!f.has("activity"));
+    }
+
+    /// Issue #32: input under the curtain (in a dialog that did not close,
+    /// or a box shown over it) neither lifts it nor postpones the lock
+    /// already due: the lock goes on when the window closes.
+    #[test]
+    fn input_under_the_curtain_does_not_lift_or_postpone_the_lock() {
+        let mut f = Fake::new();
+        f.dialogs.push(("temporary files (busy)", true));
+        f.wait(15 * MIN);
+        assert!(autolock_tick(&mut f, None));
+        assert!(f.curtain && !f.locked && f.pending);
+        f.wait(Duration::from_secs(10));
+        let typed = f.now;
+        f.wait(Duration::from_secs(10));
+        autolock_tick(&mut f, Some(typed));
+        assert!(f.curtain && f.pending && !f.locked, "the curtain stays: {:?}", f.log);
+        assert!(!f.has("activity"), "input under the curtain counted: {:?}", f.log);
+        assert!(!f.has("lift"));
+        f.dialogs.clear();
+        tick(&mut f, RECANCEL_EVERY, None);
+        assert!(f.locked, "the due lock went on: {:?}", f.log);
+    }
+
+    /// Issue #32: once locked, a recorded input does nothing.
+    #[test]
+    fn input_after_the_lock_does_nothing() {
+        let mut f = Fake::new();
+        f.wait(15 * MIN);
+        assert!(autolock_tick(&mut f, None));
+        assert!(f.locked);
+        let n = f.log.len();
+        let now = f.now;
+        assert!(!autolock_tick(&mut f, Some(now)));
+        assert_eq!(f.log.len(), n, "{:?}", f.log);
+    }
 
     /// Pass 9: a lock already pending under the curtain is not saved again
     /// by a new request: one save, then one per SAVE_RETRY (ticks), each
