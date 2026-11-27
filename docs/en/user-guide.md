@@ -254,7 +254,13 @@ changes, unless On close is **Never save**, which you chose: then those
 unsaved changes are lost. Then it closes as usual (SSH keys removed
 from ssh-agent, an update or a pending save applied). If the save fails,
 Windows shows "LockNote could not save your notes (...)" on its shutdown
-screen: cancel, then save or copy your text. The list of SSH keys this file
+screen: cancel, then save or copy your text. If the notes had no unsaved
+changes, only the window position is at stake: a failed save does not stop
+the shutdown. If you were closing LockNote and had already answered
+**Don't Save** (or **Close without saving** after a failed save), the
+logoff respects that answer and saves nothing, even if a message of that
+close is still shown; a close question you have not answered yet is
+treated as above. The list of SSH keys this file
 loaded is not saved again at that moment: at the next unlock LockNote
 removes those keys from ssh-agent once more, so a key you added to
 ssh-agent by hand in between is removed too; add it again if needed.

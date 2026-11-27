@@ -279,7 +279,14 @@ choix : ces modifications non enregistrées sont alors perdues. Puis il se ferme
 d'habitude (clés SSH retirées de ssh-agent, mise à jour ou enregistrement en
 attente appliqué). Si l'enregistrement échoue, Windows affiche « LockNote n'a
 pas pu enregistrer vos notes (…) » sur son écran d'arrêt : annulez, puis
-enregistrez ou copiez votre texte. La liste des clés SSH chargées par ce
+enregistrez ou copiez votre texte. Si les notes n'avaient pas de
+modifications non enregistrées, seule la position de la fenêtre est en jeu :
+un échec de l'enregistrement n'empêche pas l'arrêt. Si vous étiez en train de
+fermer LockNote et aviez déjà répondu **Ne pas enregistrer** (ou **Fermer
+sans enregistrer** après un enregistrement qui a échoué), la fermeture de
+session respecte cette réponse et n'enregistre rien, même si un message de
+cette fermeture est encore affiché ; une question de fermeture à laquelle
+vous n'avez pas encore répondu suit la règle ci-dessus. La liste des clés SSH chargées par ce
 fichier n'est pas réenregistrée à ce moment : au déverrouillage suivant,
 LockNote retire à nouveau ces clés de ssh-agent, donc une clé ajoutée à la
 main entre-temps est retirée aussi ; ajoutez-la de nouveau si besoin.

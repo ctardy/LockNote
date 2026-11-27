@@ -182,6 +182,12 @@ pub struct EditorForm {
     /// A failed save blocked the shutdown (issue #29): the reason is removed
     /// at WM_ENDSESSION.
     shutdown_blocked: Cell<bool>,
+    /// The close flow running now has an answer not to save ("Don't save"
+    /// at the prompt, "Close without saving" after a failed save): a logoff
+    /// while one of its later boxes is shown saves nothing (issue #33). Set
+    /// by `run_close` (`CloseSteps::mark_save_declined`), cleared by
+    /// `on_close` when the flow ends without closing.
+    close_save_declined: Cell<bool>,
     /// A password wipe found the password borrowed (pass 3): retried on the
     /// next highlight tick.
     wipe_pending: Cell<bool>,

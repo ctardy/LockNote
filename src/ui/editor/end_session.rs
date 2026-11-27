@@ -3,8 +3,13 @@
 // WM_QUERYENDSESSION: Windows asks whether the session may end. No dialog
 // may be shown then, so the close setting decides alone: "Ask" saves like
 // "Always" (losing the text is worse than saving it), "Never" saves nothing.
-// A failed save blocks the shutdown with a reason Windows shows
-// (ShutdownBlockReasonCreate) instead of losing the text.
+// A close prompt still open saves too (not answered yet), but a close the
+// user already answered "Don't save" / "Close without saving", whose later
+// box (notice, ssh-agent error) is still shown, saves nothing (#33,
+// `close_save_declined`). A failed save of a modified note blocks the
+// shutdown with a reason Windows shows (ShutdownBlockReasonCreate) instead
+// of losing the text; an unmodified note only risks its window state: the
+// save is tried, a failure is logged (WARN) and never blocks (#33).
 // WM_ENDSESSION (wParam TRUE): the session ends; the process is killed after
 // the handler returns, so the exit of a normal close runs here: ssh-agent
 // keys removed, password and text wiped, pending save promoted
@@ -13,18 +18,36 @@
 #[allow(unused_imports)]
 use super::*;
 
-/// Whether the end of the session saves the note: as a close whose prompt
-/// would have answered Save, except that a locked note is never saved (its
-/// password is wiped; the lock already saved it).
-pub(super) fn end_session_saves(
+/// What the end of the session saves.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum EndSessionSave {
+    Nothing,
+    /// The note with its changes: a failed save blocks the shutdown.
+    Note,
+    /// An unmodified note: only the window state is at stake, a failed save
+    /// is logged (WARN) and does not block the shutdown (issue #33).
+    WindowState,
+}
+
+/// What the end of the session saves: as a close whose prompt would have
+/// answered Save, except that a locked note is never saved (its password is
+/// wiped; the lock already saved it) and a close already answered "Don't
+/// save" / "Close without saving" (`close_declined`) is not overridden.
+pub(super) fn end_session_save(
     locked: bool,
     modified: bool,
     save_on_close: crate::settings::CloseAction,
-) -> bool {
-    if locked {
-        return false;
+    close_declined: bool,
+) -> EndSessionSave {
+    if locked || close_declined {
+        EndSessionSave::Nothing
+    } else if !modified {
+        EndSessionSave::WindowState
+    } else if save_on_close == crate::settings::CloseAction::Never {
+        EndSessionSave::Nothing
+    } else {
+        EndSessionSave::Note
     }
-    !(modified && save_on_close == crate::settings::CloseAction::Never)
 }
 
 /// The reason Windows shows next to LockNote when a save blocks the shutdown.
@@ -68,23 +91,41 @@ pub(super) fn query_end_session(
     locked: bool,
     modified: bool,
     save_on_close: crate::settings::CloseAction,
+    close_declined: bool,
     steps: &mut impl EndSessionSteps,
 ) -> bool {
-    if !end_session_saves(locked, modified, save_on_close) {
-        eprintln!("INFO endsession: no save locked={} modified={} setting={:?}", locked, modified, save_on_close);
-        return true;
-    }
-    match steps.save() {
-        Ok(()) => {
-            eprintln!("INFO endsession: saved");
+    match end_session_save(locked, modified, save_on_close, close_declined) {
+        EndSessionSave::Nothing => {
+            eprintln!(
+                "INFO endsession: no save locked={} modified={} setting={:?} close_declined={}",
+                locked, modified, save_on_close, close_declined
+            );
             true
         }
-        Err(msg) => {
-            // The reason is logged by the save, in English.
-            eprintln!("WARN endsession: save failed, shutdown blocked");
-            steps.block(&block_reason(&msg));
-            false
-        }
+        EndSessionSave::Note => match steps.save() {
+            Ok(()) => {
+                eprintln!("INFO endsession: saved");
+                true
+            }
+            Err(msg) => {
+                // The reason is logged by the save, in English.
+                eprintln!("WARN endsession: save failed, shutdown blocked");
+                steps.block(&block_reason(&msg));
+                false
+            }
+        },
+        EndSessionSave::WindowState => match steps.save() {
+            Ok(()) => {
+                eprintln!("INFO endsession: saved (note unmodified, window state)");
+                true
+            }
+            Err(_) => {
+                // The reason is logged by the save, in English. Only the
+                // window position is lost: the shutdown goes on.
+                eprintln!("WARN endsession: window state not saved (note unmodified), shutdown not blocked");
+                true
+            }
+        },
     }
 }
 
@@ -170,7 +211,8 @@ impl EditorForm {
         }
         let modified = self.is_modified.load(Ordering::Relaxed);
         let setting = self.settings.borrow().save_on_close;
-        query_end_session(locked, modified, setting, &mut FormEndSessionSteps { form: self })
+        let close_declined = self.close_save_declined.get();
+        query_end_session(locked, modified, setting, close_declined, &mut FormEndSessionSteps { form: self })
     }
 
     /// WM_ENDSESSION: `ending` is its wParam.
@@ -209,17 +251,19 @@ impl EditorForm {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::settings::CloseAction::*;
 
-    struct Fake {
-        save: Result<(), String>,
-        log: Vec<String>,
+    /// Also used by the close-flow sequence tests (a logoff inside one of
+    /// the close flow's boxes, #33).
+    pub(in crate::ui::editor) struct Fake {
+        pub(in crate::ui::editor) save: Result<(), String>,
+        pub(in crate::ui::editor) log: Vec<String>,
     }
 
     impl Fake {
-        fn new(save: Result<(), String>) -> Fake {
+        pub(in crate::ui::editor) fn new(save: Result<(), String>) -> Fake {
             Fake { save, log: Vec::new() }
         }
     }
@@ -273,38 +317,87 @@ mod tests {
 
     #[test]
     fn the_setting_and_the_state_decide_the_save() {
-        for (locked, modified, setting, saves) in [
-            (false, true, Ask, true),
-            (false, true, Always, true),
-            (false, true, Never, false),
-            // Not modified: the final save of a normal close (window state).
-            (false, false, Ask, true),
-            (false, false, Never, true),
+        use EndSessionSave::*;
+        for (locked, modified, setting, declined, saves) in [
+            (false, true, Ask, false, Note),
+            (false, true, Always, false, Note),
+            (false, true, Never, false, Nothing),
             // Locked: the password is wiped, nothing can be encrypted.
-            (true, true, Ask, false),
-            (true, true, Always, false),
+            (true, true, Ask, false, Nothing),
+            (true, true, Always, false, Nothing),
+            (true, false, Never, false, Nothing),
+            (true, true, Ask, true, Nothing),
         ] {
-            assert_eq!(end_session_saves(locked, modified, setting), saves, "{} {} {:?}", locked, modified, setting);
+            assert_eq!(end_session_save(locked, modified, setting, declined), saves, "{} {} {:?} {}", locked, modified, setting, declined);
+        }
+    }
+
+    /// Issue #33, case 1: a close already answered "Don't save" (or "Close
+    /// without saving") is not overridden by the logoff, whatever the
+    /// setting (Ask would otherwise save like Always).
+    #[test]
+    fn a_close_answered_dont_save_is_not_overridden_by_the_logoff() {
+        for (modified, setting) in [(true, Ask), (true, Always), (true, Never), (false, Ask), (false, Never)] {
+            assert_eq!(
+                end_session_save(false, modified, setting, true),
+                EndSessionSave::Nothing,
+                "{} {:?}", modified, setting
+            );
+        }
+    }
+
+    /// Issue #33, case 2: an unmodified note only saves the window state,
+    /// whatever the setting (the final save of a normal close).
+    #[test]
+    fn an_unmodified_note_only_saves_the_window_state() {
+        for setting in [Ask, Always, Never] {
+            assert_eq!(end_session_save(false, false, setting, false), EndSessionSave::WindowState, "{:?}", setting);
         }
     }
 
     #[test]
     fn a_saved_note_lets_the_session_end() {
         let mut f = Fake::new(Ok(()));
-        assert!(query_end_session(false, true, Ask, &mut f));
+        assert!(query_end_session(false, true, Ask, false, &mut f));
         assert_eq!(f.log, ["save"]);
         let mut f = Fake::new(Ok(()));
-        assert!(query_end_session(false, true, Never, &mut f));
+        assert!(query_end_session(false, true, Never, false, &mut f));
         assert!(f.log.is_empty());
+        let mut f = Fake::new(Ok(()));
+        assert!(query_end_session(false, false, Never, false, &mut f));
+        assert_eq!(f.log, ["save"], "window state");
     }
 
     #[test]
     fn a_failed_save_blocks_the_shutdown_with_its_reason() {
-        let mut f = Fake::new(Err("disk full".into()));
-        assert!(!query_end_session(false, true, Always, &mut f));
-        assert_eq!(f.log.len(), 2);
-        assert_eq!(f.log[0], "save");
-        assert!(f.log[1].starts_with("block:") && f.log[1].contains("disk full"), "{:?}", f.log);
+        for setting in [Ask, Always] {
+            let mut f = Fake::new(Err("disk full".into()));
+            assert!(!query_end_session(false, true, setting, false, &mut f));
+            assert_eq!(f.log.len(), 2);
+            assert_eq!(f.log[0], "save");
+            assert!(f.log[1].starts_with("block:") && f.log[1].contains("disk full"), "{:?}", f.log);
+        }
+    }
+
+    /// Issue #33, case 2: the window-state save is tried, its failure lets
+    /// the session end (no block reason).
+    #[test]
+    fn an_unmodified_note_whose_save_fails_never_blocks_the_shutdown() {
+        for setting in [Ask, Always, Never] {
+            let mut f = Fake::new(Err("disk full".into()));
+            assert!(query_end_session(false, false, setting, false, &mut f), "{:?}", setting);
+            assert_eq!(f.log, ["save"], "{:?}", setting);
+        }
+    }
+
+    /// Issue #33, case 1: no save at all, so nothing can block either.
+    #[test]
+    fn a_close_answered_dont_save_lets_the_session_end_without_saving() {
+        for (modified, setting) in [(true, Ask), (true, Always), (false, Ask)] {
+            let mut f = Fake::new(Err("disk full".into()));
+            assert!(query_end_session(false, modified, setting, true, &mut f), "{} {:?}", modified, setting);
+            assert!(f.log.is_empty(), "{} {:?}: {:?}", modified, setting, f.log);
+        }
     }
 
     #[test]

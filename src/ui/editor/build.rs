@@ -1533,6 +1533,7 @@ impl EditorForm {
             lock_save_failed_reason: RefCell::new(None),
             last_mouse_pos: Cell::new(None),
             shutdown_blocked: Cell::new(false),
+            close_save_declined: Cell::new(false),
             wipe_pending: Cell::new(false),
             exiting: Cell::new(false),
             clipboard_read_failures: Cell::new(0),

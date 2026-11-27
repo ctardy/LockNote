@@ -82,6 +82,14 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   palette and Preferences (a function key reads "Ctrl+F5").
 
 ### Fixed
+- **Windows logoff during a close answered "Don't save"**: a logoff while a
+  message of that close was still shown (the "Remember my choice" notice,
+  an SSH key error) saved the changes the user had just declined. The answer
+  "Don't save" (or "Close without saving" after a failed save) now stands; a
+  close question not answered yet still saves, as before (#33).
+- **Shutdown blocked for an unmodified note**: a failed save at logoff
+  blocked the shutdown even with no unsaved changes, where only the window
+  position was at stake. It is now logged and the shutdown goes on (#33).
 - **Select All with emoji**: Edit > Select All / Ctrl+A now selects the whole
   text when it contains emoji or other characters outside the BMP (the end
   was cut short by one position per such character).

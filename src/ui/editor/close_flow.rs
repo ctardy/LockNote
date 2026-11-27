@@ -91,6 +91,11 @@ impl EditorForm {
         let save_on_close = self.settings.borrow().save_on_close;
 
         let outcome = run_close(modified, save_on_close, &mut FormCloseSteps { form: self });
+        // A "Don't save" answer belongs to this close flow only: if LockNote
+        // stays open, a later logoff follows the setting again (#33).
+        if outcome == CloseOutcome::StayOpen {
+            self.close_save_declined.set(false);
+        }
 
         // The swap helper that moves the .tmp over the .exe is not launched
         // here: `ui::run` does it once, after the message loop, for every
@@ -150,6 +155,9 @@ pub(super) trait CloseSteps {
     /// A save at close failed with `reason`: does the user close anyway,
     /// without saving? `false` (keep LockNote open) is the default answer.
     fn close_without_saving(&mut self, reason: &str) -> bool;
+    /// The user answered not to save ("Don't save", "Close without saving"):
+    /// from now on a logoff saves nothing (`close_save_declined`, #33).
+    fn mark_save_declined(&mut self);
     fn unload_agent_keys(&mut self);
     /// Wipe the password and the editor text.
     fn wipe(&mut self);
@@ -216,6 +224,11 @@ pub(super) fn run_close(
                     eprintln!("INFO close: cancelled at the prompt");
                     return CloseOutcome::StayOpen;
                 }
+                if answer.action == Choice::DontSave {
+                    // Before the notice below: a logoff while it is shown
+                    // must not save the declined changes (#33).
+                    steps.mark_save_declined();
+                }
                 match remembered_close_action(answer) {
                     // Set before the save below, which writes it.
                     Some(CloseAction::Always) => steps.remember(CloseAction::Always),
@@ -240,6 +253,7 @@ pub(super) fn run_close(
                     return CloseOutcome::StayOpen;
                 }
                 eprintln!("WARN close: save failed, closing without saving (user choice)");
+                steps.mark_save_declined();
                 user_declined_save = true;
             }
         } else {
@@ -260,6 +274,7 @@ pub(super) fn run_close(
                 return CloseOutcome::StayOpen;
             }
             eprintln!("WARN close: final save failed, closing without saving (user choice)");
+            steps.mark_save_declined();
         }
     }
 
@@ -331,6 +346,11 @@ impl CloseSteps for FormCloseSteps<'_> {
         close
     }
 
+    fn mark_save_declined(&mut self) {
+        eprintln!("INFO close: save declined, a logoff now saves nothing");
+        self.form.close_save_declined.set(true);
+    }
+
     fn unload_agent_keys(&mut self) {
         self.form.unload_agent_keys(true);
     }
@@ -346,6 +366,8 @@ mod tests {
     use super::*;
     use crate::settings::CloseAction;
     use crate::ui::dialogs::close_confirm::{CloseAction as Choice, CloseConfirmResult};
+    use crate::ui::editor::end_session::query_end_session;
+    use crate::ui::editor::end_session::tests::Fake as EndFake;
 
     /// Records the steps; `saves` are the results of the successive saves.
     struct Fake {
@@ -356,6 +378,18 @@ mod tests {
         text: String,
         /// Answer to "close without saving?" after a failed save.
         close_anyway: bool,
+        /// `close_save_declined` (#33).
+        declined: bool,
+        /// What `on_query_end_session` reads besides `close_save_declined`:
+        /// `is_modified` and `save_on_close` (in memory, `remember` sets it).
+        modified: bool,
+        setting: CloseAction,
+        /// The box (step name) inside whose message loop a logoff arrives
+        /// (WM_QUERYENDSESSION), the result of the save it does, and what
+        /// it answered Windows with the end-of-session steps it ran.
+        logoff_at: Option<&'static str>,
+        logoff_save: Result<(), String>,
+        logoff: Option<(bool, Vec<String>)>,
     }
 
     impl Fake {
@@ -367,13 +401,39 @@ mod tests {
                 password: "pw".into(),
                 text: "unsaved".into(),
                 close_anyway: false,
+                declined: false,
+                modified: false,
+                setting: CloseAction::Ask,
+                logoff_at: None,
+                logoff_save: Ok(()),
+                logoff: None,
             }
         }
+
+        /// WM_QUERYENDSESSION dispatched inside the box `step` shows, as
+        /// `on_query_end_session` does it (not locked: the close flow runs).
+        fn logoff_here(&mut self, step: &'static str) {
+            if self.logoff_at != Some(step) {
+                return;
+            }
+            self.log.push("logoff");
+            let mut end = EndFake::new(self.logoff_save.clone());
+            let ok = query_end_session(false, self.modified, self.setting, self.declined, &mut end);
+            self.logoff = Some((ok, end.log));
+        }
+    }
+
+    /// `on_close`: the state `on_query_end_session` reads, then `run_close`.
+    fn run(f: &mut Fake, modified: bool, setting: CloseAction) -> CloseOutcome {
+        f.modified = modified;
+        f.setting = setting;
+        run_close(modified, setting, f)
     }
 
     impl CloseSteps for Fake {
         fn ask(&mut self) -> CloseConfirmResult {
             self.log.push("ask");
+            self.logoff_here("ask");
             self.answer
         }
         fn remember(&mut self, action: CloseAction) {
@@ -382,9 +442,11 @@ mod tests {
                 CloseAction::Never => "remember:never",
                 CloseAction::Ask => "remember:ask",
             });
+            self.setting = action;
         }
         fn tell_choice_not_remembered(&mut self) {
             self.log.push("not_remembered");
+            self.logoff_here("not_remembered");
         }
         fn save(&mut self) -> Result<(), String> {
             self.log.push("save");
@@ -394,10 +456,17 @@ mod tests {
         fn close_without_saving(&mut self, reason: &str) -> bool {
             assert_eq!(reason, "Failed to save: disk full");
             self.log.push(if self.close_anyway { "close_anyway?yes" } else { "close_anyway?no" });
+            self.logoff_here("close_anyway");
             self.close_anyway
         }
+        fn mark_save_declined(&mut self) {
+            self.log.push("declined");
+            self.declined = true;
+        }
         fn unload_agent_keys(&mut self) {
+            // Its ssh-agent error box (interactive) runs a message loop.
             self.log.push("unload");
+            self.logoff_here("unload");
         }
         fn wipe(&mut self) {
             self.log.push("wipe");
@@ -429,7 +498,7 @@ mod tests {
         f.close_anyway = true;
         assert_eq!(run_close(true, CloseAction::Ask, &mut f), CloseOutcome::Close);
         // No second save after the user chose to close without saving.
-        assert_eq!(f.log, ["ask", "save", "close_anyway?yes", "unload", "wipe"]);
+        assert_eq!(f.log, ["ask", "save", "close_anyway?yes", "declined", "unload", "wipe"]);
     }
 
     #[test]
@@ -437,7 +506,7 @@ mod tests {
         let mut f = Fake::new(Choice::Cancel, vec![disk_full()]);
         f.close_anyway = true;
         assert_eq!(run_close(true, CloseAction::Always, &mut f), CloseOutcome::Close);
-        assert_eq!(f.log, ["save", "close_anyway?yes", "unload", "wipe"]);
+        assert_eq!(f.log, ["save", "close_anyway?yes", "declined", "unload", "wipe"]);
     }
 
     #[test]
@@ -445,7 +514,7 @@ mod tests {
         let mut f = Fake::new(Choice::Cancel, vec![disk_full()]);
         f.close_anyway = true;
         assert_eq!(run_close(false, CloseAction::Ask, &mut f), CloseOutcome::Close);
-        assert_eq!(f.log, ["unload", "save", "close_anyway?yes", "wipe"]);
+        assert_eq!(f.log, ["unload", "save", "close_anyway?yes", "declined", "wipe"]);
     }
 
     /// Issue #22: a failed save at close kept closing and lost the text.
@@ -486,7 +555,7 @@ mod tests {
     fn declined_save_closes_without_saving() {
         let mut f = Fake::new(Choice::DontSave, vec![]);
         assert_eq!(run_close(true, CloseAction::Ask, &mut f), CloseOutcome::Close);
-        assert_eq!(f.log, ["ask", "unload", "wipe"]);
+        assert_eq!(f.log, ["ask", "declined", "unload", "wipe"]);
         let mut f = Fake::new(Choice::Cancel, vec![]);
         assert_eq!(run_close(true, CloseAction::Never, &mut f), CloseOutcome::Close);
         assert_eq!(f.log, ["unload", "wipe"]);
@@ -528,7 +597,128 @@ mod tests {
         f.answer.remember = true;
         assert_eq!(run_close(true, CloseAction::Ask, &mut f), CloseOutcome::Close);
         // Decision of 2026-11-26: nothing is written, not even in memory.
-        assert_eq!(f.log, ["ask", "not_remembered", "unload", "wipe"]);
+        assert_eq!(f.log, ["ask", "declined", "not_remembered", "unload", "wipe"]);
+    }
+
+    fn logoff_in(action: Choice, remember: bool, saves: Vec<Result<(), String>>, at: &'static str) -> Fake {
+        let mut f = Fake::new(action, saves);
+        f.answer.remember = remember;
+        f.logoff_at = Some(at);
+        f
+    }
+
+    /// Issue #33, case 1: "Don't save" + "Remember my choice", then a logoff
+    /// while the notice is shown: the declined changes are not saved.
+    #[test]
+    fn a_logoff_during_the_dont_save_notice_saves_nothing() {
+        let mut f = logoff_in(Choice::DontSave, true, vec![], "not_remembered");
+        assert_eq!(run(&mut f, true, CloseAction::Ask), CloseOutcome::Close);
+        assert_eq!(f.logoff, Some((true, vec![])), "no save, the session may end");
+        assert_eq!(f.log, ["ask", "declined", "not_remembered", "logoff", "unload", "wipe"]);
+    }
+
+    /// Issue #33, case 1: the ssh-agent error box after "Don't save".
+    #[test]
+    fn a_logoff_in_a_box_after_dont_save_saves_nothing() {
+        let mut f = logoff_in(Choice::DontSave, false, vec![], "unload");
+        assert_eq!(run(&mut f, true, CloseAction::Ask), CloseOutcome::Close);
+        assert_eq!(f.logoff, Some((true, vec![])));
+        assert_eq!(f.log, ["ask", "declined", "unload", "logoff", "wipe"]);
+    }
+
+    /// Issue #33, case 1: "Close without saving" after a failed save is a
+    /// "Don't save" answer too (Ask, and Always with no prompt).
+    #[test]
+    fn a_logoff_after_close_without_saving_saves_nothing() {
+        for (setting, first) in [(CloseAction::Ask, vec!["ask"]), (CloseAction::Always, vec![])] {
+            let mut f = logoff_in(Choice::Save, false, vec![disk_full()], "unload");
+            f.close_anyway = true;
+            assert_eq!(run(&mut f, true, setting), CloseOutcome::Close);
+            assert_eq!(f.logoff, Some((true, vec![])), "{:?}", setting);
+            let mut log = first;
+            log.extend(["save", "close_anyway?yes", "declined", "unload", "logoff", "wipe"]);
+            assert_eq!(f.log, log, "{:?}", setting);
+        }
+    }
+
+    /// Owner decision: a prompt not answered yet keeps the #29 rule, Ask
+    /// saves like Always; the later answer is then "Don't save".
+    #[test]
+    fn a_logoff_while_the_prompt_is_unanswered_still_saves() {
+        let mut f = logoff_in(Choice::DontSave, true, vec![], "ask");
+        assert_eq!(run(&mut f, true, CloseAction::Ask), CloseOutcome::Close);
+        assert_eq!(f.logoff, Some((true, vec!["save".to_string()])));
+        assert_eq!(f.log, ["ask", "logoff", "declined", "not_remembered", "unload", "wipe"]);
+        // A failed save then blocks, as in #29.
+        let mut f = logoff_in(Choice::DontSave, false, vec![], "ask");
+        f.logoff_save = Err("disk full".into());
+        run(&mut f, true, CloseAction::Ask);
+        let (ok, end) = f.logoff.expect("logoff ran");
+        assert!(!ok && end.len() == 2 && end[1].starts_with("block:"), "{:?}", end);
+    }
+
+    /// The save-failed question after Save, not answered yet: the user asked
+    /// to save, the logoff saves (and blocks if it fails).
+    #[test]
+    fn a_logoff_during_the_save_failed_question_still_saves() {
+        for remember in [false, true] {
+            let mut f = logoff_in(Choice::Save, remember, vec![disk_full()], "close_anyway");
+            assert_eq!(run(&mut f, true, CloseAction::Ask), CloseOutcome::StayOpen);
+            assert!(!f.declined);
+            assert_eq!(f.logoff, Some((true, vec!["save".to_string()])), "remember={}", remember);
+        }
+    }
+
+    /// Never with changes: no answer is recorded, the setting alone keeps
+    /// the logoff from saving (unchanged, #29).
+    #[test]
+    fn a_logoff_during_a_close_with_never_saves_nothing() {
+        let mut f = logoff_in(Choice::Cancel, false, vec![], "unload");
+        assert_eq!(run(&mut f, true, CloseAction::Never), CloseOutcome::Close);
+        assert!(!f.declined);
+        assert_eq!(f.logoff, Some((true, vec![])));
+    }
+
+    /// Issue #33, case 2: unmodified note, its final save failed and the
+    /// question is open, then a logoff whose save fails too: the session
+    /// may end (only the window state is lost), no block reason.
+    #[test]
+    fn a_logoff_with_an_unmodified_note_never_blocks() {
+        let mut f = logoff_in(Choice::Cancel, false, vec![disk_full()], "close_anyway");
+        f.logoff_save = Err("disk full".into());
+        assert_eq!(run(&mut f, false, CloseAction::Ask), CloseOutcome::StayOpen);
+        assert_eq!(f.logoff, Some((true, vec!["save".to_string()])));
+    }
+
+    /// The declined answer only exists in a close flow that closes: every
+    /// way the flow stays open leaves `close_save_declined` unset, and
+    /// `on_close` clears it then (a later logoff follows the setting again).
+    #[test]
+    fn a_close_that_stays_open_leaves_no_declined_answer() {
+        let stay = vec![
+            (Fake::new(Choice::Cancel, vec![]), true, CloseAction::Ask),
+            (Fake::new(Choice::Save, vec![disk_full()]), true, CloseAction::Ask),
+            (Fake::new(Choice::Cancel, vec![disk_full()]), true, CloseAction::Always),
+            (Fake::new(Choice::Cancel, vec![disk_full()]), false, CloseAction::Ask),
+            (Fake::new(Choice::Save, vec![Ok(()), disk_full()]), true, CloseAction::Ask),
+        ];
+        for (mut f, modified, setting) in stay {
+            assert_eq!(run(&mut f, modified, setting), CloseOutcome::StayOpen, "{:?}", f.log);
+            assert!(!f.declined, "{:?}", f.log);
+        }
+        // Saved close: nothing declined either.
+        let mut f = Fake::new(Choice::Save, vec![Ok(()), Ok(())]);
+        assert_eq!(run(&mut f, true, CloseAction::Ask), CloseOutcome::Close);
+        assert!(!f.declined);
+        let src = crate::read_source("src/ui/editor/close_flow.rs");
+        let start = src.find("pub(super) fn on_close(").expect("on_close");
+        let end = src.find("pub(super) enum CloseRequest").expect("CloseRequest");
+        let on_close = &src[start..end];
+        let run_at = on_close.find("let outcome = run_close(").expect("run_close");
+        let reset = on_close
+            .find("if outcome == CloseOutcome::StayOpen {\n            self.close_save_declined.set(false);")
+            .expect("on_close clears close_save_declined when the flow stays open");
+        assert!(run_at < reset);
     }
 
     /// Pass 2, M4: the notice names the setting to change, with the labels
