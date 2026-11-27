@@ -144,6 +144,8 @@ mod tests {
 
     #[test]
     fn acquire_lock_returns_some_when_free() {
+        // Same global lock as the persistence_lock tests: serialize with them.
+        let _s = crate::features::persistence_lock::test_serial();
         // Drop any stale guard first.
         {
             let g = AutoSave::acquire_lock();

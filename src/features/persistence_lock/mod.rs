@@ -45,18 +45,24 @@ pub fn try_acquire() -> Option<MutexGuard<'static, ()>> {
     }
 }
 
+// Every test that takes the global `PERSISTENCE_LOCK`, in this module or
+// elsewhere (autosave), must hold this test-only guard first: cargo's
+// parallel test runner would otherwise race them against each other (#37)
+// — same pattern as the i18n tests that share CURRENT_LANG.
+#[cfg(test)]
+static TEST_SERIAL: Mutex<()> = Mutex::new(());
+
+#[cfg(test)]
+pub(crate) fn test_serial() -> MutexGuard<'static, ()> {
+    TEST_SERIAL.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // These tests all exercise the same global `PERSISTENCE_LOCK` singleton,
-    // so cargo's parallel test runner would race them against each other. We
-    // serialize the whole suite with a test-only mutex — same pattern as the
-    // i18n tests that share CURRENT_LANG.
-    use std::sync::{Mutex, MutexGuard};
-    static SERIAL: Mutex<()> = Mutex::new(());
     fn serial() -> MutexGuard<'static, ()> {
-        SERIAL.lock().unwrap_or_else(|e| e.into_inner())
+        test_serial()
     }
 
     #[test]
@@ -171,17 +177,23 @@ mod tests {
         ];
 
         // Bounded wait: a try_acquire that blocks instead of skipping would
-        // otherwise hang the test forever.
-        let forced_skips = forced_rx
-            .recv_timeout(Duration::from_secs(60))
-            .expect("autosave worker did not finish its rounds while the lock was held: try_acquire blocked");
+        // otherwise hang the test forever. The stuck worker cannot be joined,
+        // so that case fails at once (unwinding releases `held`).
+        let forced = forced_rx.recv_timeout(Duration::from_secs(60));
+        if let Err(mpsc::RecvTimeoutError::Timeout) = forced {
+            panic!("autosave worker did not finish its rounds while the lock was held: try_acquire blocked");
+        }
         active.fetch_sub(1, Ordering::SeqCst);
         drop(held);
 
-        autosave.join().expect("autosave worker panicked");
+        // Join every worker before reporting, so a panicking autosave worker
+        // (channel disconnected) is reported as such, not as a blocked lock.
+        let autosave_result = autosave.join();
         for h in handles {
             h.join().expect("worker panicked");
         }
+        autosave_result.expect("autosave worker panicked");
+        let forced_skips = forced.expect("autosave worker dropped its channel without reporting");
 
         assert_eq!(
             forced_skips, FORCED_ROUNDS,
