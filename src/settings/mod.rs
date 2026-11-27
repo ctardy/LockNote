@@ -1128,4 +1128,177 @@ mod tests {
         // Duplicates are dropped.
         assert_eq!(parse("passgen_symbol_set=##--").symbol_set, "#-");
     }
+
+    /// Issue #41: every field set to a value other than its default, both
+    /// secrets included, the window placed and every panel resized.
+    fn every_field_set() -> Settings {
+        Settings {
+            save_on_close: CloseAction::Never,
+            theme: ThemeChoice::Light,
+            word_wrap: false,
+            minimize_to_tray: true,
+            min_password_length: 12,
+            font_family: "Courier New".to_string(),
+            font_size: 12.5,
+            save_key: 0x4B,
+            save_modifiers: 0x05,
+            window_width: 1234,
+            window_height: 777,
+            window_x: -1920,
+            window_y: 48,
+            window_maximized: true,
+            language: Language::De,
+            active_tab: 3,
+            auto_lock: 7,
+            clipboard_clear: 45,
+            auto_save: 120,
+            show_line_numbers: false,
+            totp_2fa: true,
+            totp_2fa_secret: "JBSWY3DPEHPK3PXP".to_string(),
+            totp_entries: vec![
+                TotpEntry { name: "Gmail".into(), secret: "GEZDGNBVGY3TQOJQ".into() },
+                TotpEntry { name: "AWS root".into(), secret: "KZXW6YTBOI======".into() },
+            ],
+            vault_categories: vec!["Banque perso".into(), "Serveurs".into()],
+            hotkey_modifiers: 3,
+            hotkey_key: 0x4E,
+            max_attachment_size_mb: 25,
+            max_total_attachments_mb: 150,
+            passgen: crate::features::passgen::Options {
+                length: 41,
+                upper: false,
+                lower: true,
+                digits: false,
+                symbols: true,
+                exclude_ambiguous: true,
+                symbol_set: "!#-_=[]".to_string(),
+            },
+            vault_panel_width: 640,
+            totp_panel_width: 412,
+            attach_panel_width: 221,
+            prompts_panel_width: 777,
+        }
+    }
+
+    /// Note text of the characterisation: CRLF, non-ASCII, and lines that
+    /// look like settings.
+    const EVERY_FIELD_NOTE: &str = "Line one\r\nLigne deux \u{e9} \u{65e5}\n[LOCKNOTE_SETTINGS]\ntotp_2fa_secret=NOTE\n";
+
+    /// Issue #41: the bytes `serialize` writes, pinned on the code before
+    /// the issue (format frozen: never edit these literals).
+    #[test]
+    fn serialize_bytes_are_frozen() {
+        let full: &[u8] = b"[LOCKNOTE_SETTINGS]\n\
+            save_on_close=never\n\
+            theme=light\n\
+            word_wrap=off\n\
+            minimize_to_tray=on\n\
+            min_password_length=12\n\
+            font_family=Courier New\n\
+            font_size=12.5\n\
+            save_key=75\n\
+            save_modifiers=5\n\
+            window_width=1234\n\
+            window_height=777\n\
+            window_x=-1920\n\
+            window_y=48\n\
+            window_maximized=on\n\
+            language=de\n\
+            active_tab=3\n\
+            auto_lock=7\n\
+            clipboard_clear=45\n\
+            auto_save=120\n\
+            show_line_numbers=off\n\
+            totp_2fa=on\n\
+            totp_2fa_secret=JBSWY3DPEHPK3PXP\n\
+            totp_entry=Gmail|GEZDGNBVGY3TQOJQ\n\
+            totp_entry=AWS root|KZXW6YTBOI======\n\
+            vault_category=Banque perso\n\
+            vault_category=Serveurs\n\
+            hotkey_modifiers=3\n\
+            hotkey_key=78\n\
+            max_attachment_size_mb=25\n\
+            max_total_attachments_mb=150\n\
+            passgen_length=41\n\
+            passgen_upper=off\n\
+            passgen_lower=on\n\
+            passgen_digits=off\n\
+            passgen_symbols=on\n\
+            passgen_exclude_ambiguous=on\n\
+            passgen_symbol_set=!#-_=[]\n\
+            vault_panel_width=640\n\
+            totp_panel_width=412\n\
+            attach_panel_width=221\n\
+            prompts_panel_width=777\n\
+            [/LOCKNOTE_SETTINGS]\n\
+            Line one\r\n\
+            Ligne deux \xc3\xa9 \xe6\x97\xa5\n\
+            [LOCKNOTE_SETTINGS]\n\
+            totp_2fa_secret=NOTE\n";
+        assert_eq!(every_field_set().serialize(EVERY_FIELD_NOTE).as_bytes(), full);
+        let defaults: &[u8] = b"[LOCKNOTE_SETTINGS]\n\
+            save_on_close=ask\n\
+            theme=dark\n\
+            word_wrap=on\n\
+            minimize_to_tray=off\n\
+            min_password_length=6\n\
+            font_family=Consolas\n\
+            font_size=11.0\n\
+            save_key=83\n\
+            save_modifiers=2\n\
+            language=en\n\
+            active_tab=0\n\
+            auto_lock=15\n\
+            clipboard_clear=30\n\
+            auto_save=30\n\
+            show_line_numbers=on\n\
+            totp_2fa=off\n\
+            totp_2fa_secret=\n\
+            hotkey_modifiers=6\n\
+            hotkey_key=76\n\
+            max_attachment_size_mb=10\n\
+            max_total_attachments_mb=50\n\
+            passgen_length=16\n\
+            passgen_upper=on\n\
+            passgen_lower=on\n\
+            passgen_digits=on\n\
+            passgen_symbols=on\n\
+            passgen_exclude_ambiguous=off\n\
+            passgen_symbol_set=!@#$%^&*()-_=+[]{};:,.?\n\
+            [/LOCKNOTE_SETTINGS]\n";
+        assert_eq!(Settings::default().serialize("").as_bytes(), defaults);
+    }
+
+    /// Issue #41: the pinned bytes read back to every field and the note.
+    #[test]
+    fn parse_of_the_frozen_bytes_gives_every_field() {
+        let (s, note) = Settings::parse(&every_field_set().serialize(EVERY_FIELD_NOTE));
+        assert_eq!(s, every_field_set());
+        assert_eq!(s.totp_2fa_secret, "JBSWY3DPEHPK3PXP");
+        assert_eq!(s.totp_entries[1].secret, "KZXW6YTBOI======");
+        assert_eq!(note, EVERY_FIELD_NOTE);
+    }
+
+    /// Issue #41: how the secret keys are read, frozen before the change:
+    /// the last 2FA secret wins (an empty one too), a TOTP entry needs a
+    /// pipe, a name and a secret, splits at the first pipe, keeps the
+    /// spaces around the pipe and may repeat.
+    #[test]
+    fn parse_of_the_secret_keys_is_frozen() {
+        let parse = |body: &str| Settings::parse(&format!("[LOCKNOTE_SETTINGS]\n{body}\n[/LOCKNOTE_SETTINGS]\n")).0;
+        assert_eq!(parse("totp_2fa_secret=AAAAAAAAAAAAAAAAAAAAAAAA\ntotp_2fa_secret=BB").totp_2fa_secret, "BB");
+        assert_eq!(parse("totp_2fa_secret=BB\ntotp_2fa_secret=CCCCCCCCCCCCCCCCCCCCCCCCCC").totp_2fa_secret, "CCCCCCCCCCCCCCCCCCCCCCCCCC");
+        assert_eq!(parse("totp_2fa_secret=BB\ntotp_2fa_secret=").totp_2fa_secret, "");
+        assert_eq!(parse("totp_2fa_secret=  SPACED  ").totp_2fa_secret, "SPACED");
+        let entries = |body: &str| -> Vec<(String, String)> {
+            parse(body).totp_entries.iter().map(|e| (e.name.clone(), e.secret.clone())).collect()
+        };
+        assert!(entries("totp_entry=|SECRET\ntotp_entry=Name|\ntotp_entry=NoPipe\ntotp_entry=|\ntotp_entry=").is_empty());
+        assert_eq!(entries("totp_entry=a|b|c"), [("a".to_string(), "b|c".to_string())]);
+        assert_eq!(entries("totp_entry=  Name | SEC  "), [("Name ".to_string(), " SEC".to_string())]);
+        assert_eq!(
+            entries("totp_entry=X|ONE\ntotp_entry=|LOST\ntotp_entry=X|ONE"),
+            [("X".to_string(), "ONE".to_string()), ("X".to_string(), "ONE".to_string())]
+        );
+    }
 }
