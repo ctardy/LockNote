@@ -1,15 +1,21 @@
 // Tests only: one test thread at a time drives a live RichEdit.
 //
 // The `live_*` tests create real RICHEDIT50W controls (directly, or through
-// nwg::RichTextBox), and libtest runs tests on parallel threads. msftedit is
-// not safe for that use: with three threads creating and editing their own
-// controls at the same time, the test binary died with
-// STATUS_ACCESS_VIOLATION in gdi32full (a null read under RichEditWndProc ->
-// CreateTextServices -> GetCharWidthW, while measuring text) in 6 to 10 runs
-// of `case_ops::tests::live` out of 150, and other runs read wrong font
-// metrics or converted only part of the text. No control had been destroyed
-// and no test thread had ended when it crashed: the fault is the concurrent
-// use itself. Serialized, 0 crashes in 300 runs.
+// nwg::RichTextBox), and libtest runs tests on parallel threads. Observed,
+// not documented by Microsoft (no symbols either): with three threads
+// creating and editing their own controls at the same time, the test binary
+// died with STATUS_ACCESS_VIOLATION in gdi32full (a null read under
+// RichEditWndProc -> CreateTextServices -> GetCharWidthW, while measuring
+// text) in 6 to 10 runs of `case_ops::tests::live` out of 150, and other
+// runs read wrong font metrics or converted only part of the text. No
+// control had been destroyed and no test thread had ended when it crashed,
+// so the concurrent use itself is the trigger. Serialized, 0 crashes in 300
+// runs.
+//
+// To re-run that check, run the test binary many times with a live filter,
+// each run with LOCALAPPDATA, TEMP and TMP set to a fresh scratch directory
+// (as scripts\test.cmd does), and count exit code 0xC0000005 (3221225477):
+//   cargo test --no-run, then N times: target\debug\deps\locknote-<hash>.exe case_ops::tests::live
 //
 // The application drives its editor from its one UI thread (worker threads
 // never touch a window), so this only has to hold in the tests: every test
@@ -67,6 +73,8 @@ impl Drop for LiveRichEdit {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::collections::HashSet;
+    use std::path::PathBuf;
     use std::sync::{mpsc, Arc};
     use std::time::Duration;
 
@@ -125,16 +133,125 @@ mod tests {
         assert!(held_here());
     }
 
+    /// The ways a test gets a RichEdit control: the class by name or by its
+    /// constant, both nwg controls built on it (nwg's RichLabel is a
+    /// RICHEDIT50W too) and the whole editor window. Split so that this file
+    /// does not count itself.
+    fn creations() -> Vec<String> {
+        vec![
+            ["w!(\"RICHEDIT", "50W\")"].concat(),
+            ["MSFTEDIT", "_CLASS"].concat(),
+            ["RichTextBox::", "builder()"].concat(),
+            ["RichLabel::", "builder()"].concat(),
+            ["EditorForm::", "build("].concat(),
+        ]
+    }
+
+    fn guard_call() -> String {
+        ["live_rich_edit::", "guard()"].concat()
+    }
+
+    /// The part of a file that only tests compile: all of it for a test-only
+    /// module, else from its first `#[cfg(test)]` at the start of a line
+    /// (none: the file has no test part).
+    fn test_part(text: &str, test_only: bool) -> &str {
+        if test_only {
+            return text;
+        }
+        text.find("\n#[cfg(test)]").map_or("", |at| &text[at..])
+    }
+
+    /// RichEdit creations and `guard()` calls in a test part.
+    fn count(tests: &str) -> (usize, usize) {
+        let created = creations().iter().map(|c| tests.matches(c.as_str()).count()).sum();
+        (created, tests.matches(guard_call().as_str()).count())
+    }
+
+    /// The files of the modules their parent declares `#[cfg(test)] mod name;`:
+    /// test-only files, which need no `#[cfg(test)]` of their own. A
+    /// declaration that resolves to no file fails the test, so no test-only
+    /// file goes unclassified.
+    fn test_only_files(files: &[(PathBuf, String)]) -> HashSet<PathBuf> {
+        let mut found = HashSet::new();
+        for (path, text) in files {
+            let lines: Vec<&str> = text.lines().map(str::trim).collect();
+            for (i, line) in lines.iter().enumerate() {
+                if *line != "#[cfg(test)]" {
+                    continue;
+                }
+                // The item under the attribute, past comments and other attributes.
+                let Some(item) = lines[i + 1..].iter().find(|l| !l.starts_with("//") && !l.starts_with("#[")) else {
+                    continue;
+                };
+                let decl = item.strip_prefix("pub(crate) ").or_else(|| item.strip_prefix("pub(super) ")).unwrap_or(item);
+                let Some(name) = decl.strip_prefix("mod ").and_then(|r| r.strip_suffix(';')) else { continue };
+                let stem = path.file_stem().and_then(|s| s.to_str()).expect("file stem");
+                let dir = path.parent().expect("parent directory");
+                let base = if matches!(stem, "mod" | "main" | "lib") { dir.to_path_buf() } else { dir.join(stem) };
+                let file = [base.join(format!("{name}.rs")), base.join(name).join("mod.rs")]
+                    .into_iter()
+                    .find(|f| f.is_file())
+                    .unwrap_or_else(|| panic!("{}: `mod {name};` resolves to no file under {}", path.display(), base.display()));
+                found.insert(file);
+            }
+        }
+        found
+    }
+
+    /// A test-only file without `#[cfg(test)]` (like editor/tests.rs) is
+    /// read whole, so an unguarded RichEdit there is counted.
+    #[test]
+    fn a_test_only_file_is_checked_whole() {
+        let rich = &creations()[0];
+        let text = format!("// Unit tests.\nuse super::*;\n#[test]\nfn live_x() {{ let h = CreateWindowExW({rich}); }}\n");
+        assert_eq!(count(test_part(&text, true)), (1, 0));
+        // A production file keeps its own creations out of the count.
+        let prod = format!("fn build() {{ {} }}\n#[cfg(test)]\nmod tests {{}}\n", creations()[1]);
+        assert_eq!(count(test_part(&prod, false)), (0, 0));
+    }
+
+    /// Every way of getting a RichEdit counts.
+    #[test]
+    fn every_way_of_getting_a_rich_edit_counts() {
+        assert_eq!(creations().len(), 5);
+        for c in creations() {
+            let text = format!("\n#[cfg(test)]\nmod tests {{ fn t() {{ let _g = {}; {c}; }} }}\n", guard_call());
+            assert_eq!(count(test_part(&text, false)), (1, 1), "{c}");
+        }
+    }
+
+    /// `#[cfg(test)] mod name;` marks name.rs (or name/mod.rs) as test-only:
+    /// next to a mod.rs or main.rs parent, under the folder of a name.rs one.
+    /// An inline `#[cfg(test)] mod name { .. }` is part of its parent file.
+    #[test]
+    fn test_only_modules_are_found_from_their_parent() {
+        let root = std::env::temp_dir().join(format!("locknote-live-rich-edit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("a/sub/t4")).expect("create scratch tree");
+        for f in ["main.rs", "t1.rs", "a/mod.rs", "a/t2.rs", "a/plain.rs", "a/sub.rs", "a/sub/t3.rs", "a/sub/t4/mod.rs"] {
+            std::fs::write(root.join(f), "").expect("write scratch file");
+        }
+        let files = vec![
+            (root.join("main.rs"), "#[cfg(test)]\nmod t1;\nmod a;\n".to_string()),
+            (root.join("a/mod.rs"), "mod plain;\n#[cfg(test)]\n// Tests.\npub(crate) mod t2;\nmod sub;\n#[cfg(test)]\nmod inline {}\n".to_string()),
+            (root.join("a/sub.rs"), "#[cfg(test)]\n#[allow(dead_code)]\nmod t3;\n#[cfg(test)]\nmod t4;\n".to_string()),
+        ];
+        let found = test_only_files(&files);
+        std::fs::remove_dir_all(&root).expect("remove scratch tree");
+        let want: HashSet<PathBuf> = ["t1.rs", "a/t2.rs", "a/sub/t3.rs", "a/sub/t4/mod.rs"].iter().map(|f| root.join(f)).collect();
+        assert_eq!(found, want);
+    }
+
     /// Every test that creates a RichEdit takes the guard: in each source
-    /// file, the test part holds at least as many `guard()` calls as
-    /// RichEdit creations. (The race itself shows only around the first
-    /// concurrent use in a process, about once in 25 runs: no single run can
-    /// prove it gone, so the rule is checked instead.)
+    /// file, the test part (the whole of a test-only file) holds at least as
+    /// many `guard()` calls as RichEdit creations. (The race itself shows only
+    /// around the first concurrent use in a process, about once in 25 runs:
+    /// no single run can prove it gone, so the rule is checked instead.)
+    /// Limits: the count is per file, so an extra `guard()` in a file could
+    /// hide one unguarded creation there, and a RichEdit made by a helper is
+    /// counted in the helper's file only.
     #[test]
     fn every_live_rich_edit_test_takes_the_guard() {
-        // Split so that this file does not count itself.
-        let creations = [["w!(\"RICHEDIT", "50W\")"].concat(), ["RichTextBox::", "builder()"].concat()];
-        let guard_call = ["live_rich_edit::", "guard()"].concat();
         let mut files = Vec::new();
         let mut dirs = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src")];
         while let Some(dir) = dirs.pop() {
@@ -143,22 +260,23 @@ mod tests {
                 if path.is_dir() {
                     dirs.push(path);
                 } else if path.extension().map_or(false, |e| e == "rs") {
-                    files.push(path);
+                    let text = crate::read_source(&path);
+                    files.push((path, text));
                 }
             }
         }
         assert!(files.len() > 50, "src not found: {} files", files.len());
+        let test_only = test_only_files(&files);
+        // editor/tests.rs, editor/live_rich_edit.rs, storage/pending_tests.rs,
+        // dialogs/snapshot.rs, integration_tests.rs.
+        assert!(test_only.len() >= 5, "only {} test-only files found", test_only.len());
         let mut checked = 0;
-        for path in files {
-            let text = crate::read_source(&path);
-            let Some(at) = text.find("\n#[cfg(test)]") else { continue };
-            let tests = &text[at..];
-            let created: usize = creations.iter().map(|c| tests.matches(c.as_str()).count()).sum();
+        for (path, text) in &files {
+            let (created, guarded) = count(test_part(text, test_only.contains(path)));
             if created == 0 {
                 continue;
             }
             checked += 1;
-            let guarded = tests.matches(guard_call.as_str()).count();
             assert!(guarded >= created, "{}: {created} RichEdit created by tests, {guarded} guard() calls", path.display());
         }
         // line_ops, surface (two harnesses) and tab_ops.

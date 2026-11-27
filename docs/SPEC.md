@@ -695,7 +695,7 @@ Base64 encoding adds ~33% overhead, partially compensated by GZip compression.
 | `zoom.rs` | zoom and live editor font |
 | `tom.rs` | RichEdit Text Object Model (`EM_GETOLEINTERFACE` -> `ITextDocument`): `without_undo`, `selection_ends` |
 | `tests.rs` | unit tests; `all_source()` (test only) joins the module's files for tests that check the code as text |
-| `live_rich_edit.rs` | test only: `guard()`, held by every test that keeps a live RichEdit, so that one test thread at a time uses RichEdit (several at once crashed the test binary in `gdi32full`) |
+| `live_rich_edit.rs` | test only: `guard()`, held by every test that keeps a live RichEdit, so that one test thread at a time uses RichEdit (observed, undocumented: several at once crashed the test binary in `gdi32full`); a test reads the sources and checks that every RichEdit a test creates, test-only files included, is guarded |
 
 ### Feature Flag
 
