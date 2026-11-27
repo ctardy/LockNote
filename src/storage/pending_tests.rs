@@ -1799,25 +1799,51 @@ fn every_failure_of_a_pair_step_leaves_a_state_judged_without_loss_or_downgrade(
 
 /// Reviewer pass 2, 6: at exit, a helper that ends before it is queued on the
 /// swap lock is not waited for the whole delay.
+///
+/// Issue #36: the life of the helper process is not timed. Under the load of
+/// a full run, `cmd /c exit 3` was seen living 6 s (15 ms of CPU) and more
+/// than 10 s from its creation to its exit, while its end was seen at once:
+/// the helpers here end when the test says so, never on their own pace.
 #[test]
 fn a_helper_that_ends_before_it_is_ready_is_not_waited_for() {
+    use std::os::windows::io::AsRawHandle;
+    use std::os::windows::process::CommandExt;
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::{CloseHandle, HANDLE};
-    use windows::Win32::System::Threading::{CreateEventW, SetEvent};
+    use windows::Win32::System::Threading::{CreateEventW, SetEvent, TerminateProcess, CREATE_SUSPENDED};
+    const ENDED: &str = "helper ended (exit code 3) before it was queued on the swap lock";
     let ready = unsafe { CreateEventW(None, true, false, PCWSTR::null()) }.unwrap();
+
+    // Ended before the wait starts: the wait returns at once.
     let mut child = std::process::Command::new("cmd").args(["/c", "exit 3"]).spawn().unwrap();
-    let helper = HANDLE(std::os::windows::io::AsRawHandle::as_raw_handle(&child));
+    child.wait().unwrap(); // the handle stays open until `child` is dropped
+    let helper = HANDLE(child.as_raw_handle());
     let started = std::time::Instant::now();
     let waited = wait_helper_ready(ready, helper, Duration::from_secs(10));
     let elapsed = started.elapsed();
-    let _ = child.wait();
-    let err = waited.expect_err("never ready");
+    assert_eq!(waited, Err(ENDED.to_string()));
     assert!(elapsed < Duration::from_secs(5), "waited {:?}", elapsed);
-    assert!(err.contains("ended"), "{}", err);
+
+    // Ends during the wait: a helper held suspended, ended by the test with
+    // code 3. The timeout message would name the delay, not the exit code.
+    let mut child = std::process::Command::new("cmd")
+        .args(["/c", "exit 0"])
+        .creation_flags(CREATE_SUSPENDED.0)
+        .spawn()
+        .unwrap();
+    let raw = child.as_raw_handle() as usize;
+    let ender = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200));
+        unsafe { TerminateProcess(HANDLE(raw as *mut _), 3) }
+    });
+    let waited = wait_helper_ready(ready, HANDLE(child.as_raw_handle()), Duration::from_secs(60));
+    ender.join().unwrap().unwrap();
+    child.wait().unwrap();
+    assert_eq!(waited, Err(ENDED.to_string()));
 
     // Ready while the helper runs: no error.
     let mut child = std::process::Command::new("cmd").args(["/c", "ping -n 3 127.0.0.1 >nul"]).spawn().unwrap();
-    let helper = HANDLE(std::os::windows::io::AsRawHandle::as_raw_handle(&child));
+    let helper = HANDLE(child.as_raw_handle());
     unsafe { SetEvent(ready) }.unwrap();
     assert_eq!(wait_helper_ready(ready, helper, Duration::from_secs(10)), Ok(()));
     let _ = child.wait();
