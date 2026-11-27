@@ -131,9 +131,10 @@ impl EditorForm {
             settings.min_password_length = changes.min_password_length;
             {
                 settings.totp_2fa = changes.totp_2fa;
-                // Swapped, not copied: the previous secret is wiped with
-                // the changes (issue #38).
+                // Swapped, not copied: the previous secret lands in the
+                // changes, wiped at once, before any later dialog (#38).
                 install_2fa_secret(&mut settings, &mut changes.totp_2fa_secret);
+                zeroize::Zeroize::zeroize(&mut changes.totp_2fa_secret);
             }
             {
                 settings.auto_lock = changes.auto_lock;

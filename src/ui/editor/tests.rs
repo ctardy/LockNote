@@ -1095,6 +1095,34 @@
         assert!(prefs[at..].find("self.arm_clipboard_guard(copied);").map_or(false, |i| i < 400));
     }
 
+    /// Issue #38: on_security puts the new 2FA secret in the settings by the
+    /// swap (never an assignment, which frees the previous one unwiped) and
+    /// wipes the previous one at once, before any later dialog.
+    #[test]
+    fn on_security_swaps_the_2fa_secret_and_wipes_the_previous_one() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui");
+        let prefs = crate::read_source(root.join("editor").join("prefs_ops.rs"));
+        let start = prefs.find("fn on_security(").expect("on_security");
+        let body = &prefs[start..];
+        let swap = body.find("install_2fa_secret(&mut settings, &mut changes.totp_2fa_secret);").expect("swap");
+        let wipe = body.find("zeroize::Zeroize::zeroize(&mut changes.totp_2fa_secret);").expect("wipe");
+        let purge = body.find("self.offer_purge_auto_backups();").expect("purge offer");
+        assert!(swap < wipe && wipe < purge, "the previous secret is wiped after the swap, before the purge dialog");
+        assert!(!prefs.contains("settings.totp_2fa_secret ="), "the 2FA secret is assigned, not swapped");
+    }
+
+    /// Issue #38: the TOTP setup dialog never clones the secret before
+    /// wrapping it: the copied text is moved to the caller, and the only
+    /// plain copy of the secret is the one given to the entry (wiped on drop).
+    #[test]
+    fn totp_setup_moves_the_copied_secret_and_clones_the_secret_once() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui");
+        let setup = crate::read_source(root.join("dialogs").join("totp_setup.rs"));
+        assert!(setup.contains("*copied_clone.borrow_mut() = Some(secret_text);"), "the copied secret is cloned");
+        assert_eq!(setup.matches("String::clone(&secret)").count(), 1, "plain copies of the secret");
+        assert!(setup.contains("secret: String::clone(&secret),"), "the entry's copy");
+    }
+
     /// Pass 6: under the curtain the window behaves as locked for display
     /// and input. One predicate, used by every input entry point and by the
     /// layout.
