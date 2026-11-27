@@ -874,6 +874,14 @@ pub(super) fn zeroize_settings_secrets(s: &mut crate::settings::Settings) {
     s.totp_2fa_secret.zeroize();
 }
 
+/// Put the 2FA secret a dialog returned into the settings. The two are
+/// swapped, not copied: the settings hold the new secret, and the one they
+/// held ends in `new_secret`, wiped when it is dropped (issue #38: it was
+/// overwritten, its buffer freed without being wiped).
+pub(super) fn install_2fa_secret(s: &mut crate::settings::Settings, new_secret: &mut zeroize::Zeroizing<String>) {
+    std::mem::swap(&mut s.totp_2fa_secret, &mut **new_secret);
+}
+
 /// The wait after the `attempts`-th wrong password on the curtain: the lock
 /// screen's backoff (pass 7), never an exit.
 pub(super) fn curtain_wrong_password_delay(attempts: u32) -> u32 {

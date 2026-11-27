@@ -100,6 +100,8 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   the local time of the computer (time zone and daylight saving time), as the
   `{date}`, `{time}` and `{datetime}` prompt variables, instead of UTC. Same
   format `YYYY-MM-DD HH:MM:SS`, no time zone shown.
+- **2FA secret in memory**: the remaining copies (the previous secret when it
+  is replaced, the TOTP setup and copy, each code refresh) are wiped too (#38).
 
 ### Fixed
 - **Windows logoff during a close answered "Don't save"**: a logoff while a

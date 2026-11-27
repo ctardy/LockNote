@@ -1346,6 +1346,31 @@
         assert!(s.totp_2fa_secret.is_empty() && s.totp_entries.is_empty());
     }
 
+    /// Issue #38: the 2FA secret a dialog returns replaces the one in the
+    /// settings by a swap: the settings hold the new one (empty when 2FA was
+    /// turned off), the previous one ends in the dialog's wrapper, wiped on
+    /// drop, and the other settings are untouched.
+    #[test]
+    fn the_new_2fa_secret_replaces_the_old_one_which_is_wiped_with_the_changes() {
+        fn wiped_on_drop<T: zeroize::ZeroizeOnDrop>(_: &T) {}
+        let mut s = crate::settings::Settings::default();
+        s.totp_2fa_secret = "JBSWY3DPEHPK3PXP".into();
+        s.totp_entries.push(crate::settings::TotpEntry { name: "x".into(), secret: "GEZDGNBVGY3TQOJQ".into() });
+        let before = s.clone();
+        let mut new_secret = zeroize::Zeroizing::new("MFRGGZDFMZTWQ2LK".to_string());
+        install_2fa_secret(&mut s, &mut new_secret);
+        assert_eq!(s.totp_2fa_secret, "MFRGGZDFMZTWQ2LK");
+        assert_eq!(new_secret.as_str(), "JBSWY3DPEHPK3PXP");
+        wiped_on_drop(&new_secret);
+        s.totp_2fa_secret = before.totp_2fa_secret.clone();
+        assert_eq!(s, before, "only the 2FA secret changed");
+
+        let mut off = zeroize::Zeroizing::new(String::new());
+        install_2fa_secret(&mut s, &mut off);
+        assert_eq!(s.totp_2fa_secret, "");
+        assert_eq!(off.as_str(), "JBSWY3DPEHPK3PXP");
+    }
+
     /// Pass 5: the dialogs that change the note re-check the lock epoch.
     #[test]
     fn note_changing_dialogs_recheck_the_lock_epoch() {

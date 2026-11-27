@@ -131,8 +131,9 @@ impl EditorForm {
             settings.min_password_length = changes.min_password_length;
             {
                 settings.totp_2fa = changes.totp_2fa;
-                // Moved, not copied: the emptied wrapper is wiped on drop.
-                settings.totp_2fa_secret = std::mem::take(&mut *changes.totp_2fa_secret);
+                // Swapped, not copied: the previous secret is wiped with
+                // the changes (issue #38).
+                install_2fa_secret(&mut settings, &mut changes.totp_2fa_secret);
             }
             {
                 settings.auto_lock = changes.auto_lock;
