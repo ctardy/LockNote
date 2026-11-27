@@ -88,24 +88,28 @@ pub fn base32_decode(encoded: &str) -> Option<Vec<u8>> {
         return Some(Vec::new());
     }
 
-    let clean: String = encoded
-        .chars()
-        .filter(|&c| c != '=')
-        .collect();
-
-    if clean.is_empty() {
+    // The secret is read where it stands, `=` skipped: no copy of it is
+    // made (issue #38). The bytes left once `=` is dropped are counted
+    // first (`=` is one byte and never part of a multi-byte character), so
+    // the result is sized up front and never reallocates.
+    let clean_len = encoded.bytes().filter(|&b| b != b'=').count();
+    if clean_len == 0 {
         return Some(Vec::new());
     }
 
     let mut buffer: u64 = 0;
     let mut bits: u32 = 0;
-    let mut result = Vec::with_capacity(clean.len() * 5 / 8);
+    let mut result = Vec::with_capacity(clean_len * 5 / 8);
 
-    for ch in clean.chars() {
+    for ch in encoded.chars().filter(|&c| c != '=') {
         let val = match ch.to_ascii_uppercase() {
             c @ 'A'..='Z' => (c as u8) - b'A',
             c @ '2'..='7' => (c as u8) - b'2' + 26,
-            _ => return None,
+            _ => {
+                // The bytes decoded before the refused character are wiped.
+                result.zeroize();
+                return None;
+            }
         };
         buffer = (buffer << 5) | (val as u64);
         bits += 5;
@@ -542,6 +546,46 @@ mod tests {
     #[test]
     fn base32_decode_invalid_char() {
         assert!(base32_decode("JBSWY3DP!").is_none());
+    }
+
+    /// Issue #38 (characterisation, frozen before the internal copy of the
+    /// secret went away): what base32_decode gives back for the inputs at
+    /// its edges.
+    #[test]
+    fn base32_decode_edges_are_unchanged() {
+        // `=` is dropped wherever it stands, not only at the end.
+        assert_eq!(base32_decode("JB=SWY3DP").unwrap(), b"Hello");
+        assert_eq!(base32_decode("=JBSWY3DP=").unwrap(), b"Hello");
+        assert_eq!(base32_decode("jBsWy3Dp").unwrap(), b"Hello");
+        // Fewer than 8 bits: nothing decoded, not an error.
+        assert_eq!(base32_decode("A").unwrap(), Vec::<u8>::new());
+        assert_eq!(base32_decode("A=").unwrap(), Vec::<u8>::new());
+        // 5 characters = 25 bits: 3 bytes, the spare bit ignored.
+        assert_eq!(base32_decode("77777").unwrap(), vec![0xFF, 0xFF, 0xFF]);
+        // A space, a digit outside 2-7, a non-ASCII letter: refused, even
+        // after valid characters.
+        assert!(base32_decode("JBSW Y3DP").is_none());
+        assert!(base32_decode("JBSWY3D1").is_none());
+        assert!(base32_decode("JBSWY3D8").is_none());
+        assert!(base32_decode("JBSWY3Dé").is_none());
+        assert!(base32_decode("é").is_none());
+        assert!(base32_decode("JBSWY3DP\u{0}").is_none());
+    }
+
+    /// Issue #38: the decoded bytes are written in a buffer sized up front:
+    /// it never grows (a reallocation leaves the old bytes behind, not
+    /// wiped) and is not oversized, whatever the length or padding.
+    #[test]
+    fn base32_decode_never_grows_its_buffer() {
+        let alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+        for n in 0..=64usize {
+            let text: String = alphabet.chars().cycle().take(n).collect();
+            for padded in [text.clone(), format!("{}====", text), format!("=={}", text)] {
+                let decoded = base32_decode(&padded).unwrap();
+                assert_eq!(decoded.len(), n * 5 / 8, "length for {:?}", padded);
+                assert_eq!(decoded.capacity(), n * 5 / 8, "capacity for {:?}", padded);
+            }
+        }
     }
 
     #[test]
