@@ -102,6 +102,8 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   format `YYYY-MM-DD HH:MM:SS`, no time zone shown.
 - **2FA secret in memory**: the remaining copies (the previous secret when it
   is replaced, the TOTP setup and copy, each code refresh) are wiped too (#38).
+- **Secrets in memory when saving and unlocking**: the settings text (2FA and
+  TOTP secrets) and the decrypted note no longer leave copies behind (#41).
 
 ### Fixed
 - **Duplicate Line, Delete Line, Insert Timestamp and Go to Line with

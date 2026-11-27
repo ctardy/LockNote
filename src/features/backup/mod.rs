@@ -224,7 +224,11 @@ fn to_json(backup: &Backup, format: u16) -> Zeroizing<String> {
     push_json_str(&mut o, &backup.app_version);
 
     o.push_str(",\"settings\":");
-    let settings_text: Zeroizing<String> = Zeroizing::new(portable_settings(&backup.settings).serialize(""));
+    // The portable copy holds the 2FA secret: wiped once serialized (its
+    // TOTP entries wipe themselves on drop; issue #41).
+    let mut portable = portable_settings(&backup.settings);
+    let settings_text: Zeroizing<String> = Zeroizing::new(portable.serialize(""));
+    zeroize::Zeroize::zeroize(&mut portable.totp_2fa_secret);
     push_json_str(&mut o, &settings_text);
 
     o.push_str(",\"tabs\":[");
@@ -393,14 +397,18 @@ pub fn decode_exe_payload(raw_payload: &[u8], password: &str) -> Result<Backup, 
     );
     let text: Zeroizing<String> = Zeroizing::new(crate::features::compression::decompress(&plain));
     drop(plain);
-    let (settings, note_text) = Settings::parse(&text);
+    let (mut settings, note_text) = Settings::parse(&text);
     let note_text: Zeroizing<String> = Zeroizing::new(note_text);
     drop(text);
 
     let categories = crate::features::vault::categories::effective(&settings.vault_categories);
     let parsed = crate::features::payload::parse_payload(&note_text, &categories);
+    let portable = portable_settings(&settings);
+    // The settings read hold the 2FA secret: wiped, the backup keeps its
+    // own copy (the TOTP entries wipe themselves on drop; issue #41).
+    zeroize::Zeroize::zeroize(&mut settings.totp_2fa_secret);
     Ok(Backup {
-        settings: portable_settings(&settings),
+        settings: portable,
         tabs: parsed.tabs,
         snapshots: parsed.snapshots,
         prompts: parsed.prompts,
@@ -445,7 +453,11 @@ fn into_object(v: Value, what: &str) -> Result<Map<String, Value>, BackupError> 
 /// blocks that are absent are empty.
 fn parse_v1(root: &mut Map<String, Value>) -> Result<Backup, BackupError> {
     let settings = match take_opt_string(root, "settings")? {
-        Some(text) => Settings::parse(&text).0,
+        Some(text) => {
+            // The settings text holds the secrets: wiped once read (issue #41).
+            let text = Zeroizing::new(text);
+            Settings::parse(&text).0
+        }
         None => Settings::default(),
     };
 

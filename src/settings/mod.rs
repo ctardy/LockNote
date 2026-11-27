@@ -1415,4 +1415,73 @@ mod tests {
         assert!(!code.contains("self.totp_2fa_secret ="), "the 2FA secret is assigned, freeing the previous one");
     }
 
+    /// Issue #41: the startup unlock moves the decrypted text, its
+    /// decompressed form and the note into wrappers (wiped on drop), hands
+    /// the note to the editor by a move, and wipes the 2FA secret when the
+    /// TOTP check fails.
+    #[test]
+    fn the_startup_unlock_wipes_the_decrypted_text() {
+        let body = source_region("src/ui/mod.rs", "fn run_session(", "\n}\n");
+        assert!(in_order(
+            &body,
+            "let decrypted_text = zeroize::Zeroizing::new(decrypted_text);",
+            "let decrypted_text = zeroize::Zeroizing::new(crate::features::compression::decompress(&decrypted_text));"
+        ));
+        assert!(body.contains(
+            "crate::settings::Settings::parse(&decrypted_text);\n                    let mut note_text = zeroize::Zeroizing::new(note_text);"
+        ));
+        assert!(body.contains("editor::EditorForm::run(exe_path, password, std::mem::take(&mut *note_text), settings);"));
+        assert!(in_order(&body, "zeroize::Zeroize::zeroize(&mut settings.totp_2fa_secret);", "return; // TOTP verification failed"));
+        assert!(!body.contains(".clone())"), "a copy before a wrap");
+    }
+
+    /// Issue #41: both unlocks of the editor move the decrypted text, its
+    /// decompressed form and the payload into wrappers, wiped on drop.
+    #[test]
+    fn the_editor_unlocks_wipe_the_decrypted_text() {
+        let disk = source_region("src/ui/editor/lock_ops.rs", "    pub(super) fn unlock_from_disk(", "\n    }\n");
+        assert!(in_order(
+            &disk,
+            "let decrypted_text = Zeroizing::new(decrypted_text);",
+            "let decrypted_text = Zeroizing::new(crate::features::compression::decompress(&decrypted_text));"
+        ));
+        assert!(disk.contains("crate::settings::Settings::parse(&decrypted_text);\n                let note_text = Zeroizing::new(note_text);"));
+        let restore = source_region("src/ui/editor/lock_ops.rs", "    pub(super) fn restore_after_unlock(", "\n    }\n");
+        assert!(in_order(
+            &restore,
+            "let plaintext = Zeroizing::new(plaintext);",
+            "let plaintext = Zeroizing::new(crate::features::compression::decompress(&plaintext));"
+        ));
+        assert!(restore.contains("crate::settings::Settings::parse(&plaintext);\n        let note_text = Zeroizing::new(note_text);"));
+        for body in [&disk, &restore] {
+            assert!(!body.contains(".clone())"), "a copy before a wrap");
+        }
+    }
+
+    /// Issue #41: the save wipes the editor text, the composed payload and
+    /// the serialized text (each moved into its wrapper).
+    #[test]
+    fn the_save_wipes_the_payload_and_the_serialized_text() {
+        let save = source_region("src/ui/editor/file_ops.rs", "    pub(super) fn save_note(", "\n    }\n");
+        assert!(save.contains("let note_text = Zeroizing::new(self.get_content());"));
+        assert!(save.contains("Zeroizing::new(crate::features::payload::compose(&note_tabs, &prompts, &secrets, &attachments, &state))"));
+        assert!(save.contains("let combined: Zeroizing<String> = Zeroizing::new(settings.serialize(&note_text));"));
+        assert!(!save.contains(".clone())"), "a copy before a wrap");
+    }
+
+    /// Issue #41: the backup wipes the settings it serializes or reads: the
+    /// portable copy of an export, the settings of an exe it migrates, and
+    /// the settings text of a `.lnbak`.
+    #[test]
+    fn the_backup_wipes_the_settings_it_serializes_or_reads() {
+        let export = source_region("src/features/backup/mod.rs", "fn to_json(", "\n}\n");
+        assert!(export.contains(
+            "let settings_text: Zeroizing<String> = Zeroizing::new(portable.serialize(\"\"));\n    zeroize::Zeroize::zeroize(&mut portable.totp_2fa_secret);"
+        ));
+        let migrate = source_region("src/features/backup/mod.rs", "pub fn decode_exe_payload(", "\n}\n");
+        assert!(in_order(&migrate, "let portable = portable_settings(&settings);", "zeroize::Zeroize::zeroize(&mut settings.totp_2fa_secret);"));
+        assert!(in_order(&migrate, "zeroize::Zeroize::zeroize(&mut settings.totp_2fa_secret);", "Ok(Backup {\n        settings: portable,"));
+        let import = source_region("src/features/backup/mod.rs", "fn parse_v1(", "\n}\n");
+        assert!(import.contains("let text = Zeroizing::new(text);\n            Settings::parse(&text).0"));
+    }
 }

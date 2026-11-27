@@ -36,8 +36,13 @@ impl EditorForm {
         };
         match unlocked {
             Some((password, decrypted_text)) => {
-                let decrypted_text = crate::features::compression::decompress(&decrypted_text);
+                // The decrypted text, its decompressed form and the payload
+                // read from it are moved into wrappers, wiped on drop
+                // (issue #41).
+                let decrypted_text = Zeroizing::new(decrypted_text);
+                let decrypted_text = Zeroizing::new(crate::features::compression::decompress(&decrypted_text));
                 let (settings, note_text) = crate::settings::Settings::parse(&decrypted_text);
+                let note_text = Zeroizing::new(note_text);
 
                 // Restore password
                 *self.password.borrow_mut() = password;
@@ -706,8 +711,12 @@ impl EditorForm {
         self.wipe_pending.set(false);
         *self.password.borrow_mut() = password;
 
-        let plaintext = crate::features::compression::decompress(&plaintext);
+        // The decrypted text, its decompressed form and the payload read
+        // from it are moved into wrappers, wiped on drop (issue #41).
+        let plaintext = Zeroizing::new(plaintext);
+        let plaintext = Zeroizing::new(crate::features::compression::decompress(&plaintext));
         let (mut settings, note_text) = crate::settings::Settings::parse(&plaintext);
+        let note_text = Zeroizing::new(note_text);
         // The side panel widths of this session stay, saved or not.
         crate::ui::side_panel::keep_machine_panel_widths(&self.settings.borrow(), &mut settings);
         // Settings first: the payload parse needs them (vault categories).

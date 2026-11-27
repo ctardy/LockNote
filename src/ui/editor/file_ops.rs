@@ -67,7 +67,9 @@ impl EditorForm {
             return Err(SaveFailure::Refused(msg));
         }
 
-        let note_text = self.get_content();
+        // The editor text and the payload composed from it are wiped on
+        // drop, like `combined` below (issue #41).
+        let note_text = Zeroizing::new(self.get_content());
 
         // The payload is every tab, the prompts, the vault, the
         // attachments and the session state, assembled by
@@ -100,7 +102,7 @@ impl EditorForm {
             let secrets = self.vault_panel.get_secrets();
             let state = self.capture_session_state();
             let attachments = self.attachments.borrow();
-            crate::features::payload::compose(&note_tabs, &prompts, &secrets, &attachments, &state)
+            Zeroizing::new(crate::features::payload::compose(&note_tabs, &prompts, &secrets, &attachments, &state))
         };
 
         let settings = self.settings.borrow();

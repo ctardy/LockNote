@@ -291,9 +291,14 @@ fn run_session(exe_path: PathBuf) {
             // Existing data — prompt to unlock
             match dialogs::unlock::show(&encrypted) {
                 Some((password, decrypted_text)) => {
+                    // The decrypted text, its decompressed form and the note
+                    // read from it are moved into wrappers, wiped on drop on
+                    // every way out (issue #41).
+                    let decrypted_text = zeroize::Zeroizing::new(decrypted_text);
                     // Decompress after decryption
-                    let decrypted_text = crate::features::compression::decompress(&decrypted_text);
-                    let (settings, note_text) = crate::settings::Settings::parse(&decrypted_text);
+                    let decrypted_text = zeroize::Zeroizing::new(crate::features::compression::decompress(&decrypted_text));
+                    let (mut settings, note_text) = crate::settings::Settings::parse(&decrypted_text);
+                    let mut note_text = zeroize::Zeroizing::new(note_text);
 
                     // Initialize i18n language from saved settings (before any further dialogs)
                     {
@@ -309,6 +314,9 @@ fn run_session(exe_path: PathBuf) {
                     // TOTP 2FA verification
                     if settings.totp_2fa && !settings.totp_2fa_secret.is_empty() {
                         if !dialogs::totp_verify::TotpVerifyDialog::show(&settings.totp_2fa_secret) {
+                            // The TOTP entries wipe themselves on drop; the
+                            // 2FA secret is a plain String (issue #41).
+                            zeroize::Zeroize::zeroize(&mut settings.totp_2fa_secret);
                             return; // TOTP verification failed
                         }
                     }
@@ -316,7 +324,8 @@ fn run_session(exe_path: PathBuf) {
                     // Apply theme from settings
                     crate::theme::set_mode(crate::theme::mode_for_choice(settings.theme));
 
-                    editor::EditorForm::run(exe_path, password, note_text, settings);
+                    // The editor owns the note from here: moved, not copied.
+                    editor::EditorForm::run(exe_path, password, std::mem::take(&mut *note_text), settings);
                 }
                 None => {
                     // Unlock failed or cancelled
