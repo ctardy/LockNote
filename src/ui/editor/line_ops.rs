@@ -575,7 +575,9 @@ pub(super) mod tests {
         // the work is counted instead of timed, with the real locale key: one
         // key per line, and at most n * ceil(log2 n) key comparisons (the
         // merge sort bound, a quadratic sort would go far past it). The menu
-        // path (user_locale_line_op_edit) must give the same edit.
+        // path (user_locale_line_op_edit) must give the same edit with one
+        // LCMapStringEx key per line and no CompareStringEx call, counted by
+        // vault_panel::tests_locale_calls (this thread only).
         use std::cell::Cell;
         use std::cmp::Ordering;
         /// A locale sort key that counts its comparisons.
@@ -618,7 +620,17 @@ pub(super) mod tests {
             N,
             N * ceil_log2
         );
-        assert_eq!(user_locale_line_op_edit(&t, (0, 0), LineOp::SortAscending).expect("sorts"), Some(e));
+        use crate::ui::vault_panel::tests_locale_calls;
+        let (keys_before, compares_before) = tests_locale_calls::snapshot();
+        let menu = user_locale_line_op_edit(&t, (0, 0), LineOp::SortAscending).expect("sorts");
+        let (keys_after, compares_after) = tests_locale_calls::snapshot();
+        assert_eq!(menu, Some(e));
+        assert_eq!(
+            (keys_after - keys_before, compares_after - compares_before),
+            (N, 0),
+            "menu path: (LCMapStringEx keys, CompareStringEx calls) for {} lines",
+            N
+        );
     }
 
     // ── run_line_edit: the sequence, with a fake editor ──

@@ -3873,10 +3873,13 @@ mod tests {
     //
     // Issue #40: the threads used to run for a fixed 80 ms, then one read was
     // required; under load the readers could be scheduled after the window
-    // closed. The threads are now stopped only once every reader has made
-    // MIN_OPS reads, the writer MIN_OPS writes, and the readers have seen two
-    // languages (reads interleaved with writes), whatever the machine load.
-    // The wait is bounded: past BOUND the test fails with the counts reached.
+    // closed. The threads are now stopped only once MIN_WINDOW has passed,
+    // every reader has made MIN_OPS reads, the writer MIN_OPS writes, and the
+    // readers have seen two languages (reads interleaved with writes). The
+    // window keeps the old 80 ms of hammering on an idle machine, MIN_OPS
+    // keeps the volume of reads under load: both only lengthen the run, so
+    // load cannot make the test fail. The wait is bounded: past BOUND the
+    // test fails with the counts reached.
     #[test]
     fn concurrent_set_and_get_is_thread_safe() {
         use std::sync::Arc;
@@ -3884,7 +3887,8 @@ mod tests {
         use std::thread;
         use std::time::{Duration, Instant};
         const READERS: usize = 3;
-        const MIN_OPS: u64 = 1_000;
+        const MIN_OPS: u64 = 100_000;
+        const MIN_WINDOW: Duration = Duration::from_millis(80);
         const BOUND: Duration = Duration::from_secs(60);
 
         let _g = lang_guard();
@@ -3951,8 +3955,10 @@ mod tests {
             got.dedup();
             got.len()
         };
+        let started = Instant::now();
         let reached = || {
-            reads.iter().all(|n| n.load(Ordering::Relaxed) >= MIN_OPS)
+            started.elapsed() >= MIN_WINDOW
+                && reads.iter().all(|n| n.load(Ordering::Relaxed) >= MIN_OPS)
                 && writes.load(Ordering::Relaxed) >= MIN_OPS
                 && languages_seen() >= 2
         };
@@ -3975,11 +3981,12 @@ mod tests {
         }
         assert!(
             ok,
-            "within {:?}: reads {:?}, writes {}, languages seen {} (need {} reads per reader, {} writes, 2 languages)",
+            "within {:?}: reads {:?}, writes {}, languages seen {} (need {:?}, {} reads per reader, {} writes, 2 languages)",
             BOUND,
             reads.iter().map(|n| n.load(Ordering::Relaxed)).collect::<Vec<_>>(),
             writes.load(Ordering::Relaxed),
             languages_seen(),
+            MIN_WINDOW,
             MIN_OPS,
             MIN_OPS
         );

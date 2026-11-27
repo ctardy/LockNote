@@ -434,6 +434,8 @@ pub fn same_category_name(a: &str, b: &str) -> Result<bool, crate::features::vau
 /// strings (same flags), so a long list is sorted with one LCMapStringEx call
 /// per item instead of one CompareStringEx call per comparison.
 pub fn sort_key_user_locale(s: &str) -> Result<Vec<u8>, VaultTreeError> {
+    #[cfg(test)]
+    tests_locale_calls::SORT_KEYS.with(|c| c.set(c.get() + 1));
     use windows::Win32::Foundation::LPARAM;
     use windows::Win32::Globalization::{
         LCMapStringEx, LCMAP_SORTKEY, LINGUISTIC_IGNORECASE, LINGUISTIC_IGNOREDIACRITIC,
@@ -469,8 +471,25 @@ pub fn sort_key_user_locale(s: &str) -> Result<Vec<u8>, VaultTreeError> {
     Ok(buf.iter().flat_map(|u| u.to_ne_bytes()).take(written as usize).collect())
 }
 
+/// Calls of sort_key_user_locale and compare_names_user_locale made by the
+/// current thread, tests only: the 100k-line sort test checks the menu path
+/// does one LCMapStringEx key per line and no CompareStringEx (#40).
+#[cfg(test)]
+pub(crate) mod tests_locale_calls {
+    thread_local! {
+        pub(crate) static SORT_KEYS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+        pub(crate) static COMPARES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    }
+    /// (sort keys, comparisons) made by this thread so far.
+    pub(crate) fn snapshot() -> (u64, u64) {
+        (SORT_KEYS.with(|c| c.get()), COMPARES.with(|c| c.get()))
+    }
+}
+
 /// Compare two names with the user's locale, ignoring case and accents.
 pub fn compare_names_user_locale(a: &str, b: &str) -> Result<std::cmp::Ordering, VaultTreeError> {
+    #[cfg(test)]
+    tests_locale_calls::COMPARES.with(|c| c.set(c.get() + 1));
     use windows::Win32::Globalization::{
         CompareStringEx, CSTR_EQUAL, CSTR_GREATER_THAN, CSTR_LESS_THAN, LINGUISTIC_IGNORECASE,
         LINGUISTIC_IGNOREDIACRITIC,
