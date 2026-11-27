@@ -219,10 +219,17 @@ pub fn generate_secret() -> String {
 /// Build an `otpauth://totp/` URI.
 pub fn build_uri(label: &str, secret: &str, issuer: Option<&str>) -> String {
     let encoded_label = uri_encode(label);
-    let mut uri = format!("otpauth://totp/{}?secret={}", encoded_label, secret);
-    if let Some(iss) = issuer {
-        uri.push_str(&format!("&issuer={}", uri_encode(iss)));
-    }
+    let issuer_part = issuer.map(|iss| format!("&issuer={}", uri_encode(iss))).unwrap_or_default();
+    // Sized up front: the buffer never moves once the secret is in it, so a
+    // Zeroizing wrap of the result leaves no copy behind (issue #35).
+    let mut uri = String::with_capacity(
+        "otpauth://totp/".len() + encoded_label.len() + "?secret=".len() + secret.len() + issuer_part.len(),
+    );
+    uri.push_str("otpauth://totp/");
+    uri.push_str(&encoded_label);
+    uri.push_str("?secret=");
+    uri.push_str(secret);
+    uri.push_str(&issuer_part);
     uri
 }
 
