@@ -69,14 +69,14 @@ aucune note, LockNote vous demande le mot de passe qui va les chiffrer.
 - La jauge de force sous le mot de passe est indicative. Elle compte un point
   pour chacun de ces critères : au moins 8 caractères, au moins 12, au moins
   16, une minuscule, une majuscule, un chiffre, un autre caractère. 0 à 1 point
-  : **Weak** (faible), 2 à 3 : **Fair** (moyen), 4 à 5 : **Strong** (fort),
-  6 à 7 : **Very strong** (très fort). Seule la longueur minimale est imposée.
+  : **Faible**, 2 à 3 : **Moyen**, 4 à 5 : **Fort**, 6 à 7 : **Très fort**. Seule la longueur minimale est imposée.
 
 **Attention.**
 
-- Les erreurs s'affichent dans la fenêtre : « Password is too short. » (trop
-  court) ou « Passwords do not match. » (les deux saisies diffèrent).
-- **Cancel** ferme LockNote sans rien créer.
+- Les erreurs s'affichent dans la fenêtre : « Le mot de passe est trop
+  court. » ou « Les mots de passe ne correspondent pas. » (les deux saisies
+  diffèrent).
+- **Annuler** ferme LockNote sans rien créer.
 - Un mot de passe oublié ne se récupère pas. Vos notes sont chiffrées avec lui
   (AES-256-CBC + HMAC-SHA256, clé dérivée par Argon2id, 64 Mio,
   3 itérations, 4 voies).

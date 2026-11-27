@@ -190,8 +190,11 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   errors, the status bar counts, the file dialog filters, the attachment
   errors, the lock screen buttons, the TOTP dialogs, the tab colour names and
   the Off / sec / min items of the auto-save, auto-lock and clipboard lists
-  are now translated in French, Spanish and German (the windows before
-  decryption and the names of a new note followed in #34). A test fails if a new hard-coded text is handed to a control, a
+  are now translated in French, Spanish and German. Still in English: the
+  windows shown before the notes are decrypted (the language is stored
+  inside them), the default vault categories and tab names of a new note
+  (they are saved as data), and the system error details appended to some
+  messages. A test fails if a new hard-coded text is handed to a control, a
   message box or a `const` list of the UI (#25).
 - **Close prompt**: the English "Unsaved Changes" message box is replaced by
   the translated close dialog with **Remember my choice**. Remembering Save

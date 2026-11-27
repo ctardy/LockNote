@@ -116,16 +116,16 @@ fn main() {
     }
 
     // Phase 1: Force TLS (handled by ureq/rustls natively)
-    // Phase 1b: Wait until no swap helper of this exe is at work (a previous
-    // session's save being moved over the exe), before anything of the notes
-    // is read or cleaned. The lock is kept for the whole session and handed
-    // to the helper at exit (storage::launch_swap_helper). Not obtained in
-    // time: say so and quit without touching anything.
     // Language of every window until the note is decrypted (its own
     // language setting is inside it): the Windows display language when
     // LockNote has it, English otherwise (issue #34).
     features::i18n::apply_startup_language();
 
+    // Phase 1b: Wait until no swap helper of this exe is at work (a previous
+    // session's save being moved over the exe), before anything of the notes
+    // is read or cleaned. The lock is kept for the whole session and handed
+    // to the helper at exit (storage::launch_swap_helper). Not obtained in
+    // time: say so and quit without touching anything.
     let exe_path = std::env::current_exe().expect("Failed to get executable path");
     if let Err(detail) = storage::acquire_swap_lock(&exe_path) {
         show_startup_error(&features::i18n::get("startup.swap_locked")
