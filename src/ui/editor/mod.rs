@@ -143,6 +143,9 @@ pub struct EditorForm {
     editor_font_state: RefCell<self::zoom::EditorFontState>,
     /// Wheel rotation short of a notch, carried to the next Ctrl+wheel.
     zoom_wheel_rest: Cell<i32>,
+    /// Whether a presentation change left the undo history suspended, and
+    /// whether the user was told (`undo_watch`).
+    undo_history: Cell<self::undo_watch::UndoHistory>,
 
     // ── Status bar ──
     status_bar: nwg::StatusBar,
@@ -496,6 +499,7 @@ mod compare_flow;
 mod line_ops;
 mod case_ops;
 mod zoom;
+mod undo_watch;
 
 #[allow(unused_imports)]
 use self::helpers::*;

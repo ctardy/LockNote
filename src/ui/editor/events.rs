@@ -131,6 +131,10 @@ impl EditorForm {
                         }
                         if handle == f.highlight_timer.handle {
                             f.run_pending_requests();
+                            // The one place that tells about an undo history
+                            // left suspended (undo_watch), once the flows of
+                            // this tick are over.
+                            f.tell_undo_stuck_if_pending();
                         }
                         if handle == f.autolock_timer.handle && !*f.is_locked.borrow() {
                             // Curtain at once, dialogs answered No / Cancel,

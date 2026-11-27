@@ -45,7 +45,7 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::core::Interface;
 use windows::Win32::UI::Controls::RichEdit::{
-    ITextDocument, EM_GETOLEINTERFACE, tomResume, tomSelStartActive, tomSuspend,
+    ITextDocument, EM_GETOLEINTERFACE, tomSelStartActive, tomSuspend,
 };
 use windows::Win32::UI::Controls::SetWindowTheme;
 use windows::Win32::UI::Shell::DefSubclassProc;
@@ -54,6 +54,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::theme::{self, Color, ThemeMode, ThemePalette};
+
+use super::undo_watch::{UndoError, UndoStuck};
 
 // ---------------------------------------------------------------------
 // Pure helpers (no Win32 calls, unit-tested below)
@@ -302,9 +304,10 @@ const WM_SETFONT: u32 = 0x0030;
 /// back. The text, the selection, the modified flag, the undo history and
 /// the EN_CHANGE notification are left as they were: this is presentation,
 /// not an edit. `Err` means the editor did NOT take the font (it keeps the
-/// one it had); once it took it, a later failure is reported here and the
-/// font counts as applied.
-pub(super) fn set_font(hwnd: HWND, hfont: isize) -> Result<(), String> {
+/// one it had). `Ok` means it took it, whatever follows: a later failure is
+/// reported here, and an undo history that could not be resumed comes back
+/// in `FontApplied::undo` for the window to tell the user.
+pub(super) fn set_font(hwnd: HWND, hfont: isize) -> Result<FontApplied, String> {
     // WM_SETFONT turns the text colour back to automatic, and putting it
     // back (EM_SETCHARFORMAT) or the spacing (EM_SETPARAFORMAT) would each
     // be an undo step: Ctrl+Z would then revert the colour instead of the
@@ -335,8 +338,15 @@ pub(super) fn set_font(hwnd: HWND, hfont: isize) -> Result<(), String> {
     // EM_SETCHARFORMAT raises the modified flag: a font is not an edit.
     send(hwnd, EM_SETMODIFY, usize::from(was_modified), 0);
     send(hwnd, EM_SETEVENTMASK, 0, event_mask);
-    resume_undo(&doc, "a font change");
-    Ok(())
+    Ok(FontApplied { undo: super::tom::resume_undo(&doc, "a font change") })
+}
+
+/// The editor took the font of `set_font`; `undo` says whether its undo
+/// history came back after it.
+#[must_use]
+#[derive(Debug)]
+pub(super) struct FontApplied {
+    pub(super) undo: Result<(), UndoStuck>,
 }
 
 static WARNED_SELECTION_DIRECTION: AtomicBool = AtomicBool::new(false);
@@ -661,50 +671,32 @@ pub(super) fn text_color_charformat(color: Color) -> [u8; CF_SIZE] {
 /// Background and default text colour of the editor for the current theme.
 /// Only control state changes: the text, its modified flag, the undo stack,
 /// the selection and the EN_CHANGE notification are left as they were. A
-/// refusal is reported, never ignored.
-pub(super) fn apply_editor_colors(hwnd: HWND) {
-    apply_palette(hwnd, theme::current());
+/// refusal is reported, never ignored; the undo history comes back as in
+/// `apply_palette`.
+pub(super) fn apply_editor_colors(hwnd: HWND) -> Result<(), UndoError> {
+    apply_palette(hwnd, theme::current())
 }
 
 /// `apply_editor_colors` for a given palette. Once `set_font` has given every
 /// run the text colour, RichEdit records a change of the default colour as an
 /// edit (undo step, modified flag): the history is suspended meanwhile and
 /// the flag and the notification mask are put back
-/// (`live_theme_switch_after_set_font_recolours_every_run`).
-fn apply_palette(hwnd: HWND, pal: &ThemePalette) {
-    let doc = match text_document(hwnd) {
-        Ok(doc) => match unsafe { doc.Undo(tomSuspend.0) } {
-            Ok(_) => Some(doc),
-            Err(e) => {
-                eprintln!("ERROR theme: the undo history could not be suspended ({e}); the colour change may be undoable");
-                None
-            }
-        },
-        Err(e) => {
-            eprintln!("ERROR theme: {e}; the colour change may be undoable");
-            None
-        }
-    };
+/// (`live_theme_switch_after_set_font_recolours_every_run`). The colours
+/// are applied in any case; `NotSuspended`: they may be an undo step,
+/// `NotResumed`: the history may stay suspended (the window tells the user).
+fn apply_palette(hwnd: HWND, pal: &ThemePalette) -> Result<(), UndoError> {
+    let doc = text_document(hwnd).and_then(|doc| {
+        unsafe { doc.Undo(tomSuspend.0) }.map(|_| doc).map_err(|e| format!("Undo(tomSuspend) failed ({e})"))
+    });
     let was_modified = send(hwnd, EM_GETMODIFY, 0, 0) != 0;
     let event_mask = send(hwnd, EM_GETEVENTMASK, 0, 0);
     send(hwnd, EM_SETEVENTMASK, 0, event_mask & !ENM_CHANGE);
     set_palette_colors(hwnd, pal);
     send(hwnd, EM_SETMODIFY, usize::from(was_modified), 0);
     send(hwnd, EM_SETEVENTMASK, 0, event_mask);
-    if let Some(doc) = doc {
-        resume_undo(&doc, "a colour change");
-    }
-}
-
-/// Resume an undo history suspended for presentation (`why`). A history left
-/// suspended would make every later edit impossible to undo: one retry, then
-/// the failure is reported.
-fn resume_undo(doc: &ITextDocument, why: &str) {
-    if let Err(first) = unsafe { doc.Undo(tomResume.0) } {
-        eprintln!("WARN editor_surface: tomResume failed after {why} ({first}), retrying");
-        if let Err(e) = unsafe { doc.Undo(tomResume.0) } {
-            eprintln!("ERROR editor_surface: the undo history could not be resumed after {why} ({e}); edits may not be undoable");
-        }
+    match doc {
+        Ok(doc) => super::tom::resume_undo(&doc, "a colour change").map_err(UndoError::NotResumed),
+        Err(e) => Err(UndoError::NotSuspended(format!("{e}; the colour change may be undoable"))),
     }
 }
 
@@ -732,24 +724,26 @@ pub(super) fn theme_scrollbars(hwnd: HWND) {
 }
 
 /// Re-apply the theme-dependent state of the editor (colours, scrollbars)
-/// and repaint it. Used by the live theme switch.
-pub(super) fn retheme(editor: &nwg::RichTextBox) {
+/// and repaint it. Used by the live theme switch. The result is the undo
+/// history's after the colours (`apply_palette`), for the window to note.
+pub(super) fn retheme(editor: &nwg::RichTextBox) -> Result<(), UndoError> {
     let nwg::ControlHandle::Hwnd(raw) = editor.handle else {
-        eprintln!("WARN theme: the editor has no window handle; its colours were not updated");
-        return;
+        return Err(UndoError::NotSuspended("the editor has no window handle; its colours were not updated".to_string()));
     };
     let hwnd = HWND(raw as *mut _);
-    apply_editor_colors(hwnd);
+    let undo = apply_editor_colors(hwnd);
     theme_scrollbars(hwnd);
     unsafe {
         let _ = InvalidateRect(Some(hwnd), None, true);
     }
+    undo
 }
 
 /// Install everything on the editor: no frame, colours, scrollbars, line
 /// spacing on the current (empty) text, and the subclass that keeps both
-/// alive across `WM_SETTEXT` and paints the current-line band.
-pub(super) fn install(editor: &nwg::RichTextBox) {
+/// alive across `WM_SETTEXT` and paints the current-line band. The result is
+/// the undo history's after the colours, for the window to note.
+pub(super) fn install(editor: &nwg::RichTextBox) -> Result<(), UndoError> {
     let nwg::ControlHandle::Hwnd(raw) = editor.handle else {
         panic!("editor surface: the editor has no window handle");
     };
@@ -759,7 +753,7 @@ pub(super) fn install(editor: &nwg::RichTextBox) {
     // in the Dark theme. The tab strip and the status bar already edge the
     // editor, so it carries no frame of its own.
     crate::ui::lock_card::flatten_edit(&editor.handle);
-    apply_editor_colors(hwnd);
+    let undo = apply_editor_colors(hwnd);
     theme_scrollbars(hwnd);
     if let Err(e) = apply_line_spacing(hwnd) {
         panic!("editor surface: {e}");
@@ -800,6 +794,7 @@ pub(super) fn install(editor: &nwg::RichTextBox) {
         Ok(h) => std::mem::forget(h),
         Err(e) => panic!("editor surface handler: {e:?}"),
     }
+    undo
 }
 
 // ---------------------------------------------------------------------
@@ -1136,7 +1131,7 @@ mod tests {
             send(r.ed, EM_SETMODIFY, 0, 0);
             let small = natural_line_height(r.ed).expect("text metrics");
 
-            set_font(r.ed, consolas(-35)).expect("font");
+            set_font(r.ed, consolas(-35)).expect("font").undo.expect("undo resumed");
 
             let natural = natural_line_height(r.ed).expect("text metrics");
             assert!(natural > small, "the default font grew: {small} -> {natural}");
@@ -1153,7 +1148,7 @@ mod tests {
 
             // No history before: none after.
             send(r.ed, EM_EMPTYUNDOBUFFER, 0, 0);
-            set_font(r.ed, consolas(-21)).expect("font");
+            set_font(r.ed, consolas(-21)).expect("font").undo.expect("undo resumed");
             assert_eq!(send(r.ed, EM_CANUNDO, 0, 0), 0);
             let natural = natural_line_height(r.ed).expect("text metrics");
             let t = tops(r.ed);
@@ -1181,11 +1176,11 @@ mod tests {
             send(r.ed, EM_LINESCROLL, 0, 150);
             assert_eq!(send(r.ed, EM_GETFIRSTVISIBLELINE, 0, 0), 150);
 
-            set_font(r.ed, consolas(-35)).expect("font");
+            set_font(r.ed, consolas(-35)).expect("font").undo.expect("undo resumed");
             assert_eq!(send(r.ed, EM_GETFIRSTVISIBLELINE, 0, 0), 150, "zoom in: same first line");
             assert_eq!(selection_of(r.ed), (0, 0), "the caret did not move");
 
-            set_font(r.ed, consolas(-21)).expect("font");
+            set_font(r.ed, consolas(-21)).expect("font").undo.expect("undo resumed");
             assert_eq!(send(r.ed, EM_GETFIRSTVISIBLELINE, 0, 0), 150, "zoom out: same first line");
             assert_eq!(selection_of(r.ed), (0, 0));
         }
@@ -1201,7 +1196,7 @@ mod tests {
             const CF_OFFSET_EFFECTS: usize = 8;
             const CF_OFFSET_BACK_COLOR: usize = 96;
             let r = make(-15);
-            apply_editor_colors(r.ed);
+            apply_editor_colors(r.ed).expect("undo resumed");
             send(r.ed, EM_SETSEL, 2, 5);
             let mut hl = [0u8; CF_SIZE];
             hl[0..4].copy_from_slice(&(CF_SIZE as u32).to_le_bytes());
@@ -1210,7 +1205,7 @@ mod tests {
             assert_ne!(send(r.ed, EM_SETCHARFORMAT, SCF_SELECTION, hl.as_mut_ptr() as isize), 0);
             send(r.ed, EM_SETSEL, 0, 0);
 
-            set_font(r.ed, consolas(-35)).expect("font");
+            set_font(r.ed, consolas(-35)).expect("font").undo.expect("undo resumed");
 
             send(r.ed, EM_SETSEL, 0, -1);
             let mut cf = [0u8; CF_SIZE];
@@ -1249,14 +1244,14 @@ mod tests {
             let (from, to) = (theme::get_palette(ThemeMode::Light), theme::get_palette(ThemeMode::Dark));
             let r = make(-15);
             set_text(r.ed, "abc\r\ndef");
-            apply_palette(r.ed, from);
-            set_font(r.ed, consolas(-35)).expect("font");
+            apply_palette(r.ed, from).expect("undo resumed");
+            set_font(r.ed, consolas(-35)).expect("font").undo.expect("undo resumed");
             // set_font paints with the current palette: put the "before" one back.
-            apply_palette(r.ed, from);
+            apply_palette(r.ed, from).expect("undo resumed");
             send(r.ed, EM_EMPTYUNDOBUFFER, 0, 0);
             send(r.ed, EM_SETMODIFY, 0, 0);
 
-            apply_palette(r.ed, to);
+            apply_palette(r.ed, to).expect("undo resumed");
 
             assert_eq!(colour_of_all(r.ed), (true, false, to.editor_text.to_colorref()), "existing text");
             assert_eq!(send(r.ed, EM_CANUNDO, 0, 0), 0, "a theme switch is not an undo step");
@@ -1278,12 +1273,12 @@ mod tests {
             let r = make(-15);
             send(r.ed, EM_SETSEL, 8, 2);
             assert!(start_active(r.ed), "precondition: anchor 8, active end 2");
-            set_font(r.ed, consolas(-35)).expect("font");
+            set_font(r.ed, consolas(-35)).expect("font").undo.expect("undo resumed");
             assert_eq!(selection_of(r.ed), (2, 8));
             assert!(start_active(r.ed), "zoom in: the start is still the active end");
 
             send(r.ed, EM_SETSEL, 2, 8);
-            set_font(r.ed, consolas(-21)).expect("font");
+            set_font(r.ed, consolas(-21)).expect("font").undo.expect("undo resumed");
             assert_eq!(selection_of(r.ed), (2, 8));
             assert!(!start_active(r.ed), "zoom out: the end is still the active end");
         }
@@ -1309,7 +1304,7 @@ mod tests {
             send(r.ed, EM_SETSCROLLPOS, 0, &right as *const _ as isize);
             let before = scroll_pos(r.ed).x;
             assert!(before > 0, "precondition: scrolled right ({before})");
-            set_font(r.ed, consolas(-35)).expect("font");
+            set_font(r.ed, consolas(-35)).expect("font").undo.expect("undo resumed");
             assert_eq!(scroll_pos(r.ed).x, before, "the view stayed where it was");
             assert_eq!(selection_of(r.ed), (0, 0), "the caret did not move");
         }
@@ -1325,14 +1320,14 @@ mod tests {
             send(r.ed, EM_UNDO, 0, 0);
             assert_eq!(text_of(r.ed), TEXT);
 
-            set_font(r.ed, consolas(-35)).expect("font");
+            set_font(r.ed, consolas(-35)).expect("font").undo.expect("undo resumed");
 
             assert_ne!(send(r.ed, EM_CANREDO, 0, 0), 0, "the redo history survived");
             send(r.ed, EM_REDO, 0, 0);
             assert_eq!(text_of(r.ed), format!("X{TEXT}"));
 
             send(r.ed, EM_EMPTYUNDOBUFFER, 0, 0);
-            set_font(r.ed, consolas(-21)).expect("font");
+            set_font(r.ed, consolas(-21)).expect("font").undo.expect("undo resumed");
             send(r.ed, EM_SETSEL, 0, 0);
             let y: Vec<u16> = "Y".encode_utf16().chain(std::iter::once(0)).collect();
             send(r.ed, EM_REPLACESEL, 1, y.as_ptr() as isize);
@@ -1501,7 +1496,7 @@ mod tests {
             nwg::Window::builder().size((400, 300)).flags(nwg::WindowFlags::WINDOW).build(&mut window).expect("window");
             let mut editor = nwg::RichTextBox::default();
             nwg::RichTextBox::builder().parent(&window).size((200, 100)).build(&mut editor).expect("editor");
-            install(&editor);
+            install(&editor).expect("undo resumed");
             let nwg::ControlHandle::Hwnd(raw) = editor.handle else { panic!("no handle") };
             let ed = HWND(raw as *mut _);
 

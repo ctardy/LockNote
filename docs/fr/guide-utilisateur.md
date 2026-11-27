@@ -384,6 +384,17 @@ s'annulent normalement, jusqu'au texte affiché à l'arrivée. En revenant sur u
 onglet, vous retrouvez son dernier texte, mais ses modifications antérieures ne
 peuvent plus être annulées.
 
+Un changement de police (zoom, Préférences), un changement de thème et le
+surlignage des occurrences du mot sélectionné suspendent l'historique
+d'annulation le temps de s'appliquer, pour ne jamais devenir une étape
+d'annulation. Si Windows refuse de le rétablir, un message l'indique :
+« L'historique d'annulation n'a pas pu être rétabli : les prochaines
+modifications pourraient ne pas pouvoir être annulées. Enregistrez votre
+note. » Il s'affiche une seule fois, une fois le zoom ou le surlignage
+terminé (après le déverrouillage, ou à la fermeture de la boîte de dialogue
+ouverte, si LockNote est verrouillé ou qu'une autre boîte est ouverte), et
+de nouveau seulement si l'historique a refonctionné entre-temps.
+
 ### Indenter et désindenter (Tab, Maj+Tab)
 
 - **Tab avec une sélection sur deux lignes ou plus** insère une tabulation au

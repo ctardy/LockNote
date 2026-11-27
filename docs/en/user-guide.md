@@ -351,6 +351,15 @@ undo or redo in that tab; later edits undo normally, back to the text the tab
 was shown with. Going back to a tab shows its latest text, but its earlier
 edits can no longer be undone.
 
+A font change (zoom, Preferences), a theme change and the highlighting of
+the occurrences of the selected word pause the undo history while they run,
+so that they never become an undo step. If Windows refuses to resume it, a
+message says "The undo history could not be restored: your next changes
+might not be undoable. Save your note." It is shown once, when the zoom or
+the highlighting is over (after unlocking, or when the open dialog closes,
+if LockNote is locked or another dialog is open), and again only if the
+history worked again in between.
+
 ### Indent and outdent (Tab, Shift+Tab)
 
 - **Tab with a selection over two lines or more** inserts one tab at the start

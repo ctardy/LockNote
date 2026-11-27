@@ -102,6 +102,13 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   binary with an access violation in `gdi32full`, or made a test read wrong
   font metrics. The application is not affected:
   it uses RichEdit from its one UI thread only.
+- **Undo history left suspended**: a font change (zoom, Preferences), a
+  theme change or the occurrence highlights pause the undo history while
+  they run. If Windows refuses to resume it (after one retry), a message now
+  says that the next changes might not be undoable and asks you to save the
+  note, instead of only writing it to the log. It is shown once, after the
+  zoom or the highlighting is over (not while LockNote is locked or another
+  dialog is open), and again only if the history came back in between.
 
 ## [2.1.1] - 2026-11-26
 

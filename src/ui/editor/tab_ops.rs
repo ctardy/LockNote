@@ -741,7 +741,7 @@ mod tests {
             nwg::Window::builder().size((400, 300)).flags(nwg::WindowFlags::WINDOW).build(&mut window).expect("window");
             let mut editor = nwg::RichTextBox::default();
             nwg::RichTextBox::builder().parent(&window).size((300, 200)).build(&mut editor).expect("editor");
-            crate::ui::editor::surface::install(&editor);
+            crate::ui::editor::surface::install(&editor).expect("undo resumed");
             let tabs = TabBar::new();
             tabs.set_tab_content(0, "aaa");
             tabs.add_tab("Note 2");

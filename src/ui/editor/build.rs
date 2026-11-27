@@ -649,7 +649,9 @@ impl EditorForm {
         }
 
         // Line spacing, current-line band and dark scrollbars (surface.rs).
-        surface::install(&editor);
+        // The colours suspend the undo history: a resume that failed is
+        // told at the first highlight tick (undo_watch).
+        let install_undo = surface::install(&editor);
 
         // ── Line number gutter (raw Win32 child window) ──
         // Register a custom window class that does nothing in WM_PAINT/WM_ERASEBKGND
@@ -1518,6 +1520,7 @@ impl EditorForm {
             editor_font: RefCell::new(editor_font),
             editor_font_state: RefCell::new(editor_font_state),
             zoom_wheel_rest: Cell::new(0),
+            undo_history: Cell::new(undo_watch::after(undo_watch::UndoHistory::Live, &install_undo, "the editor setup")),
             // Status bar
             status_bar,
             status_path_slot: Cell::new(None),

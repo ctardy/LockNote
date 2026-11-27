@@ -77,7 +77,10 @@ impl EditorForm {
                     // One pass sets both (colours and scrollbar class); run it
                     // once, at the first of the two steps.
                     if step == ThemeRefresh::EditorColors {
-                        surface::retheme(&self.editor);
+                        // Noted only: the highlight tick tells the user if
+                        // the undo history stayed suspended (undo_watch).
+                        let colours = surface::retheme(&self.editor);
+                        self.note_undo(colours, "a colour change");
                         // Occurrence highlights carry the old theme's back
                         // colour in the text runs: force a recompute.
                         *self.last_highlighted.borrow_mut() = "\0".to_string();

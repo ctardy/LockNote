@@ -151,6 +151,7 @@ fn build_en() -> Dict {
     m.insert("menu.view.wordwrap", "&Word Wrap");
     m.insert("menu.view.linenumbers", "&Line Numbers");
     m.insert("settings.font.failed", "The new editor font could not be applied; the editor keeps its current font.\n\nDetails: {detail}");
+    m.insert("editor.undo_stuck", "The undo history could not be restored: your next changes might not be undoable. Save your note.");
     m.insert("menu.view.vault", "&Vault Manager...");
 
     // Tab menu
@@ -881,6 +882,7 @@ fn build_fr() -> Dict {
     m.insert("menu.view.wordwrap", "Retour \u{00e0} la &ligne");
     m.insert("menu.view.linenumbers", "&Num\u{00e9}ros de ligne");
     m.insert("settings.font.failed", "La nouvelle police de l'\u{00e9}diteur n'a pas pu \u{00ea}tre appliqu\u{00e9}e ; l'\u{00e9}diteur garde sa police actuelle.\n\nD\u{00e9}tails : {detail}");
+    m.insert("editor.undo_stuck", "L'historique d'annulation n'a pas pu \u{00ea}tre r\u{00e9}tabli : les prochaines modifications pourraient ne pas pouvoir \u{00ea}tre annul\u{00e9}es. Enregistrez votre note.");
     m.insert("menu.view.vault", "Gestionnaire de &coffre...");
 
     m.insert("menu.tab", "&Onglet");
@@ -1584,6 +1586,7 @@ fn build_es() -> Dict {
     m.insert("menu.view.wordwrap", "Ajuste de &l\u{00ed}nea");
     m.insert("menu.view.linenumbers", "&N\u{00fa}meros de l\u{00ed}nea");
     m.insert("settings.font.failed", "No se pudo aplicar la nueva fuente del editor; el editor conserva su fuente actual.\n\nDetalles: {detail}");
+    m.insert("editor.undo_stuck", "No se pudo restablecer el historial de deshacer: es posible que los pr\u{00f3}ximos cambios no se puedan deshacer. Guarde su nota.");
     m.insert("menu.view.vault", "Gestor de &b\u{00f3}veda...");
 
     m.insert("menu.tab", "&Pesta\u{00f1}a");
@@ -2288,6 +2291,7 @@ fn build_de() -> Dict {
     m.insert("menu.view.wordwrap", "&Zeilenumbruch");
     m.insert("menu.view.linenumbers", "Zeilen&nummern");
     m.insert("settings.font.failed", "Die neue Editor-Schriftart konnte nicht angewendet werden; der Editor beh\u{00e4}lt seine aktuelle Schriftart.\n\nDetails: {detail}");
+    m.insert("editor.undo_stuck", "Der R\u{00fc}ckg\u{00e4}ngig-Verlauf konnte nicht wiederhergestellt werden: Die n\u{00e4}chsten \u{00c4}nderungen lassen sich m\u{00f6}glicherweise nicht r\u{00fc}ckg\u{00e4}ngig machen. Speichern Sie Ihre Notiz.");
     m.insert("menu.view.vault", "&Tresor-Manager...");
 
     m.insert("menu.tab", "&Tab");

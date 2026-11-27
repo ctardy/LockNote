@@ -631,9 +631,13 @@ impl zoom::FontSteps for FormFont<'_> {
         };
         let hwnd = windows::Win32::Foundation::HWND(raw as *mut _);
         // On a refusal the editor still uses the old font, which stays;
-        // once it took the new one, the old one may go.
-        surface::set_font(hwnd, font.handle as isize)?;
+        // once it took the new one, the old one may go. The font counts as
+        // applied even when the undo history did not come back: that is
+        // noted for the highlight tick to tell, never shown in the middle
+        // of a Ctrl+wheel zoom (undo_watch).
+        let applied = surface::set_font(hwnd, font.handle as isize)?;
         *self.0.editor_font.borrow_mut() = font;
+        self.0.note_undo(applied.undo.map_err(super::undo_watch::UndoError::NotResumed), "a font change");
         Ok(())
     }
 

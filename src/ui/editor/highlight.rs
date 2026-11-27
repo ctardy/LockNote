@@ -89,9 +89,9 @@ impl EditorForm {
                 }
             }
         });
-        if let Err(e) = painted {
-            eprintln!("ERROR highlight: occurrence highlights not painted: {e}");
-        }
+        // A history left suspended is told by the tick (undo_watch); this
+        // pass only notes it, with the redraw still off.
+        self.note_undo(painted, "the occurrence highlights");
 
         // Restore original selection, active end included (EM_SETSEL)
         self.send_editor_message(0x00B1, anchor as usize, active as isize);
