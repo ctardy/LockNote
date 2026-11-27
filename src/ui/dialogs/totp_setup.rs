@@ -288,8 +288,14 @@ impl TotpSetupDialog {
                 // Add Key: the link shown follows the secret typed, empty
                 // while it is not valid.
                 nwg::Event::OnTextInput if add && handle == txt_secret.handle => {
-                    match totp::parse_secret_input(&txt_secret.text()) {
-                        Ok(s) => txt_uri.set_text(&totp::build_uri(&name_owned, &s, Some("LockNote"))),
+                    // The text typed, the secret and the link holding it are
+                    // wiped on drop, at each keystroke (issue #35).
+                    let typed = zeroize::Zeroizing::new(txt_secret.text());
+                    match totp::parse_secret_input(&typed).map(zeroize::Zeroizing::new) {
+                        Ok(s) => {
+                            let uri = zeroize::Zeroizing::new(totp::build_uri(&name_owned, &s, Some("LockNote")));
+                            txt_uri.set_text(&uri);
+                        }
                         Err(_) => txt_uri.set_text(""),
                     }
                     lbl_status.set_text("");
@@ -317,10 +323,12 @@ impl TotpSetupDialog {
                             .as_secs();
 
                         // Add Key: the code is checked against the secret
-                        // the field holds now.
+                        // the field holds now. Wiped on drop, like the text
+                        // it comes from (issue #35).
                         let checked = if add {
-                            match totp::parse_secret_input(&txt_secret.text()) {
-                                Ok(s) => s,
+                            let typed = zeroize::Zeroizing::new(txt_secret.text());
+                            match totp::parse_secret_input(&typed) {
+                                Ok(s) => zeroize::Zeroizing::new(s),
                                 Err(e) => {
                                     lbl_status.set_text(&t("totp.add.invalid"));
                                     eprintln!("INFO totp: verify refused, secret err={:?}", e);
@@ -328,7 +336,7 @@ impl TotpSetupDialog {
                                 }
                             }
                         } else {
-                            secret_for_verify.clone()
+                            zeroize::Zeroizing::new(secret_for_verify.clone())
                         };
                         if totp::verify(&checked, code_trimmed, now) {
                             *verified_clone.borrow_mut() = true;
@@ -338,7 +346,8 @@ impl TotpSetupDialog {
                             lbl_status.set_text(&t("2fa.setup.invalid"));
                         }
                     } else if handle == btn_confirm.handle && add {
-                        match totp::parse_secret_input(&txt_secret.text()) {
+                        let typed = zeroize::Zeroizing::new(txt_secret.text());
+                        match totp::parse_secret_input(&typed) {
                             Ok(s) => {
                                 eprintln!("INFO totp: key added name_len={}", name_owned.len());
                                 *result_clone.borrow_mut() = Some(TotpEntry {

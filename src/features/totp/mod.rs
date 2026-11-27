@@ -240,7 +240,13 @@ pub fn parse_uri(uri: &str) -> Option<(String, String, Option<String>)> {
     for param in query.split('&') {
         if let Some((key, value)) = param.split_once('=') {
             match key.to_lowercase().as_str() {
-                "secret" => secret = Some(value.to_string()),
+                // A `secret=` given again replaces the earlier one, which
+                // is wiped (issue #35).
+                "secret" => {
+                    if let Some(mut earlier) = secret.replace(value.to_string()) {
+                        earlier.zeroize();
+                    }
+                }
                 "issuer" => issuer = Some(uri_decode(value)),
                 _ => {}
             }
@@ -696,6 +702,14 @@ mod tests {
     #[test]
     fn uri_parse_no_secret() {
         assert!(parse_uri("otpauth://totp/test?issuer=X").is_none());
+    }
+
+    /// Kept as before issue #35 (the earlier value is now wiped): the last
+    /// `secret=` wins.
+    #[test]
+    fn uri_parse_keeps_the_last_secret() {
+        let (_, secret, _) = parse_uri("otpauth://totp/x?secret=AAAA&secret=BBBB&Secret=CCCC").unwrap();
+        assert_eq!(secret, "CCCC");
     }
 
     #[test]
