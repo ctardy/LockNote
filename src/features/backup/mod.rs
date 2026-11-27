@@ -1558,4 +1558,31 @@ mod tests {
         assert_eq!(b.settings.window_x, i32::MIN, "machine state is not imported");
         assert!(b.secrets.is_empty() && b.prompts.is_empty() && b.attachments.is_empty() && b.snapshots.is_empty());
     }
+
+    #[test]
+    fn the_2fa_and_totp_secrets_survive_export_import_and_exe_migration() {
+        let mut b = sample();
+        b.settings.totp_entries = vec![
+            crate::settings::TotpEntry { name: "github".into(), secret: "GEZDGNBVGY3TQOJQ".into() },
+            crate::settings::TotpEntry { name: "aws".into(), secret: "MFRGGZDFMZTWQ2LK".into() },
+        ];
+        let before = b.settings.clone();
+        let bytes = encode(&b, PW, FAST).unwrap();
+        // The live settings handed to the export are untouched.
+        assert!(b.settings == before);
+        assert_eq!(b.settings.totp_2fa_secret, "JBSWY3DPEHPK3PXP");
+        let back = decode(&bytes, PW).unwrap();
+        assert_eq!(back.settings.totp_2fa_secret, "JBSWY3DPEHPK3PXP");
+        assert_eq!(back.settings.totp_entries, b.settings.totp_entries);
+        for (hint, compress) in [(None, true), (Some("h"), false)] {
+            let got = decode_exe_payload(&exe_payload(&b, hint, compress), PW).unwrap();
+            assert!(got.settings.totp_2fa);
+            assert_eq!(got.settings.totp_2fa_secret, "JBSWY3DPEHPK3PXP");
+            assert_eq!(got.settings.totp_entries, b.settings.totp_entries);
+            // And it exports again with its secrets.
+            let again = decode(&encode(&got, PW, FAST).unwrap(), PW).unwrap();
+            assert_eq!(again.settings.totp_2fa_secret, "JBSWY3DPEHPK3PXP");
+            assert_eq!(again.settings.totp_entries, b.settings.totp_entries);
+        }
+    }
 }
