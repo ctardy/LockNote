@@ -392,8 +392,10 @@ d'annulation. Si Windows refuse de le rétablir, un message l'indique :
 modifications pourraient ne pas pouvoir être annulées. Enregistrez votre
 note. » Il s'affiche une seule fois, une fois le zoom ou le surlignage
 terminé (après le déverrouillage, ou à la fermeture de la boîte de dialogue
-ouverte, si LockNote est verrouillé ou qu'une autre boîte est ouverte), et
-de nouveau seulement si l'historique a refonctionné entre-temps.
+ouverte, si LockNote est verrouillé ou qu'une autre boîte est ouverte, la
+fenêtre Rechercher et remplacer comprise), et de nouveau seulement si
+l'historique a refonctionné entre-temps. Si LockNote se verrouille pendant
+que le message est affiché, il se ferme et revient après le déverrouillage.
 
 ### Indenter et désindenter (Tab, Maj+Tab)
 

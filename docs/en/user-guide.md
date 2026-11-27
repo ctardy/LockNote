@@ -357,8 +357,9 @@ so that they never become an undo step. If Windows refuses to resume it, a
 message says "The undo history could not be restored: your next changes
 might not be undoable. Save your note." It is shown once, when the zoom or
 the highlighting is over (after unlocking, or when the open dialog closes,
-if LockNote is locked or another dialog is open), and again only if the
-history worked again in between.
+if LockNote is locked or another dialog is open, Find & Replace included),
+and again only if the history worked again in between. If LockNote locks
+while the message is open, it closes and is shown again after unlocking.
 
 ### Indent and outdent (Tab, Shift+Tab)
 

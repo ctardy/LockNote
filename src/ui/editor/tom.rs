@@ -143,4 +143,80 @@ mod tests {
         let calls = Cell::new(0);
         assert_eq!(run_suspended(|| Ok(()), || 7, resume_failing(1, &calls)), Ok(7));
     }
+
+    // -----------------------------------------------------------------
+    // Live RichEdit test: what undo_watch relies on. It creates a
+    // RICHEDIT50W in the test process (never the application).
+    // -----------------------------------------------------------------
+
+    mod live {
+        use super::*;
+        use windows::core::w;
+        use windows::Win32::Foundation::WPARAM;
+        use windows::Win32::System::LibraryLoader::LoadLibraryW;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_SETTEXT, WS_CHILD, WS_POPUP,
+        };
+
+        const EM_REPLACESEL: u32 = 0x00C2;
+        const EM_CANUNDO: u32 = 0x00C6;
+        const EM_EMPTYUNDOBUFFER: u32 = 0x00CD;
+
+        fn send(hwnd: HWND, msg: u32, wparam: usize, lparam: isize) -> isize {
+            unsafe { SendMessageW(hwnd, msg, Some(WPARAM(wparam)), Some(LPARAM(lparam))) }.0
+        }
+
+        /// Type one character as an undoable edit, then whether Ctrl+Z
+        /// could undo it; the undo buffer is emptied before and after.
+        fn edit_is_undoable(ed: HWND) -> bool {
+            send(ed, EM_EMPTYUNDOBUFFER, 0, 0);
+            let x: Vec<u16> = "x".encode_utf16().chain(std::iter::once(0)).collect();
+            send(ed, EM_REPLACESEL, 1, x.as_ptr() as isize);
+            let undoable = send(ed, EM_CANUNDO, 0, 0) != 0;
+            send(ed, EM_EMPTYUNDOBUFFER, 0, 0);
+            undoable
+        }
+
+        #[test]
+        fn tom_suspend_and_resume_are_an_on_off_switch() {
+            unsafe {
+                LoadLibraryW(w!("msftedit.dll")).expect("msftedit.dll");
+                let top = CreateWindowExW(
+                    WINDOW_EX_STYLE(0), w!("STATIC"), None, WS_POPUP, 0, 0, 200, 100, None, None, None, None,
+                )
+                .expect("host window");
+                // ES_MULTILINE, as the editor.
+                let ed = CreateWindowExW(
+                    WINDOW_EX_STYLE(0), w!("RICHEDIT50W"), None, WS_CHILD | WINDOW_STYLE(0x0004), 0, 0, 180, 80,
+                    Some(top), None, None, None,
+                )
+                .expect("RICHEDIT50W");
+                let text: Vec<u16> = "abc".encode_utf16().chain(std::iter::once(0)).collect();
+                send(ed, WM_SETTEXT, 0, text.as_ptr() as isize);
+                let doc = text_document(ed).expect("ITextDocument");
+                let suspend = || doc.Undo(tomSuspend.0).map(drop).expect("tomSuspend");
+                let resume = || doc.Undo(tomResume.0).map(drop).expect("tomResume");
+
+                assert!(edit_is_undoable(ed), "the history works to begin with");
+                suspend();
+                assert!(!edit_is_undoable(ed), "suspended: the test sees a stuck history");
+                resume();
+                assert!(edit_is_undoable(ed));
+                // A failed resume, then a later suspend + resume that works
+                // (undo_watch: Stuck -> Live): not a nesting counter.
+                suspend();
+                suspend();
+                resume();
+                assert!(edit_is_undoable(ed), "one resume brings back a history suspended twice");
+                // A resume with nothing suspended does no harm.
+                resume();
+                assert!(edit_is_undoable(ed));
+                suspend();
+                assert!(!edit_is_undoable(ed), "an extra resume does not cancel the next suspend");
+                resume();
+
+                let _ = DestroyWindow(top);
+            }
+        }
+    }
 }

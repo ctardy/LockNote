@@ -109,6 +109,8 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   note, instead of only writing it to the log. It is shown once, after the
   zoom or the highlighting is over (not while LockNote is locked or another
   dialog is open), and again only if the history came back in between.
+  A lock that closes the message before it is read shows it again after
+  unlocking.
 
 ## [2.1.1] - 2026-11-26
 

@@ -19,7 +19,13 @@
 //     alert while the note is locked or under the curtain, or while another
 //     modal is open. The state is a `Cell` (no borrow) and is set to "told"
 //     before the box opens, so the ticks that run inside the box's loop do
-//     not open a second one.
+//     not open a second one. A lock in that loop closes the box unread
+//     (lock_flow cancels open dialogs): the state goes back to "to tell" if
+//     the history is still stuck, and the alert comes back after unlocking.
+//   * TOM `tomSuspend` / `tomResume` is an on/off switch, not a nesting
+//     counter (two suspends, one resume: the history is back; tom.rs's live
+//     test checks it). So a later suspend + resume that works does bring
+//     back a history a failed resume left suspended, and `Live` is right.
 
 #[allow(unused_imports)]
 use super::*;
@@ -95,8 +101,12 @@ pub(super) trait UndoAlertSteps {
     fn set_history(&self, history: UndoHistory);
     /// Not locked, no curtain, no other modal open.
     fn can_tell(&self) -> bool;
-    /// Show the alert (a message box: its loop runs the timer ticks).
+    /// Show the alert (a message box: its loop runs the timer ticks, and a
+    /// lock that runs there closes it unread).
     fn tell(&self);
+    fn lock_epoch(&self) -> u64;
+    /// No lock happened since `epoch`.
+    fn still_valid(&self, epoch: u64) -> bool;
 }
 
 /// Record what a presentation change (`what`) did to the history. Never
@@ -111,10 +121,17 @@ pub(super) fn tell_if_pending(steps: &impl UndoAlertSteps) -> bool {
     if steps.history() != UndoHistory::Stuck || !steps.can_tell() {
         return false;
     }
+    let epoch = steps.lock_epoch();
     // Told before the box opens: the ticks of its loop see it.
     steps.set_history(UndoHistory::StuckTold);
     eprintln!("WARN undo: telling the user the undo history stays suspended");
     steps.tell();
+    // A lock in the box's loop cancelled it: the user may not have read it.
+    // Still stuck, it is told again once nothing is in the way.
+    if !steps.still_valid(epoch) && steps.history() == UndoHistory::StuckTold {
+        eprintln!("WARN undo: the alert was closed by a lock; it will be shown again");
+        steps.set_history(UndoHistory::Stuck);
+    }
     true
 }
 
@@ -149,9 +166,13 @@ impl UndoAlertSteps for FormUndoAlert<'_> {
         !self.form.input_blocked() && !self.form.modal_open()
     }
     fn tell(&self) {
-        // The box only informs: nothing is applied after it, so no epoch
-        // check is needed.
         self.form.inform("LockNote", &t("editor.undo_stuck"));
+    }
+    fn lock_epoch(&self) -> u64 {
+        self.form.lock_epoch()
+    }
+    fn still_valid(&self, epoch: u64) -> bool {
+        self.form.still_valid(epoch)
     }
 }
 
@@ -196,6 +217,7 @@ mod tests {
         blocked: Cell<bool>,
         told: Cell<u32>,
         open: Cell<bool>,
+        epoch: Cell<u64>,
         log: RefCell<Vec<String>>,
         inside_box: RefCell<Option<Box<dyn Fn(&Fake)>>>,
     }
@@ -220,6 +242,20 @@ mod tests {
             }
             self.open.set(false);
         }
+        fn lock_epoch(&self) -> u64 {
+            self.epoch.get()
+        }
+        fn still_valid(&self, epoch: u64) -> bool {
+            self.epoch.get() == epoch
+        }
+    }
+
+    /// A lock while the box is open: lock_flow cancels the box (it closes
+    /// unread) and the note is locked until the password is typed.
+    fn lock(fake: &Fake) {
+        fake.epoch.set(fake.epoch.get() + 1);
+        fake.blocked.set(true);
+        fake.log.borrow_mut().push("lock".into());
     }
 
     /// One highlight timer tick: the highlights note their result, then the
@@ -298,6 +334,41 @@ mod tests {
     }
 
     #[test]
+    fn an_alert_closed_unread_by_a_lock_is_told_again_after_unlocking() {
+        let fake = Fake::default();
+        *fake.inside_box.borrow_mut() = Some(Box::new(|f: &Fake| {
+            lock(f);
+            // The curtain's ticks: still stuck, nothing shown over the lock.
+            tick(f, stuck());
+        }));
+        tick(&fake, stuck());
+        assert_eq!(fake.told.get(), 1);
+        assert_eq!(fake.history.get(), UndoHistory::Stuck, "the box was cancelled: still to tell");
+        tick(&fake, stuck());
+        assert_eq!(fake.told.get(), 1, "not over the lock screen");
+        fake.blocked.set(false); // unlocked
+        tick(&fake, stuck());
+        assert_eq!(fake.told.get(), 2, "told again once unlocked");
+        assert_eq!(fake.history.get(), UndoHistory::StuckTold);
+        tick(&fake, stuck());
+        assert_eq!(fake.told.get(), 2, "read this time: no third box");
+    }
+
+    #[test]
+    fn a_history_back_while_the_cancelled_box_was_open_is_not_told() {
+        let fake = Fake::default();
+        *fake.inside_box.borrow_mut() = Some(Box::new(|f: &Fake| {
+            lock(f);
+            tick(f, Ok(()));
+        }));
+        tick(&fake, stuck());
+        assert_eq!(fake.history.get(), UndoHistory::Live, "back: nothing left to tell");
+        fake.blocked.set(false);
+        tick(&fake, Ok(()));
+        assert_eq!(fake.told.get(), 1);
+    }
+
+    #[test]
     fn a_failed_suspension_neither_tells_nor_clears_the_alert() {
         let fake = Fake::default();
         tick(&fake, not_suspended());
@@ -354,22 +425,30 @@ mod tests {
         assert!(hl.contains("self.note_undo(painted,"), "the highlights' undo result is noted");
 
         let theme = body_of("theme_switch.rs", "pub(super) fn apply_theme_live");
-        assert!(theme.contains("let colours = surface::retheme(&self.editor);"));
-        assert!(theme.contains("self.note_undo(colours,"), "the colours' undo result is noted");
+        let retheme = theme.find("surface::retheme(").expect("retheme");
+        let noted = theme.find("self.note_undo(").expect("the colours' undo result is noted");
+        assert!(retheme < noted);
 
         let build = source("build.rs");
-        assert!(build.contains("let install_undo = surface::install(&editor);"));
-        assert!(build.contains("undo_watch::after(undo_watch::UndoHistory::Live, &install_undo,"));
+        let install = build.find("surface::install(").expect("install");
+        let noted = build.find("undo_watch::after(undo_watch::UndoHistory::Live,").expect("the install's undo result is noted");
+        assert!(install < noted);
     }
 
     #[test]
     fn the_resume_failure_is_no_longer_only_logged() {
+        // The return types: the outcome is typed, not only logged.
+        fn returns(file: &str, fun: &str, ty: &str) {
+            let src = source(file);
+            let at = src.find(fun).unwrap_or_else(|| panic!("{fun} in {file}"));
+            let sig = &src[at..at + src[at..].find('{').expect("body")];
+            assert!(sig.contains(ty), "{fun} returns {ty}: {sig}");
+        }
         let surface = source("surface.rs");
         assert!(!surface.contains("fn resume_undo("), "one resume, in tom.rs");
-        assert!(surface.contains("pub(super) fn set_font(hwnd: HWND, hfont: isize) -> Result<FontApplied, String>"));
-        assert!(surface.contains("fn apply_palette(hwnd: HWND, pal: &ThemePalette) -> Result<(), UndoError>"));
-        let tom = source("tom.rs");
-        assert!(tom.contains("pub(super) fn without_undo<R>(hwnd: HWND, f: impl FnOnce() -> R) -> Result<R, UndoError>"));
+        returns("surface.rs", "fn set_font(", "Result<FontApplied, String>");
+        returns("surface.rs", "fn apply_palette(", "Result<(), UndoError>");
+        returns("tom.rs", "fn without_undo<", "Result<R, UndoError>");
     }
 
     #[test]
@@ -384,9 +463,10 @@ mod tests {
             assert!(!source(file).contains("tell_undo_stuck_if_pending"), "{file} shows the alert itself");
         }
         let glue = source("undo_watch.rs");
-        let tell_body = &glue[glue.find("fn tell(&self) {\n        // The box").expect("form tell")..];
-        assert!(tell_body.contains("self.form.inform(\"LockNote\", &t(\"editor.undo_stuck\"))"));
-        let can = &glue[glue.find("fn can_tell(&self) -> bool {\n        !self.form").expect("form gate")..];
-        assert!(can.contains("!self.form.input_blocked() && !self.form.modal_open()"));
+        let form = &glue[glue.find("impl UndoAlertSteps for FormUndoAlert").expect("form steps")..];
+        let form = &form[..form.find("\n}\n").expect("end of the form steps")];
+        assert!(form.contains("self.form.inform(") && form.contains("t(\"editor.undo_stuck\")"), "told with inform()");
+        assert!(form.contains("input_blocked()") && form.contains("modal_open()"), "held while locked or behind a modal");
+        assert!(form.contains("self.form.lock_epoch()") && form.contains("self.form.still_valid(epoch)"), "the lock epoch");
     }
 }
