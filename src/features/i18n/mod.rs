@@ -3870,11 +3870,22 @@ mod tests {
     // This test hammers both from multiple threads to confirm: no data race,
     // no panic, and `get()` always returns a string from SOME valid language
     // (i.e. never corrupted / garbage).
+    //
+    // Issue #40: the threads used to run for a fixed 80 ms, then one read was
+    // required; under load the readers could be scheduled after the window
+    // closed. The threads are now stopped only once every reader has made
+    // MIN_OPS reads, the writer MIN_OPS writes, and the readers have seen two
+    // languages (reads interleaved with writes), whatever the machine load.
+    // The wait is bounded: past BOUND the test fails with the counts reached.
     #[test]
     fn concurrent_set_and_get_is_thread_safe() {
         use std::sync::Arc;
-        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
         use std::thread;
+        use std::time::{Duration, Instant};
+        const READERS: usize = 3;
+        const MIN_OPS: u64 = 1_000;
+        const BOUND: Duration = Duration::from_secs(60);
 
         let _g = lang_guard();
         let langs = [Language::English, Language::French, Language::Spanish, Language::German];
@@ -3886,48 +3897,92 @@ mod tests {
             set_language(lang);
             valid.push(get("close.save").to_string());
         }
+        let mut distinct = valid.clone();
+        distinct.sort();
+        distinct.dedup();
+        assert!(distinct.len() >= 2, "close.save must differ between languages: {:?}", valid);
 
         let stop = Arc::new(AtomicBool::new(false));
         let valid = Arc::new(valid);
+        let writes = Arc::new(AtomicU64::new(0));
+        let reads: Arc<Vec<AtomicU64>> = Arc::new((0..READERS).map(|_| AtomicU64::new(0)).collect());
+        // seen[i]: some reader got valid[i].
+        let seen: Arc<Vec<AtomicBool>> = Arc::new(valid.iter().map(|_| AtomicBool::new(false)).collect());
 
         let writer = {
             let stop = Arc::clone(&stop);
+            let writes = Arc::clone(&writes);
             thread::spawn(move || {
                 let mut i = 0usize;
                 while !stop.load(Ordering::Relaxed) {
                     set_language(langs[i % langs.len()]);
                     i += 1;
+                    writes.store(i as u64, Ordering::Relaxed);
                 }
             })
         };
 
-        let readers: Vec<_> = (0..3)
-            .map(|_| {
+        let readers: Vec<_> = (0..READERS)
+            .map(|r| {
                 let stop = Arc::clone(&stop);
                 let valid = Arc::clone(&valid);
+                let reads = Arc::clone(&reads);
+                let seen = Arc::clone(&seen);
                 thread::spawn(move || {
                     let mut iters = 0u64;
                     while !stop.load(Ordering::Relaxed) {
                         let v = get("close.save").to_string();
-                        assert!(
-                            valid.contains(&v),
-                            "concurrent read returned unexpected value {:?}; expected one of {:?}",
-                            v, valid
-                        );
+                        let at = valid.iter().position(|x| *x == v).unwrap_or_else(|| {
+                            panic!("concurrent read returned unexpected value {:?}; expected one of {:?}", v, valid)
+                        });
+                        seen[at].store(true, Ordering::Relaxed);
                         iters += 1;
+                        reads[r].store(iters, Ordering::Relaxed);
                     }
-                    iters
                 })
             })
             .collect();
 
-        // Let the threads hammer for a short window.
-        thread::sleep(std::time::Duration::from_millis(80));
+        // Distinct spellings seen by the readers (equal spellings count once).
+        let languages_seen = || {
+            let mut got: Vec<&String> =
+                valid.iter().zip(seen.iter()).filter(|(_, s)| s.load(Ordering::Relaxed)).map(|(v, _)| v).collect();
+            got.sort();
+            got.dedup();
+            got.len()
+        };
+        let reached = || {
+            reads.iter().all(|n| n.load(Ordering::Relaxed) >= MIN_OPS)
+                && writes.load(Ordering::Relaxed) >= MIN_OPS
+                && languages_seen() >= 2
+        };
+        // A thread that ended early (a reader's assert) stops the wait: its
+        // panic is reported by the join below.
+        let deadline = Instant::now() + BOUND;
+        while !reached()
+            && Instant::now() < deadline
+            && !writer.is_finished()
+            && !readers.iter().any(|h| h.is_finished())
+        {
+            thread::sleep(Duration::from_millis(1));
+        }
+        let ok = reached();
         stop.store(true, Ordering::Relaxed);
 
         writer.join().unwrap();
-        let total: u64 = readers.into_iter().map(|h| h.join().unwrap()).sum();
-        assert!(total > 0, "readers must have observed at least one read");
+        for h in readers {
+            h.join().unwrap();
+        }
+        assert!(
+            ok,
+            "within {:?}: reads {:?}, writes {}, languages seen {} (need {} reads per reader, {} writes, 2 languages)",
+            BOUND,
+            reads.iter().map(|n| n.load(Ordering::Relaxed)).collect::<Vec<_>>(),
+            writes.load(Ordering::Relaxed),
+            languages_seen(),
+            MIN_OPS,
+            MIN_OPS
+        );
     }
 
     // Regression guard: `createpwd.{weak,fair,strong,verystrong}` are displayed

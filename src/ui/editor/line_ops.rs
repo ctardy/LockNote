@@ -570,14 +570,55 @@ pub(super) mod tests {
     fn whole_tab_sort_of_100k_lines_in_the_user_locale_stays_fast() {
         // One LCMapStringEx sort key per line, then byte comparisons. The
         // former CompareStringEx per pair (about 1.7M calls) took 1.2 s here
-        // and 4.4 s on the CI runner, over this budget.
-        let t: Vec<String> = (0..100_000).map(|n| format!("line{}", 100_000 - n)).collect();
+        // and 4.4 s on the CI runner. Issue #40: a 2 s wall-clock budget also
+        // failed under load (4.1 s seen) for a sort doing the right work, so
+        // the work is counted instead of timed, with the real locale key: one
+        // key per line, and at most n * ceil(log2 n) key comparisons (the
+        // merge sort bound, a quadratic sort would go far past it). The menu
+        // path (user_locale_line_op_edit) must give the same edit.
+        use std::cell::Cell;
+        use std::cmp::Ordering;
+        /// A locale sort key that counts its comparisons.
+        struct Counted<'a>(Vec<u8>, &'a Cell<u64>);
+        impl PartialEq for Counted<'_> {
+            fn eq(&self, other: &Self) -> bool {
+                self.cmp(other) == Ordering::Equal
+            }
+        }
+        impl Eq for Counted<'_> {}
+        impl PartialOrd for Counted<'_> {
+            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+        impl Ord for Counted<'_> {
+            fn cmp(&self, other: &Self) -> Ordering {
+                self.1.set(self.1.get() + 1);
+                self.0.cmp(&other.0)
+            }
+        }
+
+        const N: u64 = 100_000;
+        let t: Vec<String> = (0..N).map(|n| format!("line{}", N - n)).collect();
         let t = t.join("\r\n");
-        let started = std::time::Instant::now();
-        let e = user_locale_line_op_edit(&t, (0, 0), LineOp::SortAscending).expect("sorts").expect("changes");
-        let took = started.elapsed();
+        let keys = Cell::new(0u64);
+        let comparisons = Cell::new(0u64);
+        let counted_key = |s: &str| {
+            keys.set(keys.get() + 1);
+            crate::ui::vault_panel::sort_key_user_locale(s).map(|k| Counted(k, &comparisons))
+        };
+        let e = line_op_edit(&t, (0, 0), LineOp::SortAscending, counted_key).expect("sorts").expect("changes");
         assert_eq!(e.text.split('\n').next(), Some("line1"));
-        assert!(took < std::time::Duration::from_secs(2), "took {took:?}");
+        assert_eq!(keys.get(), N, "one locale sort key per line");
+        let ceil_log2 = u64::from(u64::BITS - (N - 1).leading_zeros());
+        assert!(
+            comparisons.get() <= N * ceil_log2,
+            "{} key comparisons for {} lines, over n * ceil(log2 n) = {}",
+            comparisons.get(),
+            N,
+            N * ceil_log2
+        );
+        assert_eq!(user_locale_line_op_edit(&t, (0, 0), LineOp::SortAscending).expect("sorts"), Some(e));
     }
 
     // ── run_line_edit: the sequence, with a fake editor ──
