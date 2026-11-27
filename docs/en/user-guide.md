@@ -333,7 +333,9 @@ start.
 | Zoom in, zoom out, reset | keyboard and mouse | Ctrl+wheel, Ctrl+=, Ctrl+-, Ctrl+0 |
 
 - **Insert Timestamp** inserts the date and time as `YYYY-MM-DD HH:MM:SS`, in
-  the local time of the computer (no time zone shown).
+  the local time of the computer (no time zone shown). When daylight saving
+  time ends, the same hour happens twice, so two timestamps from that hour
+  can look identical or out of order.
 - **Bullets**: Ctrl+. adds "• " at the start of the line, or removes it. On a
   bullet line, Enter starts a new bullet line; Enter on an empty bullet line
   ends the list. This works only when the bullet starts the line (no

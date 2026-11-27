@@ -367,7 +367,9 @@ démarrage suivant.
 
 - **Insérer un horodatage** insère la date et l'heure au format
   `AAAA-MM-JJ HH:MM:SS`, à l'heure locale de l'ordinateur (sans fuseau
-  horaire affiché).
+  horaire affiché). Au retour à l'heure d'hiver, la même heure passe deux
+  fois : deux horodatages de cette heure-là peuvent sembler identiques ou
+  dans le désordre.
 - **Puces** : Ctrl+. ajoute « • » en début de ligne, ou l'enlève. Sur une ligne
   à puce, Entrée commence une nouvelle ligne à puce ; Entrée sur une ligne à
   puce vide termine la liste. Cela ne marche que si la puce commence la ligne
