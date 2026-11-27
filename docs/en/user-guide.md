@@ -333,7 +333,7 @@ start.
 | Zoom in, zoom out, reset | keyboard and mouse | Ctrl+wheel, Ctrl+=, Ctrl+-, Ctrl+0 |
 
 - **Insert Timestamp** inserts the date and time as `YYYY-MM-DD HH:MM:SS`, in
-  UTC.
+  the local time of the computer (no time zone shown).
 - **Bullets**: Ctrl+. adds "• " at the start of the line, or removes it. On a
   bullet line, Enter starts a new bullet line; Enter on an empty bullet line
   ends the list. This works only when the bullet starts the line (no
@@ -763,8 +763,8 @@ and copies them in one click.
 **Variables.** A prompt text may contain `{date}` (YYYY-MM-DD), `{time}`
 (HH:MM:SS), `{datetime}` (YYYY-MM-DD HH:MM:SS), `{clipboard}` (the current
 clipboard text, empty if there is none) and `{tab}` (the name of the active
-tab). Date and time are the local time of the computer, in the same format
-as Insert Timestamp (F5), which stays in UTC; neither shows a time zone.
+tab). Date and time are the local time of the computer, the same clock and
+format as Insert Timestamp (F5); neither shows a time zone.
 Write `{{` and `}}` for literal braces. Unknown names (`{xyz}`), another case
 (`{Date}`) and lone braces stay as written. Variables are expanded when the
 prompt is copied or inserted; the stored prompt keeps them.

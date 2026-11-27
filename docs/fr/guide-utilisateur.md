@@ -366,7 +366,8 @@ démarrage suivant.
 | Zoom avant, zoom arrière, taille d'origine | clavier et souris | Ctrl+molette, Ctrl+=, Ctrl+-, Ctrl+0 |
 
 - **Insérer un horodatage** insère la date et l'heure au format
-  `AAAA-MM-JJ HH:MM:SS`, en UTC.
+  `AAAA-MM-JJ HH:MM:SS`, à l'heure locale de l'ordinateur (sans fuseau
+  horaire affiché).
 - **Puces** : Ctrl+. ajoute « • » en début de ligne, ou l'enlève. Sur une ligne
   à puce, Entrée commence une nouvelle ligne à puce ; Entrée sur une ligne à
   puce vide termine la liste. Cela ne marche que si la puce commence la ligne
@@ -842,8 +843,8 @@ prompts pour un outil d'IA) et les copie en un clic.
 **Variables.** Le texte d'un prompt peut contenir `{date}` (AAAA-MM-JJ),
 `{time}` (HH:MM:SS), `{datetime}` (AAAA-MM-JJ HH:MM:SS), `{clipboard}` (le
 texte actuel du presse-papiers, vide s'il n'y en a pas) et `{tab}` (le nom de
-l'onglet actif). La date et l'heure sont l'heure locale de l'ordinateur, au
-même format qu'Insérer un horodatage (F5), qui reste en UTC ; aucun des deux
+l'onglet actif). La date et l'heure sont l'heure locale de l'ordinateur, la
+même horloge et le même format qu'Insérer un horodatage (F5) ; aucun des deux
 n'indique de fuseau horaire. Écrivez `{{` et `}}` pour des accolades
 littérales. Les noms inconnus (`{xyz}`), une autre casse (`{Date}`) et les
 accolades isolées restent tels quels. Les variables sont remplacées quand le

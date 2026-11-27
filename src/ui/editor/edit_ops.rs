@@ -397,16 +397,10 @@ impl EditorForm {
         self.mark_modified();
     }
 
-    /// Insert a timestamp at the cursor position.
+    /// Insert a timestamp at the cursor position: the local time of the
+    /// machine, read by the same clock as the prompt variables.
     pub(super) fn on_insert_timestamp(&self) {
-        use std::time::SystemTime;
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default();
-        // Format as a simple ISO-like timestamp
-        let secs = now.as_secs();
-        // Simple formatting without chrono dependency
-        let timestamp = format_timestamp(secs);
+        let timestamp = local_now();
 
         let text = self.get_content();
         let sel = self.editor.selection();

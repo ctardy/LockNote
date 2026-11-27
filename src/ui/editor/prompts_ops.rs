@@ -257,24 +257,6 @@ impl EditorForm {
     }
 }
 
-/// A local date and time as "YYYY-MM-DD HH:MM:SS", the Insert Timestamp
-/// format. Milliseconds and the day of the week are ignored (truncated, as
-/// `format_timestamp` truncates the Unix seconds).
-fn format_local(st: &windows::Win32::Foundation::SYSTEMTIME) -> String {
-    format!(
-        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
-        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond
-    )
-}
-
-/// Now on the local clock of the machine (Windows time zone and daylight
-/// saving time), for the prompt variables (B6). One GetLocalTime call, which
-/// cannot fail.
-fn local_now() -> String {
-    // SAFETY: GetLocalTime only fills and returns a SYSTEMTIME by value.
-    format_local(&unsafe { windows::Win32::System::SystemInformation::GetLocalTime() })
-}
-
 /// `PromptSteps` on the real window.
 struct FormPromptSteps<'a> {
     form: &'a EditorForm,
@@ -289,7 +271,7 @@ impl panel::PromptSteps for FormPromptSteps<'_> {
         self.form.prompts_panel.get(index)
     }
 
-    /// The local clock, in the format of Insert Timestamp (F5, which stays UTC).
+    /// The local clock, the one Insert Timestamp (F5) reads too.
     fn now(&self) -> String {
         local_now()
     }
@@ -354,10 +336,11 @@ mod tests {
         assert!(body(&ed, "pub(super) fn replace_selection_utf16(").contains("self.send_editor_message(0x00C2, 1,"));
     }
 
-    /// `{date}`/`{time}`/`{datetime}` read the local clock of the machine;
-    /// Insert Timestamp (F5) stays on the UTC formatter.
+    /// `{date}`/`{time}`/`{datetime}` and Insert Timestamp (F5) read the
+    /// same local clock of the machine, one `local_now()` call each, so
+    /// they cannot diverge again.
     #[test]
-    fn prompts_use_the_local_clock_and_f5_stays_utc() {
+    fn prompts_and_f5_use_the_same_local_clock() {
         let ops = source("prompts_ops.rs");
         let now = body(&ops, "    fn now(&self)");
         assert_eq!(now.matches("local_now()").count(), 1, "one clock read per call");
@@ -365,8 +348,24 @@ mod tests {
         assert!(!now.contains("SystemTime"));
         let ed = source("edit_ops.rs");
         let f5 = body(&ed, "pub(super) fn on_insert_timestamp(");
-        assert!(f5.contains("format_timestamp(secs)"));
-        assert!(!f5.contains("local_now"));
+        assert_eq!(f5.matches("local_now()").count(), 1, "one clock read per F5");
+        assert!(!f5.contains("format_timestamp"), "F5 no longer formats UTC seconds");
+        assert!(!f5.contains("SystemTime"));
+    }
+
+    /// One local-clock function for the editor, in helpers.rs: neither the
+    /// prompts nor the F5 handler keeps a copy of its own.
+    #[test]
+    fn local_now_is_defined_once_in_helpers() {
+        let helpers = source("helpers.rs");
+        assert_eq!(helpers.matches("\npub(super) fn local_now() -> String {").count(), 1);
+        assert_eq!(helpers.matches("\npub(super) fn format_local(").count(), 1);
+        for file in ["prompts_ops.rs", "edit_ops.rs"] {
+            let all = source(file);
+            let src = all.split("#[cfg(test)]").next().expect("code before the tests");
+            assert!(!src.contains("fn local_now("), "{file}");
+            assert!(!src.contains("fn format_local("), "{file}");
+        }
     }
 
     fn st(y: u16, mo: u16, d: u16, h: u16, mi: u16, s: u16, ms: u16) -> windows::Win32::Foundation::SYSTEMTIME {
@@ -416,8 +415,8 @@ mod tests {
     /// local time from UTC, so the source pins the local clock call.
     #[test]
     fn local_now_calls_get_local_time() {
-        let ops = source("prompts_ops.rs");
-        let start = ops.find("\nfn local_now() -> String {").expect("fn local_now");
+        let ops = source("helpers.rs");
+        let start = ops.find("\npub(super) fn local_now() -> String {").expect("fn local_now");
         let end = ops[start..].find("\n}\n").expect("end of fn local_now");
         let local_now = &ops[start..start + end];
         assert_eq!(local_now.matches("GetLocalTime()").count(), 1);

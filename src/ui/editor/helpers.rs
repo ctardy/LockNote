@@ -50,6 +50,25 @@ pub(in crate::ui) fn format_timestamp(secs: u64) -> String {
     )
 }
 
+/// A local date and time as "YYYY-MM-DD HH:MM:SS", the shape of
+/// `format_timestamp`. Milliseconds and the day of the week are ignored
+/// (truncated, as `format_timestamp` truncates the Unix seconds).
+pub(super) fn format_local(st: &windows::Win32::Foundation::SYSTEMTIME) -> String {
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond
+    )
+}
+
+/// Now on the local clock of the machine (Windows time zone and daylight
+/// saving time), the single clock of Insert Timestamp (F5) and of the prompt
+/// variables (B6), so the two cannot diverge. One GetLocalTime call, which
+/// cannot fail.
+pub(super) fn local_now() -> String {
+    // SAFETY: GetLocalTime only fills and returns a SYSTEMTIME by value.
+    format_local(&unsafe { windows::Win32::System::SystemInformation::GetLocalTime() })
+}
+
 /// Convert days since Unix epoch to (year, month, day).
 pub(super) fn days_to_ymd(days: u64) -> (u64, u64, u64) {
     // Civil calendar algorithm (from Howard Hinnant)

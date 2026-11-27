@@ -96,6 +96,10 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   appended to some error messages (#34).
 - **2FA secret in memory**: the copies made by the Security dialog and when
   a TOTP key is pasted are now wiped from memory after use (#35).
+- **Insert Timestamp (F5) in local time**: the inserted date and time are now
+  the local time of the computer (time zone and daylight saving time), as the
+  `{date}`, `{time}` and `{datetime}` prompt variables, instead of UTC. Same
+  format `YYYY-MM-DD HH:MM:SS`, no time zone shown.
 
 ### Fixed
 - **Windows logoff during a close answered "Don't save"**: a logoff while a
