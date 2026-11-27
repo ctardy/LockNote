@@ -192,8 +192,8 @@ pub struct EditorForm {
     /// next highlight tick.
     wipe_pending: Cell<bool>,
     /// The Windows session ended (issue #29, pass 3), or the close flow
-    /// wiped the note (issue #33): every save and every command is refused,
-    /// the loop is stopping.
+    /// wiped the note (issue #33): every save is refused (and, at the end of
+    /// the session, every command through `is_locked`); the loop is stopping.
     exiting: Cell<bool>,
     /// Failed clipboard reads in a row of the auto-clear (log rate limit).
     clipboard_read_failures: Cell<u32>,
