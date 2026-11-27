@@ -1099,6 +1099,94 @@ mod tests {
         assert_eq!(std::fs::read(&s.exe).unwrap(), b"OLD");
     }
 
+    /// Issue #39: a helper that starts after the application stopped waiting
+    /// for it finds no ready event (destroyed with the application's handle):
+    /// it gives up at once, exit code 3, nothing touched.
+    #[test]
+    fn a_helper_started_after_the_application_stopped_waiting_touches_nothing() {
+        let s = scene("ready_gone", b"NEW", b"OLD");
+        let gone = format!("Local\\LockNote_SwapReady_gone_{}", swap_common::random_id());
+        let started = std::time::Instant::now();
+
+        let out = run(&s.tmp, &s.exe, Some(&gone), std::time::Duration::from_secs(30), &no_wait, &with_move(&atomic_move));
+
+        assert!(started.elapsed() < std::time::Duration::from_secs(10), "no wait for the lock: {:?}", started.elapsed());
+        assert_eq!(out.code, EXIT_NO_LOCK, "{:?}", out.log);
+        assert!(out.log.iter().any(|l| l.contains("nothing touched") && l.contains("open event")), "{:?}", out.log);
+        assert_eq!(std::fs::read(&s.tmp).unwrap(), b"NEW");
+        assert_eq!(std::fs::read(&s.exe).unwrap(), b"OLD");
+    }
+
+    /// Issue #39, should a late helper of session A survive and queue on the
+    /// lock behind the next session B (its parent A is gone): nothing is
+    /// touched while B holds the lock, and once it gets the lock it never
+    /// brings A's older save back: it promotes the .tmp B left (B's newer
+    /// save), or nothing when B's own swap already put B's notes in the exe.
+    #[test]
+    fn a_late_helper_behind_the_next_session_never_brings_an_older_save_back() {
+        let (p0, p1, p2) = (image(b"PROGRAM", &payload(0)), image(b"PROGRAM", &payload(1)), image(b"PROGRAM", &payload(2)));
+        for b_swapped in [false, true] {
+            let tag = format!("late_behind_b_{}", b_swapped);
+            // A, based on P0, saved P1; its helper did not swap at A's exit.
+            let s = scene(&tag, &p1, &p0);
+            let companion = write_companion(&s, &payload(0), false);
+            let name = swap_common::swap_lock_name(&s.exe);
+            let (ready_name, ready) = ready_event();
+            let ready_raw = ready.0 as isize;
+
+            // Session B: holds the lock; once the helper is queued behind it,
+            // checks nothing moved, then does its work and releases the lock.
+            let (held_tx, held_rx) = std::sync::mpsc::channel::<()>();
+            let (tmp, exe) = (s.tmp.clone(), s.exe.clone());
+            let (p1b, p2b, companion_b) = (p1.clone(), p2.clone(), companion.clone());
+            let session = std::thread::spawn(move || -> Result<(), String> {
+                let (lock, _) = swap_common::SwapLock::acquire(&name, std::time::Duration::from_secs(5))?;
+                held_tx.send(()).unwrap();
+                let h = windows::Win32::Foundation::HANDLE(ready_raw as *mut core::ffi::c_void);
+                if !wait_event(h, 5000) {
+                    return Err("the helper did not queue behind the session".into());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                if std::fs::read(&tmp).ok() != Some(p1b) {
+                    return Err("the .tmp changed while the session held the lock".into());
+                }
+                if std::fs::read(&exe).map_err(|e| e.to_string())? != image(b"PROGRAM", &payload(0)) {
+                    return Err("the exe changed while the session held the lock".into());
+                }
+                if b_swapped {
+                    // B saved P2 and its own swap put P2 into the exe.
+                    std::fs::write(&exe, &p2b).unwrap();
+                    std::fs::remove_file(&tmp).unwrap();
+                    std::fs::remove_file(&companion_b).unwrap();
+                } else {
+                    // B, based on P0 too, saved P2 into the .tmp.
+                    std::fs::write(&tmp, &p2b).unwrap();
+                }
+                drop(lock);
+                Ok(())
+            });
+            held_rx.recv().unwrap();
+
+            // The late helper of A: its parent is gone (no wait).
+            let recheck = || still_promotable(&s.tmp, &s.exe);
+            let out = run(&s.tmp, &s.exe, Some(&ready_name), std::time::Duration::from_secs(10), &no_wait, &Io { mv: &atomic_move, read: &read_file, recheck: &recheck });
+            let seen = session.join().unwrap();
+            unsafe {
+                let _ = windows::Win32::Foundation::CloseHandle(ready);
+            }
+
+            assert_eq!(seen, Ok(()), "B swapped {}", b_swapped);
+            assert_eq!(std::fs::read(&s.exe).unwrap(), p2, "B swapped {}: the exe holds B's notes, never A's P1: {:?}", b_swapped, out.log);
+            if b_swapped {
+                assert_eq!(out.code, EXIT_SWAP_FAILED, "{:?}", out.log);
+                assert!(out.log.iter().any(|l| l.contains("nothing touched") && l.contains("the .tmp is gone")), "{:?}", out.log);
+            } else {
+                assert_eq!(out.code, 0, "{:?}", out.log);
+                assert!(!s.tmp.exists() && !companion.exists());
+            }
+        }
+    }
+
     #[test]
     fn abandoned_lock_is_logged_and_the_swap_goes_on() {
         let s = scene("abandoned", b"NEW", b"OLD");

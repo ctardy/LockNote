@@ -140,6 +140,15 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   window left open with nobody at it is still closed when the delay runs
   out, and nothing typed under the "Notes hidden" screen postpones a lock
   already under way (#32).
+- **Swap helper slow to start at exit**: when the helper that writes the
+  last save into the program file is not ready within 15 s (a heavily
+  loaded computer), LockNote now ends it before letting go of the program
+  file, instead of leaving it running. Left running, it could act later
+  for a session that was over, behind the next LockNote session: a false
+  "swap failed" in the log, or a restart nobody asked for any more. Notes
+  were never at risk; the save is still written into the program file at
+  the next exit. The `swap-error.log` line now says "it was ended, nothing
+  touched" instead of "it may still run" (#39).
 
 ## [2.1.1] - 2026-11-26
 

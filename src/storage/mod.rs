@@ -1211,6 +1211,22 @@ const SWAP_HELPER_BINARY: &[u8] =
 /// On failure the helper leaves the .tmp in place and logs the error to
 /// `swap-error.log`: the .tmp then remains the only copy of the latest save
 /// (the exe still holds the previous one) until a later exit promotes it.
+///
+/// A late helper (issue #39): under load a new process can stall several
+/// seconds before it runs. When the helper is not queued within
+/// `HELPER_READY_WAIT`, or ends first, `Err` is returned and nothing is
+/// promoted at this exit; the .tmp stays and is promoted at the next exit.
+/// A helper still running then is ended (`end_late_helper`) before the lock
+/// is released: it cannot hold the lock yet and touches nothing before it
+/// does, and left alive it could reach the lock later, behind the next
+/// session of this exe, and act for a session that is over (a move over an
+/// exe still in use, a restart nobody asked for any more). Should it outlive
+/// that step, it still never acts while a session holds the lock, never
+/// after the 60 s of `SWAP_LOCK_WAIT`, and once it holds the lock it moves
+/// only the .tmp present then, after taking the decision again on the files
+/// as they are (`still_promotable`): never an older save over newer notes.
+/// A helper that starts after this function closed the ready event cannot
+/// open it and exits with code 3, nothing touched.
 #[cfg(windows)]
 pub fn launch_swap_helper(tmp_path: &Path, exe_path: &Path) -> Result<(), String> {
     use rand::Rng;
@@ -1318,14 +1334,39 @@ fn wait_helper_ready(
     }
     if waited == WAIT_TIMEOUT {
         return Err(format!(
-            "helper started but not queued on the swap lock within {} s (it may still run)",
-            timeout.as_secs()
+            "helper started but not queued on the swap lock within {} s; {}",
+            timeout.as_secs(),
+            end_late_helper(helper)
         ));
     }
-    Err(format!(
-        "waiting for the helper failed: {}",
-        windows::core::Error::from_thread()
-    ))
+    let failed = windows::core::Error::from_thread();
+    Err(format!("waiting for the helper failed: {}; {}", failed, end_late_helper(helper)))
+}
+
+/// How long `end_late_helper` waits for the ended helper to be gone.
+#[cfg(windows)]
+const HELPER_END_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// End a helper that was not queued on the swap lock in time (issue #39),
+/// before this process releases that lock. It cannot hold the lock (this
+/// process does) and touches no file before it holds it, so ending it
+/// touches nothing; left running, it could reach the lock later, behind the
+/// next session of this exe, and act for a session that is over. The text
+/// says what became of it, for the log.
+#[cfg(windows)]
+fn end_late_helper(helper: windows::Win32::Foundation::HANDLE) -> String {
+    use windows::Win32::Foundation::WAIT_OBJECT_0;
+    use windows::Win32::System::Threading::{TerminateProcess, WaitForSingleObject};
+    let millis = u32::try_from(HELPER_END_WAIT.as_millis()).unwrap_or(u32::MAX - 1);
+    // Exit code 3: the helper's own code for "swap lock not obtained,
+    // nothing touched" (`src/bin/locknote_swap.rs`).
+    if let Err(e) = unsafe { TerminateProcess(helper, 3) } {
+        return format!("it could not be ended (it may still run): {}", e);
+    }
+    if unsafe { WaitForSingleObject(helper, millis) } != WAIT_OBJECT_0 {
+        return format!("it was told to end but still ran after {} s (it may still run)", HELPER_END_WAIT.as_secs());
+    }
+    "it was ended, nothing touched (it held no lock)".to_string()
 }
 
 #[cfg(not(windows))]

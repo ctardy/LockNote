@@ -1855,6 +1855,46 @@ fn a_helper_that_ends_before_it_is_ready_is_not_waited_for() {
         let _ = CloseHandle(ready);
     }
 }
+
+/// Issue #39: a helper not queued on the swap lock in time is ended before
+/// the application releases that lock, so no helper of a finished session
+/// can reach the lock later, behind the session that follows.
+///
+/// The helper is a process held suspended: it never signals "ready", as a
+/// helper stalled at its start under load.
+#[test]
+fn a_helper_late_for_the_hand_over_is_ended_before_the_lock_is_released() {
+    use std::os::windows::io::AsRawHandle;
+    use std::os::windows::process::CommandExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::System::Threading::{CreateEventW, CREATE_SUSPENDED};
+    let ready = unsafe { CreateEventW(None, true, false, PCWSTR::null()) }.unwrap();
+    let mut child = std::process::Command::new("cmd")
+        .args(["/c", "exit 0"])
+        .creation_flags(CREATE_SUSPENDED.0)
+        .spawn()
+        .unwrap();
+
+    let waited = wait_helper_ready(ready, HANDLE(child.as_raw_handle()), Duration::from_millis(300));
+
+    let still_running = matches!(child.try_wait(), Ok(None));
+    if still_running {
+        // A suspended process is not ended by dropping the Child.
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+    unsafe {
+        let _ = CloseHandle(ready);
+    }
+    assert!(!still_running, "the late helper still runs once the wait is over: {:?}", waited);
+    assert_eq!(
+        waited,
+        Err("helper started but not queued on the swap lock within 0 s; \
+             it was ended, nothing touched (it held no lock)"
+            .to_string())
+    );
+}
 // ── Final touch (refuter pass 3: A1, A1b, A2) ──
 
 /// Open `path` without any sharing (an antivirus or a backup tool holding
