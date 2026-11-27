@@ -429,6 +429,46 @@ pub fn same_category_name(a: &str, b: &str) -> Result<bool, crate::features::vau
     }
 }
 
+/// Sort key of `s` for the user's locale, ignoring case and accents. Two
+/// keys compare as bytes the way compare_names_user_locale compares the
+/// strings (same flags), so a long list is sorted with one LCMapStringEx call
+/// per item instead of one CompareStringEx call per comparison.
+pub fn sort_key_user_locale(s: &str) -> Result<Vec<u8>, VaultTreeError> {
+    use windows::Win32::Foundation::LPARAM;
+    use windows::Win32::Globalization::{
+        LCMapStringEx, LCMAP_SORTKEY, LINGUISTIC_IGNORECASE, LINGUISTIC_IGNOREDIACRITIC,
+    };
+    let w: Vec<u16> = s.encode_utf16().collect();
+    // LCMapStringEx refuses an empty source; CompareStringEx orders the
+    // empty string first, as the empty key does.
+    if w.is_empty() {
+        return Ok(Vec::new());
+    }
+    let flags = LCMAP_SORTKEY | LINGUISTIC_IGNORECASE.0 | LINGUISTIC_IGNOREDIACRITIC.0;
+    let failed = || {
+        VaultTreeError::Compare(format!(
+            "LCMapStringEx failed: {:?}",
+            windows::core::Error::from_thread()
+        ))
+    };
+    // Null locale name = LOCALE_NAME_USER_DEFAULT. With LCMAP_SORTKEY the
+    // sizes are in bytes and the key is a byte string.
+    let needed = unsafe { LCMapStringEx(windows::core::PCWSTR::null(), flags, &w, None, None, None, LPARAM(0)) };
+    if needed <= 0 {
+        return Err(failed());
+    }
+    // windows-rs passes the slice length as the byte size: `needed` u16
+    // elements give the `needed` bytes the call asked for.
+    let mut buf = vec![0u16; needed as usize];
+    let written = unsafe {
+        LCMapStringEx(windows::core::PCWSTR::null(), flags, &w, Some(&mut buf), None, None, LPARAM(0))
+    };
+    if written <= 0 || written > needed {
+        return Err(failed());
+    }
+    Ok(buf.iter().flat_map(|u| u.to_ne_bytes()).take(written as usize).collect())
+}
+
 /// Compare two names with the user's locale, ignoring case and accents.
 pub fn compare_names_user_locale(a: &str, b: &str) -> Result<std::cmp::Ordering, VaultTreeError> {
     use windows::Win32::Globalization::{
@@ -462,6 +502,21 @@ pub fn compare_names_user_locale(a: &str, b: &str) -> Result<std::cmp::Ordering,
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn sort_keys_order_like_compare_names_user_locale() {
+        let names = [
+            "", "a", "A", "\u{e0}", "b", "B", "e", "\u{e9}", "E", "f", "Zebra", "z\u{e8}bre", "10", "9",
+            "a b", "a-b", "ab", "oeuf", "\u{153}uf", "ss", "\u{df}", "\u{1F600}", "\u{65e5}\u{672c}", " lead",
+        ];
+        for a in names {
+            for b in names {
+                let by_compare = compare_names_user_locale(a, b).expect("compare");
+                let by_key = sort_key_user_locale(a).expect("key a").cmp(&sort_key_user_locale(b).expect("key b"));
+                assert_eq!(by_key, by_compare, "{a:?} vs {b:?}");
+            }
+        }
+    }
+
     use super::*;
     use crate::features::vault::CATEGORIES;
 

@@ -123,11 +123,11 @@ pub(super) fn move_lines_edit(text: &str, sel: (u32, u32), up: bool) -> Option<L
 /// out the empty line after a final break, as a Ctrl+A selection does
 /// (column-0 rule). `Ok(None)` when the lines would not change; the
 /// replaced lines end up selected.
-pub(super) fn line_op_edit<E>(
+pub(super) fn line_op_edit<K: Ord, E>(
     text: &str,
     sel: (u32, u32),
     op: LineOp,
-    cmp: impl Fn(&str, &str) -> Result<std::cmp::Ordering, E>,
+    key: impl Fn(&str) -> Result<K, E>,
 ) -> Result<Option<LineEdit>, E> {
     let lines = line_ranges(text);
     let (first, last) = match touched_lines(text, &lines, sel) {
@@ -141,7 +141,7 @@ pub(super) fn line_op_edit<E>(
         }
     };
     let block: Vec<&str> = (first..=last).map(|i| &text[lines[i].0..lines[i].1]).collect();
-    let result = line_ops::apply(op, &block, cmp)?;
+    let result = line_ops::apply(op, &block, key)?;
     if result.iter().map(String::as_str).eq(block.iter().copied()) {
         return Ok(None);
     }
@@ -156,14 +156,14 @@ pub(super) fn line_op_edit<E>(
     }))
 }
 
-/// `line_op_edit` with the user's locale order (CompareStringEx), as the
-/// Edit > Lines menu runs it.
+/// `line_op_edit` with the user's locale order (LCMapStringEx sort keys,
+/// the order of CompareStringEx), as the Edit > Lines menu runs it.
 pub(super) fn user_locale_line_op_edit(
     text: &str,
     sel: (u32, u32),
     op: LineOp,
 ) -> Result<Option<LineEdit>, crate::ui::vault_panel::VaultTreeError> {
-    line_op_edit(text, sel, op, crate::ui::vault_panel::compare_names_user_locale)
+    line_op_edit(text, sel, op, crate::ui::vault_panel::sort_key_user_locale)
 }
 
 /// What applying a `LineEdit` does to the editor, so the sequence can be
@@ -287,8 +287,8 @@ pub(super) mod tests {
     use super::*;
     use std::cell::RefCell;
 
-    fn ci(a: &str, b: &str) -> Result<std::cmp::Ordering, String> {
-        Ok(a.to_lowercase().cmp(&b.to_lowercase()))
+    fn ci(s: &str) -> Result<String, String> {
+        Ok(s.to_lowercase())
     }
 
     // ── line_ranges / touched_lines ──
@@ -484,14 +484,15 @@ pub(super) mod tests {
 
     #[test]
     fn op_sort_error_is_returned() {
-        let failing = |_: &str, _: &str| -> Result<std::cmp::Ordering, String> { Err("x".into()) };
+        let failing = |_: &str| -> Result<String, String> { Err("x".into()) };
         assert_eq!(line_op_edit("b\r\na", (0, 0), LineOp::SortDescending, failing), Err("x".to_string()));
     }
 
     #[test]
     fn whole_tab_sort_of_100k_lines_in_the_user_locale_stays_fast() {
-        // About 1.7M CompareStringEx calls, each re-encoding its two lines
-        // to UTF-16: about 1.2 s in a debug build, kept under a budget.
+        // One LCMapStringEx sort key per line, then byte comparisons. The
+        // former CompareStringEx per pair (about 1.7M calls) took 1.2 s here
+        // and 4.4 s on the CI runner, over this budget.
         let t: Vec<String> = (0..100_000).map(|n| format!("line{}", 100_000 - n)).collect();
         let t = t.join("\r\n");
         let started = std::time::Instant::now();
@@ -588,7 +589,7 @@ pub(super) mod tests {
     #[test]
     fn sequence_op_error_touches_nothing() {
         let f = Fake::new("b\r\na", (0, 0));
-        let failing = |_: &str, _: &str| -> Result<std::cmp::Ordering, String> { Err("x".into()) };
+        let failing = |_: &str| -> Result<String, String> { Err("x".into()) };
         assert_eq!(run_line_edit(&f, |t, s| line_op_edit(t, s, LineOp::SortAscending, failing)), Err("x".to_string()));
         assert!(f.log.borrow().is_empty());
         assert_eq!(*f.text.borrow(), "b\r\na");
