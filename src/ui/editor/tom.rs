@@ -179,6 +179,8 @@ mod tests {
 
         #[test]
         fn tom_suspend_and_resume_are_an_on_off_switch() {
+            // Before the control: dropped after it (see live_rich_edit.rs).
+            let _live = crate::ui::editor::live_rich_edit::guard();
             unsafe {
                 LoadLibraryW(w!("msftedit.dll")).expect("msftedit.dll");
                 let top = CreateWindowExW(

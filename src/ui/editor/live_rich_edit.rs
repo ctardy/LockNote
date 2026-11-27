@@ -279,7 +279,7 @@ mod tests {
             checked += 1;
             assert!(guarded >= created, "{}: {created} RichEdit created by tests, {guarded} guard() calls", path.display());
         }
-        // line_ops, surface (two harnesses) and tab_ops.
-        assert!(checked >= 3, "only {checked} files create a RichEdit in tests");
+        // line_ops, surface (two harnesses), tab_ops and tom.
+        assert!(checked >= 4, "only {checked} files create a RichEdit in tests");
     }
 }
