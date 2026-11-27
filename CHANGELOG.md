@@ -89,7 +89,9 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   close question not answered yet still saves, as before (#33).
 - **Shutdown blocked for an unmodified note**: a failed save at logoff
   blocked the shutdown even with no unsaved changes, where only the window
-  position was at stake. It is now logged and the shutdown goes on (#33).
+  position was at stake. It is now logged and the shutdown goes on. The
+  same false "could not save" block could follow a close that had already
+  saved, when the logoff arrived as LockNote was closing (#33).
 - **Select All with emoji**: Edit > Select All / Ctrl+A now selects the whole
   text when it contains emoji or other characters outside the BMP (the end
   was cut short by one position per such character).

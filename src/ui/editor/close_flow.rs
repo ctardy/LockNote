@@ -356,6 +356,12 @@ impl CloseSteps for FormCloseSteps<'_> {
     }
 
     fn wipe(&mut self) {
+        // First: LockNote is exiting, every later save is refused and a
+        // logoff dispatched before the loop stops saves nothing (#33). The
+        // set_text("") below marks the note modified (EN_CHANGE) and the
+        // password is gone: a logoff save would fail and block the shutdown.
+        eprintln!("INFO close: exiting, the text and the password are wiped");
+        self.form.exiting.set(true);
         self.form.wipe_password();
         self.form.editor.set_text("");
     }
@@ -390,6 +396,12 @@ mod tests {
         logoff_at: Option<&'static str>,
         logoff_save: Result<(), String>,
         logoff: Option<(bool, Vec<String>)>,
+        /// `EditorForm::exiting`, set by the close flow's wipe (#33).
+        exiting: bool,
+        /// Keys this file loaded were removed from ssh-agent: the result of
+        /// the silent list save `unload_agent_keys` does when nothing else
+        /// is pending (`None`: no key loaded, nothing to save).
+        agent_list_save: Option<Result<(), String>>,
     }
 
     impl Fake {
@@ -407,6 +419,8 @@ mod tests {
                 logoff_at: None,
                 logoff_save: Ok(()),
                 logoff: None,
+                exiting: false,
+                agent_list_save: None,
             }
         }
 
@@ -418,7 +432,11 @@ mod tests {
             }
             self.log.push("logoff");
             let mut end = EndFake::new(self.logoff_save.clone());
-            let ok = query_end_session(false, self.modified, self.setting, self.declined, &mut end);
+            let ok = query_end_session(false, self.modified, self.setting, self.declined, self.exiting, &mut end);
+            // save_note marks the note clean when it writes.
+            if end.log.first().map(String::as_str) == Some("save") && self.logoff_save.is_ok() {
+                self.modified = false;
+            }
             self.logoff = Some((ok, end.log));
         }
     }
@@ -451,7 +469,12 @@ mod tests {
         fn save(&mut self) -> Result<(), String> {
             self.log.push("save");
             assert!(!self.saves.is_empty(), "unexpected save");
-            self.saves.remove(0)
+            let r = self.saves.remove(0);
+            // save_note -> mark_clean on success (file_ops.rs).
+            if r.is_ok() {
+                self.modified = false;
+            }
+            r
         }
         fn close_without_saving(&mut self, reason: &str) -> bool {
             assert_eq!(reason, "Failed to save: disk full");
@@ -466,12 +489,25 @@ mod tests {
         fn unload_agent_keys(&mut self) {
             // Its ssh-agent error box (interactive) runs a message loop.
             self.log.push("unload");
+            // The shorter list is saved silently when nothing else is
+            // pending; a failure marks the note modified (ssh_ops.rs).
+            if let (Some(r), false) = (self.agent_list_save.clone(), self.modified) {
+                self.log.push("list_save");
+                self.modified = r.is_err();
+            }
             self.logoff_here("unload");
         }
         fn wipe(&mut self) {
+            // As FormCloseSteps::wipe: exiting first, then the wipe, whose
+            // set_text("") sends EN_CHANGE, which marks the note modified.
+            self.exiting = true;
             self.log.push("wipe");
             self.password.clear();
             self.text.clear();
+            self.modified = true;
+            // A logoff sent meanwhile is dispatched before the WM_QUIT that
+            // stop_thread_dispatch posts.
+            self.logoff_here("wipe");
         }
     }
 
@@ -688,6 +724,46 @@ mod tests {
         f.logoff_save = Err("disk full".into());
         assert_eq!(run(&mut f, false, CloseAction::Ask), CloseOutcome::StayOpen);
         assert_eq!(f.logoff, Some((true, vec!["save".to_string()])));
+    }
+
+    /// Issue #33 (found in review): Save at close, then a logoff dispatched
+    /// after the wipe (before WM_QUIT). The wipe marked the note modified and
+    /// wiped the password: the logoff saves nothing and never blocks.
+    #[test]
+    fn a_logoff_after_the_close_wipe_saves_nothing_and_never_blocks() {
+        for (modified, setting, saves) in [
+            (true, CloseAction::Ask, vec![Ok(()), Ok(())]),
+            (true, CloseAction::Always, vec![Ok(()), Ok(())]),
+            (false, CloseAction::Ask, vec![Ok(())]),
+            (true, CloseAction::Never, vec![]),
+        ] {
+            let mut f = logoff_in(Choice::Save, false, saves, "wipe");
+            f.logoff_save = Err("Failed to save: empty password".into());
+            assert_eq!(run(&mut f, modified, setting), CloseOutcome::Close);
+            assert!(f.modified && f.exiting, "{:?}", setting);
+            assert_eq!(f.logoff, Some((true, vec![])), "{} {:?}", modified, setting);
+        }
+    }
+
+    /// The fake follows the window: a save marks the note clean, a failed
+    /// ssh-agent list save marks it modified again (then the final save
+    /// clears it), the wipe marks it modified.
+    #[test]
+    fn the_fake_follows_the_modified_flag_of_the_window() {
+        let mut f = logoff_in(Choice::Save, false, vec![Ok(()), Ok(())], "unload");
+        f.agent_list_save = Some(Err("Failed to save: disk full".into()));
+        f.logoff_save = Err("disk full".into());
+        assert_eq!(run(&mut f, true, CloseAction::Ask), CloseOutcome::Close);
+        assert_eq!(f.log, ["ask", "save", "unload", "list_save", "logoff", "save", "wipe"]);
+        // The shorter list is a real unsaved change: a failed logoff save blocks.
+        let (ok, end) = f.logoff.expect("logoff ran");
+        assert!(!ok && end[0] == "save" && end[1].starts_with("block:"), "{:?}", end);
+        assert!(f.modified, "the wipe marks the note modified");
+        // List saved: the final save still runs, the note is clean.
+        let mut f = logoff_in(Choice::Save, false, vec![Ok(()), Ok(())], "unload");
+        f.agent_list_save = Some(Ok(()));
+        assert_eq!(run(&mut f, true, CloseAction::Ask), CloseOutcome::Close);
+        assert_eq!(f.logoff, Some((true, vec!["save".to_string()])), "window state only");
     }
 
     /// The declined answer only exists in a close flow that closes: every
