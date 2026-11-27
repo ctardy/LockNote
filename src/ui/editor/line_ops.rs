@@ -173,7 +173,9 @@ pub(super) fn user_locale_line_op_edit(
 /// The start must fall on a character of `text`, except one position past
 /// the end: the final paragraph mark of Select All (as `case_edit`).
 fn line_of_selection_start(text: &str, lines: &[(usize, usize)], sel: (u32, u32)) -> Result<usize, Utf16RangeError> {
-    let max = utf16_len(text) as u32;
+    // position_of counts like utf16_len without building the offset map
+    // (about 8 bytes per byte of text) on every Ctrl+D / Ctrl+Shift+K.
+    let max = position_of(text, text.len());
     let lo = sel.0.min(sel.1);
     let lo = if lo == max + 1 { max } else { lo };
     Ok(line_of(lines, utf16_to_byte_exact(text, lo as usize)?))
@@ -188,7 +190,7 @@ pub(super) fn duplicate_line_edit(text: &str, sel: (u32, u32)) -> Result<Option<
     let line = &text[lines[i].0..lines[i].1];
     let at = position_of(text, lines[i].1);
     // "\n" is one paragraph break for EM_REPLACESEL; the line holds no break.
-    let caret = at + 1 + utf16_len(line) as u32;
+    let caret = at + 1 + position_of(line, line.len());
     Ok(Some(LineEdit { start: at, end: at, text: format!("\n{line}"), sel: (caret, caret) }))
 }
 
