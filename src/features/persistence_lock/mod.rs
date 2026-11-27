@@ -90,70 +90,107 @@ mod tests {
     // workflows (autosave tick, autolock save-then-lock, unlock decrypt) must
     // never run simultaneously. We simulate each as a worker and assert that
     // the observed-concurrent-holders counter never exceeds 1.
+    //
+    // Contention on the autosave (try_acquire) path is forced, not left to the
+    // scheduler (#37): the test thread holds the lock while the autosave
+    // worker runs its first FORCED_ROUNDS rounds, so each of them must skip,
+    // whatever the machine load. The lock is then released and the three
+    // workers run freely for the stress part.
     #[test]
     fn stress_mutual_exclusion_three_roles() {
         use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::mpsc;
         use std::thread;
         use std::time::Duration;
 
-        let _s = serial();
+        const FORCED_ROUNDS: usize = 20;
 
-        // Drain any leftover guard from previous tests.
-        while try_acquire().is_none() {
-            thread::yield_now();
-        }
+        let _s = serial();
 
         let active = Arc::new(AtomicUsize::new(0));
         let max_seen = Arc::new(AtomicUsize::new(0));
-        let try_skips = Arc::new(AtomicUsize::new(0));
 
-        let spawn_worker = |iterations: u32, use_try: bool| {
+        // Simulated critical section, run only while holding a guard.
+        fn critical_section(active: &AtomicUsize, max_seen: &AtomicUsize) {
+            let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+            max_seen.fetch_max(now, Ordering::SeqCst);
+            thread::sleep(Duration::from_micros(50));
+            active.fetch_sub(1, Ordering::SeqCst);
+        }
+
+        // The test thread is a holder too: it counts itself in `active`, so a
+        // worker entering while it holds the lock raises `max_seen` to 2.
+        let held = acquire();
+        let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+        max_seen.fetch_max(now, Ordering::SeqCst);
+
+        let spawn_waiting_worker = |iterations: u32| {
             let active = Arc::clone(&active);
             let max_seen = Arc::clone(&max_seen);
-            let try_skips = Arc::clone(&try_skips);
             thread::spawn(move || {
                 for _ in 0..iterations {
-                    let guard = if use_try {
-                        match try_acquire() {
-                            Some(g) => g,
-                            None => {
-                                try_skips.fetch_add(1, Ordering::Relaxed);
-                                continue;
-                            }
-                        }
-                    } else {
-                        acquire()
-                    };
-
-                    let now = active.fetch_add(1, Ordering::SeqCst) + 1;
-                    max_seen.fetch_max(now, Ordering::SeqCst);
-                    thread::sleep(Duration::from_micros(50));
-                    active.fetch_sub(1, Ordering::SeqCst);
+                    let guard = acquire();
+                    critical_section(&active, &max_seen);
                     drop(guard);
                 }
             })
         };
 
+        let (forced_tx, forced_rx) = mpsc::channel::<usize>();
+        let autosave = {
+            let active = Arc::clone(&active);
+            let max_seen = Arc::clone(&max_seen);
+            thread::spawn(move || {
+                // Forced phase: the test thread holds the lock.
+                let mut forced_skips = 0;
+                for _ in 0..FORCED_ROUNDS {
+                    match try_acquire() {
+                        Some(guard) => {
+                            critical_section(&active, &max_seen);
+                            drop(guard);
+                        }
+                        None => forced_skips += 1,
+                    }
+                }
+                forced_tx.send(forced_skips).expect("test thread gone");
+                // Free phase: contention depends on scheduling, skips are
+                // allowed but not required.
+                for _ in 0..80 {
+                    if let Some(guard) = try_acquire() {
+                        critical_section(&active, &max_seen);
+                        drop(guard);
+                    }
+                }
+            })
+        };
+
         let handles = vec![
-            spawn_worker(40, false), // unlock role: must wait
-            spawn_worker(40, false), // autolock role: must wait
-            spawn_worker(80, true),  // autosave role: skips when busy
+            spawn_waiting_worker(40), // unlock role: must wait
+            spawn_waiting_worker(40), // autolock role: must wait
         ];
+
+        // Bounded wait: a try_acquire that blocks instead of skipping would
+        // otherwise hang the test forever.
+        let forced_skips = forced_rx
+            .recv_timeout(Duration::from_secs(60))
+            .expect("autosave worker did not finish its rounds while the lock was held: try_acquire blocked");
+        active.fetch_sub(1, Ordering::SeqCst);
+        drop(held);
+
+        autosave.join().expect("autosave worker panicked");
         for h in handles {
             h.join().expect("worker panicked");
         }
 
         assert_eq!(
+            forced_skips, FORCED_ROUNDS,
+            "try_acquire must skip every round while another holder has the lock"
+        );
+        assert_eq!(
             max_seen.load(Ordering::SeqCst),
             1,
             "mutual exclusion violated: two threads held the persistence lock simultaneously"
-        );
-        // try_acquire must have skipped at least once under contention — otherwise
-        // the test did not exercise the contended path.
-        assert!(
-            try_skips.load(Ordering::Relaxed) > 0,
-            "no contention observed: try_acquire never skipped, test is not meaningful"
         );
     }
 
