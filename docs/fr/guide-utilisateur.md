@@ -815,10 +815,11 @@ prompts pour un outil d'IA) et les copie en un clic.
 `{time}` (HH:MM:SS), `{datetime}` (AAAA-MM-JJ HH:MM:SS), `{clipboard}` (le
 texte actuel du presse-papiers, vide s'il n'y en a pas) et `{tab}` (le nom de
 l'onglet actif). La date et l'heure sont l'heure locale de l'ordinateur, au
-même format qu'Insérer un horodatage (F5), qui reste en UTC. Écrivez `{{` et `}}` pour des accolades littérales. Les noms inconnus
-(`{xyz}`), une autre casse (`{Date}`) et les accolades isolées restent tels
-quels. Les variables sont remplacées quand le prompt est copié ou inséré ; le
-prompt enregistré les garde.
+même format qu'Insérer un horodatage (F5), qui reste en UTC ; aucun des deux
+n'indique de fuseau horaire. Écrivez `{{` et `}}` pour des accolades
+littérales. Les noms inconnus (`{xyz}`), une autre casse (`{Date}`) et les
+accolades isolées restent tels quels. Les variables sont remplacées quand le
+prompt est copié ou inséré ; le prompt enregistré les garde.
 
 **Limites.** Un texte fait au plus 1 Mio. Une catégorie ne peut pas contenir
 `:`.

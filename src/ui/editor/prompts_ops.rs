@@ -389,15 +389,40 @@ mod tests {
     }
 
     /// `local_now` is the real local clock (GetLocalTime), read once: its
-    /// value lies between two direct reads taken around it.
+    /// value lies between two direct reads taken around it. Local wall-clock
+    /// time is not monotonic (daylight saving fall-back, clock sync, time
+    /// zone change), so a backward jump inside the window gets one more try;
+    /// two jumps in a row would be a real failure.
     #[test]
     fn local_now_reads_the_local_clock() {
         use windows::Win32::System::SystemInformation::GetLocalTime;
-        let before = super::format_local(&unsafe { GetLocalTime() });
-        let got = super::local_now();
-        let after = super::format_local(&unsafe { GetLocalTime() });
+        let read = || {
+            let before = super::format_local(&unsafe { GetLocalTime() });
+            let got = super::local_now();
+            let after = super::format_local(&unsafe { GetLocalTime() });
+            (before, got, after)
+        };
+        let within = |(b, g, a): &(String, String, String)| b <= g && g <= a;
+        let mut window = read();
+        if !within(&window) {
+            window = read();
+        }
+        let (before, got, after) = &window;
         assert_eq!(got.len(), 19, "{got}");
-        assert!(before <= got && got <= after, "{before} <= {got} <= {after}");
+        assert!(within(&window), "{before} <= {got} <= {after}");
+    }
+
+    /// On a machine whose time zone is UTC the clock test above cannot tell
+    /// local time from UTC, so the source pins the local clock call.
+    #[test]
+    fn local_now_calls_get_local_time() {
+        let ops = source("prompts_ops.rs");
+        let start = ops.find("\nfn local_now() -> String {").expect("fn local_now");
+        let end = ops[start..].find("\n}\n").expect("end of fn local_now");
+        let local_now = &ops[start..start + end];
+        assert_eq!(local_now.matches("GetLocalTime()").count(), 1);
+        assert!(!local_now.contains("GetSystemTime"));
+        assert!(!local_now.contains("SystemTime::now"));
     }
 
     #[test]

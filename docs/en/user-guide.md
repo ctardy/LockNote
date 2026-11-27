@@ -742,10 +742,10 @@ and copies them in one click.
 (HH:MM:SS), `{datetime}` (YYYY-MM-DD HH:MM:SS), `{clipboard}` (the current
 clipboard text, empty if there is none) and `{tab}` (the name of the active
 tab). Date and time are the local time of the computer, in the same format
-as Insert Timestamp (F5), which stays in UTC. Write `{{` and `}}`
-for literal braces. Unknown names (`{xyz}`), another case (`{Date}`) and lone
-braces stay as written. Variables are expanded when the prompt is copied or
-inserted; the stored prompt keeps them.
+as Insert Timestamp (F5), which stays in UTC; neither shows a time zone.
+Write `{{` and `}}` for literal braces. Unknown names (`{xyz}`), another case
+(`{Date}`) and lone braces stay as written. Variables are expanded when the
+prompt is copied or inserted; the stored prompt keeps them.
 
 **Limits.** A text is at most 1 MiB. A category cannot contain `:`.
 
