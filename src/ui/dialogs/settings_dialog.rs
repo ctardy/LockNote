@@ -22,7 +22,9 @@ fn t(key: &str) -> String {
 // SettingsChanges — what the dialog returns
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, PartialEq)]
+// Debug is implemented by hand below: a derived one would print the 2FA
+// secret in a panic or a log (issue #38). Never derive it.
+#[derive(Clone, PartialEq)]
 pub struct SettingsChanges {
     pub save_on_close: CloseAction,
     pub theme: ThemeChoice,
@@ -33,13 +35,57 @@ pub struct SettingsChanges {
     pub save_key: u32,
     pub save_modifiers: u32,
     pub totp_2fa: bool,
-    pub totp_2fa_secret: String,
+    /// Wiped on drop (issue #38).
+    pub totp_2fa_secret: zeroize::Zeroizing<String>,
     pub language: crate::settings::Language,
     pub auto_lock: u32,
     pub auto_save: u32,
     pub clipboard_clear: u32,
     pub hotkey_modifiers: u32,
     pub hotkey_key: u32,
+}
+
+// Every field is listed (no `..`), so a field added later fails to compile
+// here until someone decides whether it may be printed.
+impl std::fmt::Debug for SettingsChanges {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let SettingsChanges {
+            save_on_close,
+            theme,
+            min_password_length,
+            minimize_to_tray,
+            font_family,
+            font_size,
+            save_key,
+            save_modifiers,
+            totp_2fa,
+            totp_2fa_secret: _,
+            language,
+            auto_lock,
+            auto_save,
+            clipboard_clear,
+            hotkey_modifiers,
+            hotkey_key,
+        } = self;
+        f.debug_struct("SettingsChanges")
+            .field("save_on_close", save_on_close)
+            .field("theme", theme)
+            .field("min_password_length", min_password_length)
+            .field("minimize_to_tray", minimize_to_tray)
+            .field("font_family", font_family)
+            .field("font_size", font_size)
+            .field("save_key", save_key)
+            .field("save_modifiers", save_modifiers)
+            .field("totp_2fa", totp_2fa)
+            .field("totp_2fa_secret", &"<redacted>")
+            .field("language", language)
+            .field("auto_lock", auto_lock)
+            .field("auto_save", auto_save)
+            .field("clipboard_clear", clipboard_clear)
+            .field("hotkey_modifiers", hotkey_modifiers)
+            .field("hotkey_key", hotkey_key)
+            .finish()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -579,8 +625,9 @@ impl SettingsDialog {
             .build(&mut btn_cancel)
             .expect("Cancel button");
 
-        // Capture current TOTP state for the closure
-        let current_totp_secret = current.totp_2fa_secret.clone();
+        // Capture current TOTP state for the closure. The copy is wiped on
+        // drop, with the handler (issue #38); `current` is the caller's.
+        let current_totp_secret = zeroize::Zeroizing::new(current.totp_2fa_secret.clone());
 
         // Capture hotkey values (read-only display, not editable yet)
         let captured_hotkey_modifiers = current.hotkey_modifiers;
@@ -613,11 +660,12 @@ impl SettingsDialog {
                             let checked = chk_totp.check_state() == nwg::CheckBoxState::Checked;
                             if checked && current_totp_secret.is_empty() {
                                 // Enabling TOTP: launch setup dialog
-                                if let Some(entry) = super::totp_setup::TotpSetupDialog::show("LockNote 2FA", None, &mut None /* snapshot-only dialog: no clipboard guard here */) {
-                                    (true, entry.secret.clone())
+                                if let Some(mut entry) = super::totp_setup::TotpSetupDialog::show("LockNote 2FA", None, &mut None /* snapshot-only dialog: no clipboard guard here */) {
+                                    // Moved, not copied (issue #38).
+                                    (true, zeroize::Zeroizing::new(std::mem::take(&mut entry.secret)))
                                 } else {
                                     // User cancelled setup — don't enable
-                                    (false, String::new())
+                                    (false, zeroize::Zeroizing::new(String::new()))
                                 }
                             } else if checked {
                                 // Already configured, keep secret
@@ -625,14 +673,14 @@ impl SettingsDialog {
                             } else if !current_totp_secret.is_empty() {
                                 // Disabling TOTP: require current code to confirm
                                 if super::totp_verify::TotpVerifyDialog::show(&current_totp_secret) {
-                                    (false, String::new())
+                                    (false, zeroize::Zeroizing::new(String::new()))
                                 } else {
                                     // Verification failed — keep TOTP enabled
                                     (true, current_totp_secret.clone())
                                 }
                             } else {
                                 // TOTP was never configured, nothing to disable
-                                (false, String::new())
+                                (false, zeroize::Zeroizing::new(String::new()))
                             }
                         };
 
@@ -694,6 +742,53 @@ impl SettingsDialog {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_changes(secret: &str) -> SettingsChanges {
+        SettingsChanges {
+            save_on_close: CloseAction::Ask,
+            theme: ThemeChoice::Dark,
+            min_password_length: 8,
+            minimize_to_tray: true,
+            font_family: "Consolas".to_string(),
+            font_size: 12.0,
+            save_key: 0x53,
+            save_modifiers: 2,
+            totp_2fa: true,
+            totp_2fa_secret: secret.to_string().into(),
+            language: crate::settings::Language::Fr,
+            auto_lock: 5,
+            auto_save: 30,
+            clipboard_clear: 30,
+            hotkey_modifiers: 3,
+            hotkey_key: 0x4C,
+        }
+    }
+
+    /// Issue #38: `{:?}` of the changes never prints the 2FA secret (a
+    /// panic or a log would dump it), and still prints every other field.
+    #[test]
+    fn settings_changes_debug_never_shows_the_2fa_secret() {
+        let shown = format!("{:?}", sample_changes("JBSWY3DPEHPK3PXP"));
+        assert!(!shown.contains("JBSWY3DPEHPK3PXP"), "secret printed: {shown}");
+        assert!(shown.contains("totp_2fa_secret: \"<redacted>\""), "{shown}");
+        for field in ["save_on_close: Ask", "theme: Dark", "min_password_length: 8", "minimize_to_tray: true",
+            "font_family: \"Consolas\"", "font_size: 12.0", "save_key: 83", "save_modifiers: 2", "totp_2fa: true",
+            "language: Fr", "auto_lock: 5", "auto_save: 30", "clipboard_clear: 30", "hotkey_modifiers: 3", "hotkey_key: 76"] {
+            assert!(shown.contains(field), "{field} missing: {shown}");
+        }
+    }
+
+    /// Issue #38: the 2FA secret the dialog returns is wiped on drop, and
+    /// the changes still compare and clone as before.
+    #[test]
+    fn settings_changes_secret_is_wiped_on_drop() {
+        fn wiped_on_drop<T: zeroize::ZeroizeOnDrop>(_: &T) {}
+        let changes = sample_changes("JBSWY3DPEHPK3PXP");
+        wiped_on_drop(&changes.totp_2fa_secret);
+        assert_eq!(changes.clone(), changes);
+        assert_ne!(sample_changes("GEZDGNBVGY3TQOJQ"), changes);
+        assert_eq!(changes.totp_2fa_secret.as_str(), "JBSWY3DPEHPK3PXP");
+    }
 
     #[test]
     fn close_action_roundtrip() {
