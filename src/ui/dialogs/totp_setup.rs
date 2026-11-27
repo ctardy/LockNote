@@ -10,6 +10,7 @@
 use native_windows_gui as nwg;
 use std::cell::RefCell;
 use std::rc::Rc;
+use zeroize::Zeroizing;
 
 // Re-use the TOTP module
 use crate::features::totp::{self, TotpEntry};
@@ -54,7 +55,7 @@ impl TotpSetupDialog {
     /// Returns Some(entry) on confirmed + verified, None on Cancel.
     /// `copied` receives the secret last copied with the Copy button (OK or
     /// Cancel), for the caller's clipboard guard (pass 4: it was dropped).
-    pub fn show(name: &str, existing_secret: Option<&str>, copied: &mut Option<String>) -> Option<TotpEntry> {
+    pub fn show(name: &str, existing_secret: Option<&str>, copied: &mut Option<Zeroizing<String>>) -> Option<TotpEntry> {
         let (entry, last_copied) = Self::show_mode(name, existing_secret, Mode::Generate);
         *copied = last_copied;
         entry
@@ -69,25 +70,28 @@ impl TotpSetupDialog {
     ///
     /// `copied` receives the secret last copied with the Copy button (OK or
     /// Cancel), so the caller arms the clipboard guard (pass 3).
-    pub fn show_add_key(name: &str, copied: &mut Option<String>) -> Option<TotpEntry> {
+    pub fn show_add_key(name: &str, copied: &mut Option<Zeroizing<String>>) -> Option<TotpEntry> {
         let (entry, last_copied) = Self::show_mode(name, None, Mode::AddKey);
         *copied = last_copied;
         entry
     }
 
-    fn show_mode(name: &str, existing_secret: Option<&str>, mode: Mode) -> (Option<TotpEntry>, Option<String>) {
+    fn show_mode(name: &str, existing_secret: Option<&str>, mode: Mode) -> (Option<TotpEntry>, Option<Zeroizing<String>>) {
         let add = mode == Mode::AddKey;
         // Add Key starts EMPTY (pass 2): a pre-filled random secret took a
         // paste without select-all as a longer valid secret, and a forgotten
         // paste stored a random secret under the site's name. Generate
         // fills it on request.
-        let secret = match (mode, existing_secret) {
+        // The secret and the link holding it are wiped on drop (issue #38):
+        // the secret moves into the event handler, dropped (and wiped) when
+        // the handler is unbound.
+        let secret = Zeroizing::new(match (mode, existing_secret) {
             (Mode::AddKey, _) => String::new(),
             (Mode::Generate, Some(s)) => s.to_string(),
             (Mode::Generate, None) => totp::generate_secret(),
-        };
+        });
 
-        let uri = if add { String::new() } else { totp::build_uri(name, &secret, Some("LockNote")) };
+        let uri = Zeroizing::new(if add { String::new() } else { totp::build_uri(name, &secret, Some("LockNote")) });
 
         let mut window = Default::default();
         nwg::Window::builder()
@@ -276,11 +280,9 @@ impl TotpSetupDialog {
         let verified: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
         let window_handle = window.handle;
         let result_clone = result.clone();
-        let copied: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        let copied: Rc<RefCell<Option<Zeroizing<String>>>> = Rc::new(RefCell::new(None));
         let copied_clone = copied.clone();
         let verified_clone = verified.clone();
-        let secret_for_verify = secret.clone();
-        let secret_for_confirm = secret.clone();
         let name_owned = name.to_string();
 
         let handler = nwg::full_bind_event_handler(&window_handle, move |evt, _evt_data, handle| {
@@ -303,14 +305,17 @@ impl TotpSetupDialog {
                 nwg::Event::OnButtonClick => {
                     if add && handle == btn_generate.handle {
                         // OnTextInput then updates the link.
-                        txt_secret.set_text(&totp::generate_secret());
+                        txt_secret.set_text(&Zeroizing::new(totp::generate_secret()));
                         eprintln!("INFO totp: add key, secret generated");
                     } else if handle == btn_copy.handle {
                         // Copy secret to clipboard
-                        let secret_text = txt_secret.text();
+                        // Wiped on drop, moved (not copied) to the caller's
+                        // clipboard guard; the one it replaces is wiped
+                        // (issue #38).
+                        let secret_text = Zeroizing::new(txt_secret.text());
                         let result = set_clipboard_text(&secret_text);
                         if result.is_ok() {
-                            *copied_clone.borrow_mut() = Some(secret_text.clone());
+                            *copied_clone.borrow_mut() = Some(secret_text);
                         }
                         lbl_status.set_text(&crate::ui::copy_feedback(&result, &t("totp.secret.copied")));
                     } else if handle == btn_verify.handle {
@@ -336,7 +341,7 @@ impl TotpSetupDialog {
                                 }
                             }
                         } else {
-                            zeroize::Zeroizing::new(secret_for_verify.clone())
+                            secret.clone()
                         };
                         if totp::verify(&checked, code_trimmed, now) {
                             *verified_clone.borrow_mut() = true;
@@ -369,7 +374,8 @@ impl TotpSetupDialog {
                         if *verified.borrow() {
                             *result_clone.borrow_mut() = Some(TotpEntry {
                                 name: name_owned.clone(),
-                                secret: secret_for_confirm.clone(),
+                                // The entry wipes its secret on drop.
+                                secret: String::clone(&secret),
                             });
                             nwg::stop_thread_dispatch();
                         }
@@ -404,6 +410,16 @@ mod tests {
     #[test]
     fn module_compiles() {
         let _ = std::mem::size_of::<super::TotpSetupDialog>();
+    }
+
+    /// Issue #38: the secret copied with the Copy button is handed back in
+    /// a wrapper that wipes it on drop, by both entry points.
+    #[test]
+    fn the_copied_secret_is_handed_back_wiped_on_drop() {
+        fn wiped_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+        wiped_on_drop::<super::Zeroizing<String>>();
+        let _: fn(&str, Option<&str>, &mut Option<super::Zeroizing<String>>) -> Option<super::TotpEntry> = super::TotpSetupDialog::show;
+        let _: fn(&str, &mut Option<super::Zeroizing<String>>) -> Option<super::TotpEntry> = super::TotpSetupDialog::show_add_key;
     }
 
     /// Issue #23: every refusal has its own translated explanation.

@@ -131,9 +131,9 @@ impl SecurityDialog {
     /// Show the security dialog. `current` is the current settings to pre-fill.
     /// Returns Some(changes) on OK, None on Cancel. `copied_out` receives the
     /// 2FA secret copied in the setup dialog (OK or Cancel), for the caller's
-    /// clipboard guard.
-    pub fn show(current: &Settings, copied_out: &mut Option<String>) -> Option<SecurityChanges> {
-        let copied: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+    /// clipboard guard, wiped on drop (issue #38).
+    pub fn show(current: &Settings, copied_out: &mut Option<zeroize::Zeroizing<String>>) -> Option<SecurityChanges> {
+        let copied: Rc<RefCell<Option<zeroize::Zeroizing<String>>>> = Rc::new(RefCell::new(None));
         let copied_in_handler = copied.clone();
         // Window height from the rows:
         // Change Password button area: 50
@@ -359,8 +359,9 @@ impl SecurityDialog {
                             if setup_copied.is_some() {
                                 *copied_in_handler.borrow_mut() = setup_copied;
                             }
-                            if let Some(entry) = setup {
-                                *totp_state_clone.borrow_mut() = (true, zeroize::Zeroizing::new(entry.secret.clone()));
+                            if let Some(mut entry) = setup {
+                                // Moved, not copied (issue #38).
+                                *totp_state_clone.borrow_mut() = (true, zeroize::Zeroizing::new(std::mem::take(&mut entry.secret)));
                             } else {
                                 // User cancelled setup — uncheck
                                 chk_totp.set_check_state(nwg::CheckBoxState::Unchecked);
@@ -439,5 +440,12 @@ mod tests {
         wiped_on_drop(&changes.totp_2fa_secret);
         wiped_on_drop(changes.new_password.as_ref().expect("password"));
         assert_eq!(changes.totp_2fa_secret.as_str(), "JBSWY3DPEHPK3PXP");
+    }
+
+    /// Issue #38: the 2FA secret copied in the setup is handed back in a
+    /// wrapper that wipes it on drop.
+    #[test]
+    fn the_copied_2fa_secret_is_handed_back_wiped_on_drop() {
+        let _: fn(&Settings, &mut Option<zeroize::Zeroizing<String>>) -> Option<SecurityChanges> = SecurityDialog::show;
     }
 }

@@ -570,9 +570,11 @@ impl EditorForm {
 
     /// Start the clipboard auto-clear timer for a value copied from the
     /// secret dialog (the dialog itself has no access to the guard).
-    pub(super) fn arm_clipboard_guard(&self, copied: Option<String>) {
+    /// `copied` is a `String`, or a `Zeroizing<String>` when it holds a
+    /// secret (the 2FA setup, issue #38): it is dropped here, wiped then.
+    pub(super) fn arm_clipboard_guard<S: AsRef<str>>(&self, copied: Option<S>) {
         if let Some(text) = copied {
-            self.clipboard_guard.borrow_mut().on_copy(&text);
+            self.clipboard_guard.borrow_mut().on_copy(text.as_ref());
         }
     }
 
