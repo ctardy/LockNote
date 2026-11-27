@@ -126,12 +126,13 @@ impl EditorForm {
             eprintln!("INFO security: changes dropped, the note locked meanwhile");
             return;
         }
-        if let Some(changes) = changes {
+        if let Some(mut changes) = changes {
             let mut settings = self.settings.borrow_mut();
             settings.min_password_length = changes.min_password_length;
             {
                 settings.totp_2fa = changes.totp_2fa;
-                settings.totp_2fa_secret = changes.totp_2fa_secret.clone();
+                // Moved, not copied: the emptied wrapper is wiped on drop.
+                settings.totp_2fa_secret = std::mem::take(&mut *changes.totp_2fa_secret);
             }
             {
                 settings.auto_lock = changes.auto_lock;

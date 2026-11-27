@@ -29,7 +29,7 @@ pub struct SecurityChanges {
     pub min_password_length: u32,
     pub new_password: Option<zeroize::Zeroizing<String>>,
     pub totp_2fa: bool,
-    pub totp_2fa_secret: String,
+    pub totp_2fa_secret: zeroize::Zeroizing<String>,
     pub auto_lock: u32,
     pub clipboard_clear: u32,
 }
@@ -324,9 +324,10 @@ impl SecurityDialog {
             std::mem::forget(raw);
         }
 
-        // Capture current TOTP state for the closure (mutable via Rc<RefCell>)
-        let totp_state: Rc<RefCell<(bool, String)>> = Rc::new(RefCell::new(
-            (current.totp_2fa, current.totp_2fa_secret.clone())
+        // Capture current TOTP state for the closure (mutable via Rc<RefCell>).
+        // Every copy of the secret is wiped on drop (issue #35).
+        let totp_state: Rc<RefCell<(bool, zeroize::Zeroizing<String>)>> = Rc::new(RefCell::new(
+            (current.totp_2fa, zeroize::Zeroizing::new(current.totp_2fa_secret.clone()))
         ));
 
         let result: Rc<RefCell<Option<SecurityChanges>>> = Rc::new(RefCell::new(None));
@@ -359,7 +360,7 @@ impl SecurityDialog {
                                 *copied_in_handler.borrow_mut() = setup_copied;
                             }
                             if let Some(entry) = setup {
-                                *totp_state_clone.borrow_mut() = (true, entry.secret.clone());
+                                *totp_state_clone.borrow_mut() = (true, zeroize::Zeroizing::new(entry.secret.clone()));
                             } else {
                                 // User cancelled setup — uncheck
                                 chk_totp.set_check_state(nwg::CheckBoxState::Unchecked);
@@ -370,7 +371,7 @@ impl SecurityDialog {
                         } else if !secret.is_empty() {
                             // Disabling TOTP: require current code to confirm
                             if super::totp_verify::TotpVerifyDialog::show(&secret) {
-                                *totp_state_clone.borrow_mut() = (false, String::new());
+                                *totp_state_clone.borrow_mut() = (false, zeroize::Zeroizing::new(String::new()));
                             } else {
                                 // Verification failed — keep checked
                                 chk_totp.set_check_state(nwg::CheckBoxState::Checked);
@@ -414,5 +415,29 @@ impl SecurityDialog {
         *copied_out = copied.borrow_mut().take();
         let out = result.borrow_mut().take();
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn wiped_on_drop<T: zeroize::ZeroizeOnDrop>(_: &T) {}
+
+    /// Issue #35: the secrets the dialog returns (the new password, the 2FA
+    /// secret) are both wiped when the changes are dropped.
+    #[test]
+    fn the_secrets_returned_by_the_dialog_are_wiped_on_drop() {
+        let changes = SecurityChanges {
+            min_password_length: 4,
+            new_password: Some(zeroize::Zeroizing::new("s3cret".to_string())),
+            totp_2fa: true,
+            totp_2fa_secret: zeroize::Zeroizing::new("JBSWY3DPEHPK3PXP".to_string()),
+            auto_lock: 0,
+            clipboard_clear: 0,
+        };
+        wiped_on_drop(&changes.totp_2fa_secret);
+        wiped_on_drop(changes.new_password.as_ref().expect("password"));
+        assert_eq!(changes.totp_2fa_secret.as_str(), "JBSWY3DPEHPK3PXP");
     }
 }

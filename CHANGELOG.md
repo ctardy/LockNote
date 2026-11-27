@@ -94,6 +94,8 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   tabs and categories as they are, in every language. Still in English: the
   "SSH Keys" category of an SSH key import, and the technical details
   appended to some error messages (#34).
+- **2FA secret in memory**: the copies made by the Security dialog and when
+  a TOTP key is pasted are now wiped from memory after use (#35).
 
 ### Fixed
 - **Windows logoff during a close answered "Don't save"**: a logoff while a

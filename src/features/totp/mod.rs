@@ -5,7 +5,7 @@
 
 use hmac::{Hmac, KeyInit, Mac};
 use sha1::Sha1;
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 type HmacSha1 = Hmac<Sha1>;
 
@@ -356,16 +356,20 @@ pub fn parse_secret_input(input: &str) -> Result<String, SecretInputError> {
         if !is_totp {
             return Err(SecretInputError::NotTotpUri);
         }
-        // `parse_uri` expects the scheme in lowercase.
-        let uri = format!("{}{}", PREFIX, &input[PREFIX.len()..]);
+        // `parse_uri` expects the scheme in lowercase. The link and the
+        // secret read from it are wiped on drop (issue #35).
+        let uri = Zeroizing::new(format!("{}{}", PREFIX, &input[PREFIX.len()..]));
         let (_label, secret, _issuer) = parse_uri(&uri).ok_or(SecretInputError::UriWithoutSecret)?;
+        let secret = Zeroizing::new(secret);
         let query = uri.split_once('?').map(|(_, q)| q).unwrap_or("");
         let mut seen: Vec<String> = Vec::new();
         for param in query.split('&') {
             let Some((key, value)) = param.split_once('=') else { continue };
             // Compared once percent-decoded: "%53HA256" is SHA256.
             let key = String::from_utf8_lossy(&uri_decode_bytes(key)).to_ascii_lowercase();
-            let value = String::from_utf8_lossy(&uri_decode_bytes(value)).to_string();
+            // The value of `secret=` is the secret: wiped on drop.
+            let raw = Zeroizing::new(uri_decode_bytes(value));
+            let value = Zeroizing::new(String::from_utf8_lossy(&raw).into_owned());
             // parse_uri keeps the last `secret=`: two of them (or of any
             // parameter) leave the site's intent unknown.
             if seen.contains(&key) {
@@ -374,17 +378,20 @@ pub fn parse_secret_input(input: &str) -> Result<String, SecretInputError> {
             seen.push(key.clone());
             let supported = match key.as_str() {
                 "algorithm" => value.eq_ignore_ascii_case("SHA1"),
-                "digits" => value == TOTP_DIGITS.to_string(),
-                "period" => value == TOTP_PERIOD.to_string(),
+                "digits" => *value == TOTP_DIGITS.to_string(),
+                "period" => *value == TOTP_PERIOD.to_string(),
                 _ => true,
             };
             if !supported {
                 return Err(SecretInputError::UnsupportedParameters);
             }
         }
-        // Not UTF-8 once decoded: refused, never replaced by U+FFFD.
-        let decoded = String::from_utf8(uri_decode_bytes(&secret))
-            .map_err(|_| SecretInputError::InvalidBase32)?;
+        // Not UTF-8 once decoded: refused, never replaced by U+FFFD. The
+        // refused bytes are wiped too.
+        let decoded = Zeroizing::new(String::from_utf8(uri_decode_bytes(&secret)).map_err(|e| {
+            let _wiped = Zeroizing::new(e.into_bytes());
+            SecretInputError::InvalidBase32
+        })?);
         return normalize_base32_secret(&decoded);
     }
     normalize_base32_secret(input)
@@ -396,21 +403,25 @@ pub fn parse_secret_input(input: &str) -> Result<String, SecretInputError> {
 /// "12345678901234567890", does), and the length check catches most
 /// doubled Base32 pastes.
 fn is_doubled(s: &str) -> bool {
-    let clean: Vec<char> = s.chars().filter(|c| !c.is_whitespace()).flat_map(|c| c.to_uppercase()).collect();
+    // Copies of what was pasted (the secret): wiped on drop, sized up front
+    // so they never reallocate (an uppercase char is at most 3 chars).
+    let mut clean: Zeroizing<Vec<char>> = Zeroizing::new(Vec::with_capacity(s.len() * 3));
+    clean.extend(s.chars().filter(|c| !c.is_whitespace()).flat_map(|c| c.to_uppercase()));
     let n = clean.len();
-    let half: String = clean[..n / 2].iter().collect();
+    let mut half = Zeroizing::new(String::with_capacity(n / 2 * 4));
+    half.extend(clean[..n / 2].iter());
     n >= 2 && n % 2 == 0 && clean[..n / 2] == clean[n / 2..] && half.starts_with("OTPAUTH:")
 }
 
 /// `s` without spaces or trailing `=`, uppercase, when it is Base32 holding
 /// at least one byte.
 fn normalize_base32_secret(s: &str) -> Result<String, SecretInputError> {
-    let clean: String = s
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect::<String>()
-        .trim_end_matches('=')
-        .to_ascii_uppercase();
+    // Both copies are wiped on drop (issue #35); the spaceless one is sized
+    // up front so it never reallocates (a reallocation leaves the old
+    // buffer behind, not wiped).
+    let mut spaceless = Zeroizing::new(String::with_capacity(s.len()));
+    spaceless.extend(s.chars().filter(|c| !c.is_whitespace()));
+    let mut clean = Zeroizing::new(spaceless.trim_end_matches('=').to_ascii_uppercase());
     if s.trim().is_empty() {
         return Err(SecretInputError::Empty);
     }
@@ -432,7 +443,8 @@ fn normalize_base32_secret(s: &str) -> Result<String, SecretInputError> {
             if len < MIN_SECRET_BYTES {
                 Err(SecretInputError::TooShort)
             } else {
-                Ok(clean)
+                // Moved out, not copied: the emptied wrapper is dropped.
+                Ok(std::mem::take(&mut *clean))
             }
         }
         None => Err(SecretInputError::InvalidBase32),
