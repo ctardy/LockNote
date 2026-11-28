@@ -284,8 +284,10 @@ removed at that point; load them again if you keep LockNote open.
 or symbol into the editor. LockNote cannot store such a character. A save,
 a tab switch, an export, a backup and the commands that rewrite text then
 stop with an "Invalid character" message that gives its line, and nothing
-is written. The character may show as an empty box, or not at all: delete
-it on that line, then try again.
+is written. The character may show as an empty box, or not at all. After
+a refused tab switch, export, backup or command, LockNote selects it: press
+Delete, then try again. A refused save (Ctrl+S, autosave) gives its line
+without selecting it.
 
 ## 7. Tabs
 

@@ -118,7 +118,8 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   Search All result replaced the tab in memory, with no undo, and the next
   save made it permanent. Now these actions are refused and a message names
   the line of the character and says that nothing was written: delete that
-  character, then try again. Regex Find and Replace, the line commands
+  character, then try again; after a refused tab switch, export, backup or
+  command the character is selected, so Delete removes it. Regex Find and Replace, the line commands
   (Ctrl+D, Ctrl+Shift+K, Alt+Up/Down, Edit > Lines, Convert Case) and
   Tab / Shift+Tab on a selection are refused the same way, because they
   would write the character back changed. The counters, the line numbers,

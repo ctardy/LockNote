@@ -1815,6 +1815,28 @@
     }
 
     #[test]
+    fn a_refusal_selects_the_character_after_the_message_and_never_on_save() {
+        // The selection itself: live_the_refused_character_is_selected_so_delete_removes_it.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
+        let content = crate::read_source(dir.join("content.rs"));
+        let start = content.find("pub(super) fn tell_unreadable(").expect("tell_unreadable");
+        let body = &content[start..start + content[start..].find("
+    }
+").expect("end of tell_unreadable")];
+        let epoch = body.find("let epoch = self.lock_epoch();").expect("epoch taken before the message");
+        let inform = body.find("self.inform(").expect("message");
+        let valid = body.find("self.still_valid(epoch)").expect("lock checked after the message");
+        let select = body.find("select_first_lone_surrogate(").expect("selection");
+        assert!(epoch < inform && inform < valid && valid < select, "{body}");
+        // Autosave runs the save: it must never move the selection.
+        let file_ops = crate::read_source(dir.join("file_ops.rs"));
+        let save = &file_ops[file_ops.find("pub(super) fn on_save(&self)").expect("on_save")..];
+        let save = &save[..save.find("pub(super) fn on_export").unwrap_or(save.len())];
+        assert!(save.contains("fn save_note(&self)"), "save_note follows on_save");
+        assert!(!save.contains("select_first_lone_surrogate(") && !save.contains("tell_unreadable("));
+    }
+
+    #[test]
     fn readers_run_while_typing_never_open_a_dialog() {
         // EN_CHANGE / typing / timer paths: an emoji typed as two WM_CHAR
         // leaves a lone surrogate for a moment, and a dialog there would run

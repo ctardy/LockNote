@@ -316,8 +316,11 @@ d'un emoji ou d'un symbole dans l'éditeur. LockNote ne peut pas enregistrer
 un tel caractère. Un enregistrement, un changement d'onglet, un export, une
 sauvegarde et les commandes qui réécrivent le texte s'arrêtent alors avec un
 message « Caractère invalide » qui donne sa ligne, et rien n'est écrit. Le
-caractère peut apparaître comme une case vide, ou pas du tout : supprimez-le
-sur cette ligne, puis réessayez.
+caractère peut apparaître comme une case vide, ou pas du tout. Après un
+changement d'onglet, un export, une sauvegarde ou une commande refusés,
+LockNote le sélectionne : appuyez sur Suppr, puis réessayez. Un
+enregistrement refusé (Ctrl+S, enregistrement automatique) donne sa ligne
+sans le sélectionner.
 
 ## 7. Onglets
 

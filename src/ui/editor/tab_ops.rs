@@ -991,6 +991,28 @@ mod tests {
         }
 
         #[test]
+        fn live_the_refused_character_is_selected_so_delete_removes_it() {
+            // After a refusal the character is selected (tell_unreadable):
+            // the user may not see it, Delete is enough to remove it.
+            let (r, _tabs) = rig();
+            let hwnd = crate::ui::editor_text::hwnd_of(r.editor.handle);
+            r.editor.load_tab_text("l1\r\nl2 \u{1F600}");
+            send(&r.editor, EM_SETSEL, 4, 4); // after "l1", the break and "l"
+            send(&r.editor, WM_CHAR, 0xD83D, 0);
+            assert!(crate::ui::editor_text::read_strict(hwnd).is_err());
+            send(&r.editor, EM_SETSEL, 0, 0);
+            assert_eq!(crate::ui::editor_text::select_first_lone_surrogate(hwnd), Ok(Some(4)));
+            let sel = r.editor.selection();
+            assert_eq!((sel.start, sel.end), (4, 5), "the lone half is selected, the emoji is not");
+            send(&r.editor, EM_REPLACESEL, 1, [0u16].as_ptr() as isize); // Delete
+            assert_eq!(crate::ui::editor_text::read_strict(hwnd), Ok("l1\r\nl2 \u{1F600}".to_string()));
+            // Nothing left to select: the selection does not move.
+            assert_eq!(crate::ui::editor_text::select_first_lone_surrogate(hwnd), Ok(None));
+            let sel = r.editor.selection();
+            assert_eq!((sel.start, sel.end), (4, 4));
+        }
+
+        #[test]
         fn live_load_resets_the_undo_history_even_for_the_same_text() {
             let (r, _tabs) = rig();
             type_at_end(&r.editor, "XYZ");

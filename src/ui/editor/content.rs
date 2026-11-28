@@ -404,9 +404,24 @@ impl EditorForm {
     /// `action` was refused because the editor text could not be read
     /// strictly: logged (no content), then told to the user. Only for
     /// actions the user started, never from EN_CHANGE / typing handlers.
+    ///
+    /// After the message, the first invalid character is selected: it may
+    /// show as nothing, and Delete then removes it. Not done for a refused
+    /// save, which autosave also runs: selecting the first half of an emoji
+    /// being typed would let its second half replace it.
     pub(super) fn tell_unreadable(&self, action: &str, e: &EditorTextError) {
         eprintln!("WARN editor_text: refused action={} err={:?}", action, e);
+        let epoch = self.lock_epoch();
         self.inform(&EditorTextError::title(), &e.user_message());
+        if !matches!(e, EditorTextError::InvalidUtf16 { .. }) || !self.still_valid(epoch) {
+            return;
+        }
+        let hwnd = crate::ui::editor_text::hwnd_of(self.editor.handle);
+        match crate::ui::editor_text::select_first_lone_surrogate(hwnd) {
+            Ok(Some(pos)) => eprintln!("INFO editor_text: selected action={} position={}", action, pos),
+            Ok(None) => eprintln!("INFO editor_text: nothing to select action={}", action),
+            Err(err) => eprintln!("WARN editor_text: select failed action={} err={:?}", action, err),
+        }
     }
 
     /// Mark the document as modified and update the title.

@@ -125,6 +125,33 @@ pub fn lone_surrogates(units: &[u16]) -> Vec<usize> {
     lone
 }
 
+/// The RichEdit position of the first unpaired surrogate of `units` (a
+/// WM_GETTEXT text): its index minus the "\r\n" pairs before it, since
+/// RichEdit counts a line break as one position.
+pub fn first_lone_surrogate_position(units: &[u16]) -> Option<usize> {
+    let unit = *lone_surrogates(units).first()?;
+    let breaks = units[..unit].windows(2).filter(|w| w == &[0x0D, 0x0A]).count();
+    Some(unit - breaks)
+}
+
+/// Select the first unpaired surrogate of the control, so that a user told
+/// about it can press Delete even when it shows as nothing. Returns its
+/// RichEdit position, or `None` (selection unchanged) when there is none.
+pub fn select_first_lone_surrogate(hwnd: HWND) -> Result<Option<usize>, EditorTextError> {
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::SendMessageW;
+    const EM_SETSEL: u32 = 0x00B1;
+    const EM_SCROLLCARET: u32 = 0x00B7;
+    let Some(pos) = first_lone_surrogate_position(&read_units(hwnd)?) else {
+        return Ok(None);
+    };
+    unsafe {
+        SendMessageW(hwnd, EM_SETSEL, Some(WPARAM(pos)), Some(LPARAM(pos as isize + 1)));
+        SendMessageW(hwnd, EM_SCROLLCARET, None, None);
+    }
+    Ok(Some(pos))
+}
+
 /// The editor text, refused when it is not valid UTF-16. For every path
 /// that stores, exports or writes the text back.
 pub fn read_strict(hwnd: HWND) -> Result<String, EditorTextError> {
@@ -210,6 +237,20 @@ mod tests {
             assert!(!r.user_message().is_empty() && !r.short_message().is_empty());
             assert!(!EditorTextError::title().starts_with("editor."), "{lang:?}: untranslated title");
         }
+    }
+
+    #[test]
+    fn the_first_lone_surrogate_is_found_at_its_rich_edit_position() {
+        // WM_GETTEXT gives "\r\n" where RichEdit counts one position.
+        let mut u = units("l1\r\nl2\r\n\u{1F600}x");
+        u.push(0xD83D);
+        u.extend(units("\r\ny"));
+        u.push(0xDE00);
+        // Unit 11 in the text read, minus two "\r\n" pairs before it.
+        assert_eq!(first_lone_surrogate_position(&u), Some(9));
+        assert_eq!(first_lone_surrogate_position(&[0xDE00, 0x61]), Some(0));
+        assert_eq!(first_lone_surrogate_position(&units("a\r\n\u{1F600}")), None, "a whole pair is valid");
+        assert_eq!(first_lone_surrogate_position(&[]), None);
     }
 
     #[test]
