@@ -62,7 +62,10 @@ impl EditorForm {
             return;
         }
 
-        let mut snapshot = self.build_current_backup();
+        let mut snapshot = match self.build_current_backup() {
+            Ok(snapshot) => snapshot,
+            Err(e) => return self.tell_unreadable("backup_export", &e),
+        };
         let counts = (
             snapshot.tabs.len(),
             snapshot.snapshots.len(),
@@ -140,18 +143,22 @@ impl EditorForm {
 
     /// The whole note as a `Backup`, for an export or an automatic safety
     /// backup. The current editor text goes into the active tab first, like
-    /// on_save. The caller wipes the result (`Backup::wipe`).
-    pub(super) fn build_current_backup(&self) -> crate::features::backup::Backup {
+    /// on_save; a text that cannot be read strictly (a lone surrogate) is an
+    /// error before anything is synced. The caller wipes the result
+    /// (`Backup::wipe`).
+    pub(super) fn build_current_backup(&self) -> Result<crate::features::backup::Backup, EditorTextError> {
+        let current = Zeroizing::new(self.get_content()?);
         let tabs: Vec<crate::features::tabs::NoteTab> = {
             let tb = self.tab_bar.borrow_mut();
             let active = tb.active_index();
-            tb.set_tab_content(active, &self.get_content());
+            tb.set_tab_content(active, &current);
             tb.all_tabs()
                 .iter()
                 .map(|t| crate::features::tabs::NoteTab::with_content(&t.name, &t.content, t.color.as_deref()))
                 .collect()
         };
-        crate::features::backup::Backup {
+        drop(current);
+        Ok(crate::features::backup::Backup {
             settings: self.settings.borrow().clone(),
             tabs,
             // Snapshots no longer exist; the backup format keeps the field.
@@ -164,7 +171,7 @@ impl EditorForm {
                 .map(|d| d.as_secs())
                 .unwrap_or(0),
             app_version: crate::updater::CURRENT_VERSION.to_string(),
-        }
+        })
     }
 
     /// Write a safety backup of the current note before a destructive action
@@ -181,7 +188,14 @@ impl EditorForm {
             return Err("the note is locked".to_string());
         }
 
-        let mut snapshot = self.build_current_backup();
+        let mut snapshot = match self.build_current_backup() {
+            Ok(snapshot) => snapshot,
+            Err(e) => {
+                import_log::note(&format!("auto_backup: {} failed stage=read_editor", kind.tag()));
+                eprintln!("WARN auto_backup: refused stage=read_editor err={:?}", e);
+                return Err(e.user_message());
+            }
+        };
         let now = crate::features::snapshots::current_timestamp();
         let outcome = auto_backup::store(&auto_backup::dir_path(), kind, now, |path| {
             self.write_backup_file(&snapshot, path)

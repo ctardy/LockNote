@@ -115,7 +115,14 @@ impl EditorForm {
         // is cleared. The disk copy may be stale (tab switches are not a
         // modification, and the save above may have failed), so unlock
         // prefers this in-memory state.
-        self.locked_session_state.set(Some(self.capture_session_state()));
+        match self.capture_session_state() {
+            Ok(state) => self.locked_session_state.set(Some(state)),
+            Err(e) => {
+                // The unlock then restores the session saved on disk.
+                eprintln!("WARN lock: in-memory session not kept, editor text unreadable err={:?}", e);
+                self.locked_session_state.set(None);
+            }
+        }
         self.wipe_plaintext_stores();
 
         // Mark clean so auto-save won't fire with an empty password

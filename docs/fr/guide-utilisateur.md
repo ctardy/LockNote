@@ -311,6 +311,14 @@ enregistrer** ferme et les modifications non enregistrées sont perdues. Les
 clés SSH chargées dans ssh-agent par ce fichier ont déjà été retirées à ce
 moment : rechargez-les si vous gardez LockNote ouvert.
 
+**Caractère invalide.** Un autre programme peut taper ou coller la moitié
+d'un emoji ou d'un symbole dans l'éditeur. LockNote ne peut pas enregistrer
+un tel caractère. Un enregistrement, un changement d'onglet, un export, une
+sauvegarde et les commandes qui réécrivent le texte s'arrêtent alors avec un
+message « Caractère invalide » qui donne sa ligne, et rien n'est écrit. Le
+caractère peut apparaître comme une case vide, ou pas du tout : supprimez-le
+sur cette ligne, puis réessayez.
+
 ## 7. Onglets
 
 **Ce que ça fait.** Un fichier LockNote contient jusqu'à 20 onglets, chacun avec

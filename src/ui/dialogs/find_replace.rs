@@ -17,7 +17,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::{GetWindowTextLengthW, GetWindowTextW, SendMessageW};
+use windows::Win32::UI::WindowsAndMessaging::SendMessageW;
 
 use super::regex_search::{self, Found, RegexOptions, RegexTarget};
 
@@ -165,12 +165,9 @@ fn count_matches(hwnd: HWND, term: &str, base_flags: u32) -> usize {
 struct RichEditTarget(HWND);
 
 impl RegexTarget for RichEditTarget {
-    /// The whole text, as `nwg::RichTextBox::text` reads it (WM_GETTEXT).
-    fn text(&self) -> String {
-        let len = unsafe { GetWindowTextLengthW(self.0) }.max(0) as usize;
-        let mut buf = vec![0u16; len + 1];
-        let copied = unsafe { GetWindowTextW(self.0, &mut buf) }.max(0) as usize;
-        String::from_utf16_lossy(&buf[..copied.min(len)])
+    /// The whole text (WM_GETTEXT), read strictly (`editor_text`).
+    fn text(&self) -> Result<String, crate::ui::editor_text::EditorTextError> {
+        crate::ui::editor_text::read_strict(self.0)
     }
     fn selection(&self) -> regex_search::Span {
         let (a, b) = get_selection(self.0);
@@ -466,7 +463,17 @@ impl FindReplaceDialog {
             }
             let tot = match read_regex_rc() {
                 None => count_matches(hwnd, &term, read_flags_rc()),
-                Some(Ok(re)) => regex_search::Haystack::new(&RichEditTarget(hwnd).text()).matches(&re).len(),
+                // A count to show: the display text (positions kept).
+                Some(Ok(re)) => match crate::ui::editor_text::read_display(hwnd) {
+                    Ok(text) => regex_search::Haystack::new(&text).matches(&re).len(),
+                    Err(e) => {
+                        eprintln!("ERROR find_replace: regex count skipped, editor text unreadable err={:?}", e);
+                        total_rc.set(0);
+                        current_rc.set(0);
+                        lbl_status_rc.set_text(&e.short_message());
+                        return;
+                    }
+                },
                 Some(Err(_)) => {
                     total_rc.set(0);
                     current_rc.set(0);
@@ -503,16 +510,24 @@ impl FindReplaceDialog {
         let current_re = current.clone();
         let update_status_re = update_status.clone();
         let lbl_status_re = lbl_status.clone();
-        let show_found = move |found: Option<Found>| match found {
-            Some(f) => {
+        // A text that cannot be read strictly (a lone surrogate) is said in
+        // the status line: nothing was searched nor replaced.
+        let show_found = move |found: Result<Option<Found>, crate::ui::editor_text::EditorTextError>| match found {
+            Ok(Some(f)) => {
                 total_re.set(f.total);
                 current_re.set(f.current);
                 update_status_re();
             }
-            None => {
+            Ok(None) => {
                 total_re.set(0);
                 current_re.set(0);
                 lbl_status_re.set_text(&t("search.count.none"));
+            }
+            Err(e) => {
+                eprintln!("WARN find_replace: regex refused, editor text unreadable err={:?}", e);
+                total_re.set(0);
+                current_re.set(0);
+                lbl_status_re.set_text(&e.short_message());
             }
         };
         let lbl_status_invalid = lbl_status.clone();
@@ -627,7 +642,11 @@ impl FindReplaceDialog {
                                                 .replace("{count}", &count.to_string());
                                             lbl_status_cb.set_text(&msg);
                                         }
-                                        Err(e) => {
+                                        Err(regex_search::ReplaceAllError::Unreadable(e)) => {
+                                            eprintln!("WARN find_replace: regex replace all refused, editor text unreadable err={:?}", e);
+                                            lbl_status_cb.set_text(&e.short_message());
+                                        }
+                                        Err(regex_search::ReplaceAllError::Position(e)) => {
                                             eprintln!("ERROR find_replace: {e}");
                                             lbl_status_cb.set_text("");
                                         }

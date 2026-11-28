@@ -317,8 +317,8 @@ pub(super) fn caret_status_text(s: CaretStatus) -> String {
 pub(super) trait CaretStatusSteps {
     /// The selection `(min, max)` and the caret, RichEdit UTF-16 offsets.
     fn selection(&self) -> (usize, usize, usize);
-    /// The editor text (`get_content`).
-    fn text(&self) -> String;
+    /// The editor text for display (`display_content`).
+    fn text(&self) -> Result<String, EditorTextError>;
     /// The caret status the bar shows now (trimmed part text).
     fn shown(&self) -> String;
     /// Show `text` in the caret part and repaint the bar.
@@ -330,7 +330,15 @@ pub(super) trait CaretStatusSteps {
 /// bar is repainted only when the text changes. Returns whether it did.
 pub(super) fn refresh_caret_status(steps: &mut impl CaretStatusSteps) -> bool {
     let (min, max, caret) = steps.selection();
-    let text = caret_status_text(caret_status(&steps.text(), min, max, caret));
+    let whole = match steps.text() {
+        Ok(whole) => whole,
+        Err(e) => {
+            // A status line is not worth a dialog (it runs on every tick).
+            eprintln!("ERROR status: caret status not refreshed, editor text unreadable err={:?}", e);
+            return false;
+        }
+    };
+    let text = caret_status_text(caret_status(&whole, min, max, caret));
     if steps.shown() == text {
         return false;
     }
@@ -349,8 +357,8 @@ impl CaretStatusSteps for WindowCaretStatus<'_> {
     fn selection(&self) -> (usize, usize, usize) {
         surface::selection_and_caret(self.editor)
     }
-    fn text(&self) -> String {
-        self.form.get_content()
+    fn text(&self) -> Result<String, EditorTextError> {
+        self.form.display_content()
     }
     fn shown(&self) -> String {
         EditorForm::status_part_text(self.status, STATUS_CARET_PART)
@@ -375,9 +383,30 @@ impl EditorForm {
         self.layout_controls();
     }
 
-    /// Get the current editor text content.
-    pub(super) fn get_content(&self) -> String {
-        self.editor.text()
+    /// The editor text, for every path that stores, exports, encrypts or
+    /// moves it, or writes part of it back into the editor. A text that is
+    /// not valid UTF-16 (a lone surrogate, which RichEdit keeps) is an error:
+    /// the caller refuses the action and tells the user (`tell_unreadable`).
+    /// Never nwg's `RichTextBox::text`: it turns such a text into the literal
+    /// "Decoding error" (see `crate::ui::editor_text`).
+    pub(super) fn get_content(&self) -> Result<String, EditorTextError> {
+        crate::ui::editor_text::read_strict(crate::ui::editor_text::hwnd_of(self.editor.handle))
+    }
+
+    /// The editor text for display and positions only (counts, gutter,
+    /// highlights, caret moves, search results, print): each lone surrogate
+    /// is one U+FFFD, so positions match the RichEdit's. Never stored, never
+    /// written back into the note.
+    pub(super) fn display_content(&self) -> Result<String, EditorTextError> {
+        crate::ui::editor_text::read_display(crate::ui::editor_text::hwnd_of(self.editor.handle))
+    }
+
+    /// `action` was refused because the editor text could not be read
+    /// strictly: logged (no content), then told to the user. Only for
+    /// actions the user started, never from EN_CHANGE / typing handlers.
+    pub(super) fn tell_unreadable(&self, action: &str, e: &EditorTextError) {
+        eprintln!("WARN editor_text: refused action={} err={:?}", action, e);
+        self.inform(&EditorTextError::title(), &e.user_message());
     }
 
     /// Mark the document as modified and update the title.
@@ -409,14 +438,19 @@ impl EditorForm {
 
     /// Update the status bar with word/character/line counts.
     pub(super) fn update_status_bar(&self) {
-        let text = self.get_content();
-        let char_count = text.chars().count();
-        let line_count = if text.is_empty() { 1 } else { text.lines().count().max(1) };
-        let word_count = text.split_whitespace().count();
+        match self.display_content() {
+            Ok(text) => {
+                let char_count = text.chars().count();
+                let line_count = if text.is_empty() { 1 } else { text.lines().count().max(1) };
+                let word_count = text.split_whitespace().count();
 
-        self.status_bar.set_text(0, &format!(" {}", count_text(word_count, "status.word", "status.words")));
-        self.status_bar.set_text(1, &format!(" {}", count_text(char_count, "status.char", "status.chars")));
-        self.status_bar.set_text(2, &format!(" {}", count_text(line_count, "status.line", "status.lines")));
+                self.status_bar.set_text(0, &format!(" {}", count_text(word_count, "status.word", "status.words")));
+                self.status_bar.set_text(1, &format!(" {}", count_text(char_count, "status.char", "status.chars")));
+                self.status_bar.set_text(2, &format!(" {}", count_text(line_count, "status.line", "status.lines")));
+            }
+            // Runs on every keystroke: logged, never a dialog.
+            Err(e) => eprintln!("ERROR status: counts not refreshed, editor text unreadable err={:?}", e),
+        }
         self.refresh_caret_status();
 
         {

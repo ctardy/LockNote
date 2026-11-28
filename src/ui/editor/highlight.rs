@@ -13,7 +13,14 @@ impl EditorForm {
     /// Called on every highlight_timer tick (200ms debounce).
     pub(super) fn update_occurrence_highlights(&self) {
         let sel = self.editor.selection();
-        let text = self.get_content();
+        // Display and positions only; on every timer tick, so never a dialog.
+        let text = match self.display_content() {
+            Ok(text) => text,
+            Err(e) => {
+                eprintln!("ERROR highlight: not refreshed, editor text unreadable err={:?}", e);
+                return;
+            }
+        };
 
         // Convert UTF-16 selection positions to byte offsets in the UTF-8 string.
         // RichTextBox selection uses UTF-16 code unit positions.

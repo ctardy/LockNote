@@ -16,6 +16,7 @@
 use regex::{Regex, RegexBuilder};
 
 use crate::ui::editor::build_utf16_offset_map;
+use crate::ui::editor_text::EditorTextError;
 
 /// Upper bound of the compiled program (and of the DFA cache, when the
 /// regex crate uses one): a pattern like `\w{1000}{1000}` is refused as
@@ -137,8 +138,10 @@ pub fn prev_index(matches: &[Span], sel: Span) -> Option<usize> {
 /// What the flows need from the editor (a RichEdit in the dialog, a fake in
 /// the tests). Positions are RichEdit positions.
 pub trait RegexTarget {
-    /// The text as Windows returns it (`\r\n` line breaks).
-    fn text(&self) -> String;
+    /// The text as Windows returns it (`\r\n` line breaks), read strictly:
+    /// a replacement writes captured parts of it back, so a lone surrogate
+    /// (which RichEdit keeps) refuses the flow instead of becoming U+FFFD.
+    fn text(&self) -> Result<String, EditorTextError>;
     fn selection(&self) -> Span;
     fn set_selection(&mut self, start: usize, end: usize);
     /// Undoable replacement of the selection; the caret ends after it.
@@ -159,26 +162,35 @@ fn select_index(target: &mut dyn RegexTarget, matches: &[Span], index: Option<us
     Some(Found { current: i + 1, total: matches.len() })
 }
 
+/// Why Replace All stopped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReplaceAllError {
+    /// The editor text could not be read strictly: nothing was replaced.
+    Unreadable(EditorTextError),
+    /// A position went wrong (a bug); the replacements made stay undoable.
+    Position(String),
+}
+
 /// Next: select the next match (wrapping).
-pub fn find_next(target: &mut dyn RegexTarget, re: &Regex) -> Option<Found> {
-    let matches = Haystack::new(&target.text()).matches(re);
+pub fn find_next(target: &mut dyn RegexTarget, re: &Regex) -> Result<Option<Found>, EditorTextError> {
+    let matches = Haystack::new(&target.text()?).matches(re);
     let i = next_index(&matches, target.selection());
-    select_index(target, &matches, i)
+    Ok(select_index(target, &matches, i))
 }
 
 /// Previous: select the previous match (wrapping).
-pub fn find_prev(target: &mut dyn RegexTarget, re: &Regex) -> Option<Found> {
-    let matches = Haystack::new(&target.text()).matches(re);
+pub fn find_prev(target: &mut dyn RegexTarget, re: &Regex) -> Result<Option<Found>, EditorTextError> {
+    let matches = Haystack::new(&target.text()?).matches(re);
     let i = prev_index(&matches, target.selection());
-    select_index(target, &matches, i)
+    Ok(select_index(target, &matches, i))
 }
 
 /// Replace: when the selection is a match, replace it (groups expanded);
 /// then select the next match. A selection that is not a match is left
 /// alone, as the replacement of its groups would mean nothing.
-pub fn replace_one(target: &mut dyn RegexTarget, re: &Regex, replacement: &str) -> Option<Found> {
+pub fn replace_one(target: &mut dyn RegexTarget, re: &Regex, replacement: &str) -> Result<Option<Found>, EditorTextError> {
     let sel = target.selection();
-    if let Some(text) = Haystack::new(&target.text()).expand_at(re, sel, replacement) {
+    if let Some(text) = Haystack::new(&target.text()?).expand_at(re, sel, replacement) {
         target.replace_selection(&text);
     }
     find_next(target, re)
@@ -187,19 +199,21 @@ pub fn replace_one(target: &mut dyn RegexTarget, re: &Regex, replacement: &str) 
 /// Replace All: one undoable replacement per match, as the plain search
 /// does, from the matches of the text before the first one. Returns the
 /// number of replacements.
-pub fn replace_all(target: &mut dyn RegexTarget, re: &Regex, replacement: &str) -> Result<usize, String> {
-    let plan = Haystack::new(&target.text()).replace_plan(re, replacement);
+pub fn replace_all(target: &mut dyn RegexTarget, re: &Regex, replacement: &str) -> Result<usize, ReplaceAllError> {
+    let plan = Haystack::new(&target.text().map_err(ReplaceAllError::Unreadable)?).replace_plan(re, replacement);
     // Shift of the positions after the replacements already made.
     let mut delta: isize = 0;
     for (count, ((a, b), text)) in plan.iter().enumerate() {
-        let start = shifted(*a, delta)?;
-        let end = shifted(*b, delta)?;
+        let start = shifted(*a, delta).map_err(ReplaceAllError::Position)?;
+        let end = shifted(*b, delta).map_err(ReplaceAllError::Position)?;
         target.set_selection(start, end);
         target.replace_selection(text);
         let (_, caret) = target.selection();
         delta = caret as isize - *b as isize;
         if caret < start {
-            return Err(format!("replace all: caret {caret} before replacement start {start} at #{count}"));
+            return Err(ReplaceAllError::Position(format!(
+                "replace all: caret {caret} before replacement start {start} at #{count}"
+            )));
         }
     }
     Ok(plan.len())
@@ -392,8 +406,10 @@ two");
     }
 
     impl RegexTarget for FakeEdit {
-        fn text(&self) -> String {
-            String::from_utf16(&self.units).unwrap().replace('\r', "\r\n")
+        fn text(&self) -> Result<String, EditorTextError> {
+            let crlf: Vec<u16> =
+                self.units.iter().flat_map(|&u| if u == 0x0D { vec![0x0D, 0x0A] } else { vec![u] }).collect();
+            crate::ui::editor_text::decode_strict(&crlf)
         }
         fn selection(&self) -> Span {
             self.sel
@@ -415,7 +431,7 @@ two");
     fn find_next_walks_every_match_then_wraps() {
         let mut ed = FakeEdit::new("cat\r\n😀cat cat");
         let r = re("cat");
-        let seen: Vec<_> = (0..4).map(|_| (find_next(&mut ed, &r), ed.selected())).collect();
+        let seen: Vec<_> = (0..4).map(|_| (find_next(&mut ed, &r).expect("readable"), ed.selected())).collect();
         assert_eq!(seen[0], (Some(Found { current: 1, total: 3 }), "cat".to_string()));
         assert_eq!(seen[1].0, Some(Found { current: 2, total: 3 }));
         assert_eq!(seen[2].0, Some(Found { current: 3, total: 3 }));
@@ -426,9 +442,9 @@ two");
     fn find_prev_walks_backward_then_wraps() {
         let mut ed = FakeEdit::new("x1 x2 x3");
         let r = re(r"x\d");
-        assert_eq!(find_prev(&mut ed, &r), Some(Found { current: 3, total: 3 }));
+        assert_eq!(find_prev(&mut ed, &r).expect("readable"), Some(Found { current: 3, total: 3 }));
         assert_eq!(ed.selected(), "x3");
-        assert_eq!(find_prev(&mut ed, &r), Some(Found { current: 2, total: 3 }));
+        assert_eq!(find_prev(&mut ed, &r).expect("readable"), Some(Found { current: 2, total: 3 }));
         assert_eq!(ed.selected(), "x2");
     }
 
@@ -436,17 +452,33 @@ two");
     fn find_next_and_prev_progress_on_empty_matches() {
         let mut ed = FakeEdit::new("a\r\nb\r\nc");
         let r = re("^");
-        let fwd: Vec<Span> = (0..4).map(|_| { find_next(&mut ed, &r); ed.sel }).collect();
+        let fwd: Vec<Span> = (0..4).map(|_| { find_next(&mut ed, &r).expect("readable"); ed.sel }).collect();
         assert_eq!(fwd, vec![(2, 2), (4, 4), (0, 0), (2, 2)]);
-        let back: Vec<Span> = (0..3).map(|_| { find_prev(&mut ed, &r); ed.sel }).collect();
+        let back: Vec<Span> = (0..3).map(|_| { find_prev(&mut ed, &r).expect("readable"); ed.sel }).collect();
         assert_eq!(back, vec![(0, 0), (4, 4), (2, 2)]);
+    }
+
+    #[test]
+    fn a_lone_surrogate_refuses_every_flow_and_changes_nothing() {
+        // `$1` spanning the lone unit would write U+FFFD back into the note.
+        let mut ed = FakeEdit::new("k1=v\r\nk2=v");
+        ed.units.insert(4, 0xD83D);
+        let before = ed.units.clone();
+        ed.sel = (0, 5);
+        let err = EditorTextError::InvalidUtf16 { unit: 4, line: 1, count: 1 };
+        let r = re(r"(\w+)=(.+)");
+        assert_eq!(find_next(&mut ed, &r), Err(err.clone()));
+        assert_eq!(find_prev(&mut ed, &r), Err(err.clone()));
+        assert_eq!(replace_one(&mut ed, &r, "$2=$1"), Err(err.clone()));
+        assert_eq!(replace_all(&mut ed, &r, "$2=$1"), Err(ReplaceAllError::Unreadable(err)));
+        assert_eq!((ed.units.clone(), ed.sel, ed.replaces), (before, (0, 5), 0));
     }
 
     #[test]
     fn find_next_on_no_match_leaves_the_selection() {
         let mut ed = FakeEdit::new("abc");
         ed.sel = (1, 2);
-        assert_eq!(find_next(&mut ed, &re("z")), None);
+        assert_eq!(find_next(&mut ed, &re("z")).expect("readable"), None);
         assert_eq!(ed.sel, (1, 2));
     }
 
@@ -454,11 +486,11 @@ two");
     fn replace_one_replaces_the_selected_match_then_selects_the_next() {
         let mut ed = FakeEdit::new("k1=v1, k2=v2");
         let r = re(r"(\w+)=(\w+)");
-        assert_eq!(find_next(&mut ed, &r), Some(Found { current: 1, total: 2 }));
-        assert_eq!(replace_one(&mut ed, &r, "$2=$1"), Some(Found { current: 2, total: 2 }));
+        assert_eq!(find_next(&mut ed, &r).expect("readable"), Some(Found { current: 1, total: 2 }));
+        assert_eq!(replace_one(&mut ed, &r, "$2=$1").expect("readable"), Some(Found { current: 2, total: 2 }));
         assert_eq!(ed.plain(), "v1=k1, k2=v2");
         assert_eq!(ed.selected(), "k2=v2");
-        assert_eq!(replace_one(&mut ed, &r, "${2}=$1"), Some(Found { current: 1, total: 2 }));
+        assert_eq!(replace_one(&mut ed, &r, "${2}=$1").expect("readable"), Some(Found { current: 1, total: 2 }));
         assert_eq!(ed.plain(), "v1=k1, v2=k2");
         assert_eq!(ed.replaces, 2);
     }
@@ -467,7 +499,7 @@ two");
     fn replace_one_leaves_a_selection_that_is_not_a_match() {
         let mut ed = FakeEdit::new("abc a1");
         ed.sel = (0, 3);
-        assert_eq!(replace_one(&mut ed, &re(r"a\d"), "X"), Some(Found { current: 1, total: 1 }));
+        assert_eq!(replace_one(&mut ed, &re(r"a\d"), "X").expect("readable"), Some(Found { current: 1, total: 1 }));
         assert_eq!(ed.plain(), "abc a1");
         assert_eq!(ed.selected(), "a1");
         assert_eq!(ed.replaces, 0);
@@ -478,9 +510,9 @@ two");
         let mut ed = FakeEdit::new("a\r\nb");
         let r = re("^");
         // Caret at 0 is the empty match at the first line start.
-        replace_one(&mut ed, &r, "> ");
+        replace_one(&mut ed, &r, "> ").expect("readable");
         assert_eq!(ed.plain(), "> a\nb");
-        replace_one(&mut ed, &r, "> ");
+        replace_one(&mut ed, &r, "> ").expect("readable");
         assert_eq!(ed.plain(), "> a\n> b");
     }
 

@@ -673,7 +673,8 @@ Base64 encoding adds ~33% overhead, partially compensated by GZip compression.
 |---|---|
 | `mod.rs` | `EditorForm` struct, `run`, the module list |
 | `build.rs`, `events.rs` | control construction (`build`), event wiring (`bind_events`) |
-| `content.rs` | content get/set, modified flag, status bar, line-number gutter |
+| `content.rs` | content get/set (strict and display readers, `tell_unreadable`), modified flag, status bar, line-number gutter |
+| `../editor_text.rs` | reading the editor text without nwg's decoding: `read_strict`, `read_display`, `EditorTextError` (also used by `dialogs/find_replace.rs`) |
 | `surface.rs` | editor surface: line spacing, current-line band, dark scrollbars (subclass of the RichEdit) |
 | `toolbar.rs` | tab-strip buttons (Lock, Attach, TOTP, Vault, Prompts): state colours, padlock glyph, hover tracking, tooltips |
 | `panel_grip.rs` | resize grip of the side panels: grip window, mouse drag (geometry in `ui/side_panel.rs`) |
@@ -1145,6 +1146,13 @@ Tests: `cargo test features::auto_backup`: exact name matching (foreign names, s
 - Text drop: inserts directly
 
 **URL Handling**: clicks on detected links open in default browser.
+
+**Reading the text** (`src/ui/editor_text.rs`):
+- RichEdit keeps an unpaired surrogate (measured on Windows 10.0.26200: `WM_SETTEXT`, `EM_REPLACESEL` and `WM_CHAR` store one; an emoji typed as two `WM_CHAR` passes through that state). nwg 1.0.13's `RichTextBox::text()` turns such a text into the literal `"Decoding error"`; no code reads the editor through it (structural test `no_code_reads_the_editor_through_nwg_text`).
+- Both readers call `GetWindowTextLengthW` + `GetWindowTextW` ("\r\n" breaks) into a buffer wiped on drop. Copying nothing from a non-empty control, or more units than announced, is `EditorTextError::ReadFailed`; no window is `NoWindow`.
+- **Strict** (`EditorForm::get_content`, `read_strict`): for every path that stores, exports, encrypts or moves the text, or writes part of it back: save (all callers), tab switch / new tab / close tab / tab drop / Search All tab change, safety backups (automatic, manual, pre-import, pre-update), backup export, text export, steganography, regex Find and Replace, line commands, Convert Case, Tab / Shift+Tab on a selection. Invalid UTF-16 is `EditorTextError::InvalidUtf16 { unit, line, count }` (`unit`: index in the WM_GETTEXT text, not a RichEdit position). The action is refused before anything changes and the user gets `editor.text.title` / `editor.text.invalid` (the line and the count; no content is logged or shown). A save returns `SaveFailure::Failed` with that text, so Ctrl+S and autosave show it, the close question and the lock retry carry it, and the end of the session is blocked. A refused tab switch leaves the tab bar, the editor text and its undo history as they were.
+- **Display** (`EditorForm::display_content`, `read_display`): for what only shows something or computes positions (status counts and caret, gutter, occurrence highlights, double-click, Select All, bullet toggle, list Enter / Ctrl+Enter, Go to Line / Heading, EN_LINK, Find prefill, Search All, Compare with Last Save, print). Each lone surrogate becomes one U+FFFD, also one UTF-16 unit, so positions still match the RichEdit's. This text is never stored nor written back. The readers run from `EN_CHANGE`, typing and the timers only log a failure (never a dialog: a modal loop between the two halves of an emoji would split it).
+- No repair is offered: the user deletes the character (a lossless policy would need a format change).
 
 ### 11.3 SearchBar
 
@@ -1775,6 +1783,7 @@ Save():
        final companion (base of the session)          -> {hash}.base (if it changes)
 ```
 
+- Before step 1 the editor text is read strictly (§11.2 "Reading the text"): a lone surrogate refuses the save with nothing synced, written or marked clean.
 - Atomic write (`write_staging_file`): the bytes go to `{name}.{16 hex}.part` (exclusive creation), are flushed (`sync_all`), then that file is renamed over the target. A failure at any step is reported to the caller, removes the part file and leaves the previous file untouched.
 - The updater stages `[new program][marker][payload of the session]` (or the program alone when there are no notes yet) through `storage::write_staged_update`, with `program=updater` in the companion, written only once the `.tmp` holds that program (order of the pair): the exit promotes it even without notes, and later saves keep that program. A downloaded program that already holds a marker is refused.
 

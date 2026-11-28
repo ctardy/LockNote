@@ -67,9 +67,27 @@ impl EditorForm {
             return Err(SaveFailure::Refused(msg));
         }
 
-        // The editor text and the payload composed from it are wiped on
-        // drop, like `combined` below (issue #41).
-        let note_text = Zeroizing::new(self.get_content());
+        // Read strictly before anything is synced or written: a text that is
+        // not valid UTF-16 (a lone surrogate) is refused, never saved as a
+        // substitute (nwg's "Decoding error" replaced the note before).
+        // Nothing is written, nothing is marked clean; the caller tells the
+        // user (on_save, the close question, the lock retry, session end).
+        // The text and the payload composed from it are wiped on drop, like
+        // `combined` below (issue #41).
+        let note_text = match self.get_content() {
+            Ok(text) => Zeroizing::new(text),
+            Err(e) => {
+                eprintln!("WARN save: refused stage=read_editor err={:?}", e);
+                return Err(SaveFailure::Failed(e.user_message()));
+            }
+        };
+        let state = match self.capture_session_state() {
+            Ok(state) => state,
+            Err(e) => {
+                eprintln!("WARN save: refused stage=session_state err={:?}", e);
+                return Err(SaveFailure::Failed(e.user_message()));
+            }
+        };
 
         // The payload is every tab, the prompts, the vault, the
         // attachments and the session state, assembled by
@@ -100,7 +118,6 @@ impl EditorForm {
 
             let prompts = self.prompts_panel.get_prompts();
             let secrets = self.vault_panel.get_secrets();
-            let state = self.capture_session_state();
             let attachments = self.attachments.borrow();
             Zeroizing::new(crate::features::payload::compose(&note_tabs, &prompts, &secrets, &attachments, &state))
         };
@@ -191,7 +208,13 @@ impl EditorForm {
                 // Warn if some characters would be replaced. The check reads
                 // the text in a buffer wiped right away (pass 4).
                 let lossy = {
-                    let content = Zeroizing::new(self.get_content());
+                    let content = match self.get_content() {
+                        Ok(text) => Zeroizing::new(text),
+                        Err(e) => {
+                            self.tell_unreadable("export", &e);
+                            return;
+                        }
+                    };
                     let (bytes, had_replacements) = encoding.encode(&content);
                     let _wiped = Zeroizing::new(bytes);
                     had_replacements
@@ -213,7 +236,13 @@ impl EditorForm {
                     eprintln!("INFO export: dropped, the note locked meanwhile");
                     return;
                 }
-                let content = Zeroizing::new(self.get_content());
+                let content = match self.get_content() {
+                    Ok(text) => Zeroizing::new(text),
+                    Err(e) => {
+                        self.tell_unreadable("export", &e);
+                        return;
+                    }
+                };
                 let bytes = Zeroizing::new(encoding.encode(&content).0);
 
                 match std::fs::write(&path, &bytes[..]) {

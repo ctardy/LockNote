@@ -10,7 +10,7 @@
 
 #[allow(unused_imports)]
 use super::*;
-use super::line_ops::{run_line_edit, EditorLineSteps, LineEdit};
+use super::line_ops::{run_line_edit, EditorLineSteps, LineEdit, LineEditError};
 use crate::features::case_convert::{self, CaseOp};
 
 /// The edit converting the selection `sel`, or the word under the caret
@@ -60,9 +60,10 @@ impl EditorForm {
                     self.send_editor_message(0x00B7, 0, 0); // EM_SCROLLCARET
                 }
             }
+            Err(LineEditError::Unreadable(e)) => self.tell_unreadable("convert_case", &e),
             // The selection comes from the RichEdit itself: a mismatch is a
             // bug, logged and shown; the text was not touched.
-            Err(e) => {
+            Err(LineEditError::Compute(e)) => {
                 eprintln!("ERROR case: op={:?} selection not mapped onto the text: {:?}", op, e);
                 self.inform(&t("case.error.title"), &t("case.error.mapping").replace("{msg}", &format!("{:?}", e)));
             }
@@ -257,9 +258,11 @@ mod tests {
     fn convert_case_error_is_reported_to_the_user() {
         let body = src("case_ops.rs");
         let start = body.find("fn on_convert_case").expect("on_convert_case");
-        let err = start + body[start..].find("Err(e) =>").expect("Err branch");
+        let err = start + body[start..].find("Err(LineEditError::Compute(e)) =>").expect("Err branch");
         let tail = &body[err..err + body[err..].find("\n        }\n").expect("end of match")];
         assert!(tail.contains("self.inform(") && tail.contains("case.error.mapping"), "Err branch informs");
+        // An unreadable text (a lone surrogate) is told too.
+        assert!(body[start..err].contains("Err(LineEditError::Unreadable(e)) => self.tell_unreadable(\"convert_case\", &e),"));
     }
 
     #[test]
@@ -313,7 +316,6 @@ mod tests {
     #[test]
     fn live_whole_text_selection_with_minus_one_is_converted() {
         use super::super::line_ops::tests::live::{make, send};
-        use super::super::line_ops::LineEditSteps;
         let r = make("abc");
         send(r.ed, 0x00B1, 0, -1); // EM_SETSEL(0, -1): everything
         assert_eq!(run_line_edit(&r, |t, s| case_edit(t, s, CaseOp::Upper)), Ok(true));

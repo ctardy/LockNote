@@ -216,7 +216,8 @@ pub(super) fn delete_line_edit(text: &str, sel: (u32, u32)) -> Result<Option<Lin
 /// What applying a `LineEdit` does to the editor, so the sequence can be
 /// tested with a fake.
 pub(super) trait LineEditSteps {
-    fn text(&self) -> String;
+    /// The editor text, read strictly: the edit writes part of it back.
+    fn text(&self) -> Result<String, EditorTextError>;
     fn selection(&self) -> (u32, u32);
     fn select(&self, start: u32, end: u32);
     /// Close the current typing undo group, so the edit is its own step.
@@ -226,19 +227,29 @@ pub(super) trait LineEditSteps {
     fn mark_modified(&self);
 }
 
+/// Why `run_line_edit` changed nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum LineEditError<E> {
+    /// The editor text is not valid UTF-16 or could not be read: a copied
+    /// or moved line would not be the one in the editor.
+    Unreadable(EditorTextError),
+    /// `compute` failed.
+    Compute(E),
+}
+
 /// Read the text and the selection, compute the edit, apply it as one
 /// undoable replacement and mark the tab modified. Returns whether the text
 /// changed; on error nothing was touched.
 pub(super) fn run_line_edit<S, E>(
     s: &S,
     compute: impl FnOnce(&str, (u32, u32)) -> Result<Option<LineEdit>, E>,
-) -> Result<bool, E>
+) -> Result<bool, LineEditError<E>>
 where
     S: LineEditSteps,
 {
-    let text = s.text();
+    let text = s.text().map_err(LineEditError::Unreadable)?;
     let sel = s.selection();
-    let Some(edit) = compute(&text, sel)? else {
+    let Some(edit) = compute(&text, sel).map_err(LineEditError::Compute)? else {
         return Ok(false);
     };
     s.select(edit.start, edit.end);
@@ -263,7 +274,7 @@ pub(super) fn insert_at_selection<S: LineEditSteps>(s: &S, inserted: &str) {
 pub(super) struct EditorLineSteps<'a>(pub(super) &'a EditorForm);
 
 impl LineEditSteps for EditorLineSteps<'_> {
-    fn text(&self) -> String {
+    fn text(&self) -> Result<String, EditorTextError> {
         self.0.get_content()
     }
     /// (anchor, active end) through TOM: EM_GETSEL loses the direction.
@@ -299,9 +310,13 @@ impl LineEditSteps for EditorLineSteps<'_> {
 impl EditorForm {
     /// Alt+Up / Alt+Down.
     pub(super) fn on_move_lines(&self, up: bool) {
-        let r: Result<bool, std::convert::Infallible> =
+        let r: Result<bool, LineEditError<std::convert::Infallible>> =
             run_line_edit(&EditorLineSteps(self), |text, sel| Ok(move_lines_edit(text, sel, up)));
-        let Ok(changed) = r;
+        let changed = match r {
+            Ok(changed) => changed,
+            Err(LineEditError::Unreadable(e)) => return self.tell_unreadable("move_lines", &e),
+            Err(LineEditError::Compute(never)) => match never {},
+        };
         eprintln!("DEBUG lines: move up={} changed={}", up, changed);
         if changed {
             self.reset_occurrence_highlights();
@@ -323,7 +338,8 @@ impl EditorForm {
                     self.send_editor_message(0x00B7, 0, 0); // EM_SCROLLCARET
                 }
             }
-            Err(e) => {
+            Err(LineEditError::Unreadable(e)) => self.tell_unreadable(what, &e),
+            Err(LineEditError::Compute(e)) => {
                 eprintln!("ERROR lines: {} selection not mapped onto the text: {:?}", what, e);
                 self.inform(&t("lines.error.title"), &t("lines.error.mapping").replace("{msg}", &format!("{:?}", e)));
             }
@@ -352,7 +368,8 @@ impl EditorForm {
                     self.send_editor_message(0x00B7, 0, 0); // EM_SCROLLCARET
                 }
             }
-            Err(e) => {
+            Err(LineEditError::Unreadable(e)) => self.tell_unreadable("line_op", &e),
+            Err(LineEditError::Compute(e)) => {
                 eprintln!("ERROR lines: op={:?} failed: {:?}", op, e);
                 self.inform(&t("lines.error.title"), &t("lines.error.sort").replace("{msg}", &format!("{:?}", e)));
             }
@@ -642,17 +659,27 @@ pub(super) mod tests {
         pub(in crate::ui::editor) text: RefCell<String>,
         pub(in crate::ui::editor) sel: RefCell<(u32, u32)>,
         pub(in crate::ui::editor) log: RefCell<Vec<String>>,
+        /// When set, reading the text fails with it (a lone surrogate).
+        pub(in crate::ui::editor) unreadable: RefCell<Option<EditorTextError>>,
     }
 
     impl Fake {
         pub(in crate::ui::editor) fn new(text: &str, sel: (u32, u32)) -> Self {
-            Fake { text: RefCell::new(text.to_string()), sel: RefCell::new(sel), log: RefCell::new(Vec::new()) }
+            Fake {
+                text: RefCell::new(text.to_string()),
+                sel: RefCell::new(sel),
+                log: RefCell::new(Vec::new()),
+                unreadable: RefCell::new(None),
+            }
         }
     }
 
     impl LineEditSteps for Fake {
-        fn text(&self) -> String {
-            self.text.borrow().clone()
+        fn text(&self) -> Result<String, EditorTextError> {
+            match self.unreadable.borrow().clone() {
+                Some(e) => Err(e),
+                None => Ok(self.text.borrow().clone()),
+            }
         }
         fn selection(&self) -> (u32, u32) {
             *self.sel.borrow()
@@ -685,7 +712,7 @@ pub(super) mod tests {
     #[test]
     fn sequence_move_selects_replaces_once_then_restores_the_selection() {
         let f = Fake::new("one\r\ntwo\r\nthree", (5, 6));
-        let r: Result<bool, ()> = run_line_edit(&f, |t, s| Ok(move_lines_edit(t, s, true)));
+        let r: Result<bool, LineEditError<()>> = run_line_edit(&f, |t, s| Ok(move_lines_edit(t, s, true)));
         assert_eq!(r, Ok(true));
         assert_eq!(
             *f.log.borrow(),
@@ -722,10 +749,29 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn sequence_with_an_unreadable_text_touches_nothing() {
+        // A lone surrogate in the editor: duplicating, moving or sorting
+        // would write back a text that is not the editor's.
+        let err = EditorTextError::InvalidUtf16 { unit: 4, line: 2, count: 1 };
+        let f = Fake::new("one\r\ntwo", (5, 5));
+        *f.unreadable.borrow_mut() = Some(err.clone());
+        assert_eq!(run_line_edit(&f, duplicate_line_edit), Err(LineEditError::Unreadable(err.clone())));
+        assert_eq!(run_line_edit(&f, delete_line_edit), Err(LineEditError::Unreadable(err.clone())));
+        let r: Result<bool, LineEditError<()>> = run_line_edit(&f, |t, s| Ok(move_lines_edit(t, s, true)));
+        assert_eq!(r, Err(LineEditError::Unreadable(err.clone())));
+        assert_eq!(run_line_edit(&f, |t, s| line_op_edit(t, s, LineOp::SortAscending, ci)), Err(LineEditError::Unreadable(err)));
+        assert!(f.log.borrow().is_empty(), "{:?}", f.log.borrow());
+        assert_eq!(*f.text.borrow(), "one\r\ntwo");
+    }
+
+    #[test]
     fn sequence_op_error_touches_nothing() {
         let f = Fake::new("b\r\na", (0, 0));
         let failing = |_: &str| -> Result<String, String> { Err("x".into()) };
-        assert_eq!(run_line_edit(&f, |t, s| line_op_edit(t, s, LineOp::SortAscending, failing)), Err("x".to_string()));
+        assert_eq!(
+            run_line_edit(&f, |t, s| line_op_edit(t, s, LineOp::SortAscending, failing)),
+            Err(LineEditError::Compute("x".to_string()))
+        );
         assert!(f.log.borrow().is_empty());
         assert_eq!(*f.text.borrow(), "b\r\na");
     }
@@ -978,7 +1024,7 @@ pub(super) mod tests {
         let goto = fn_body(ed, "fn on_goto_line(");
         assert!(goto.contains("current_line(&text, self.editor.selection().start)"));
         assert!(goto.contains("self.apply_cursor_line(target_line - 1)"));
-        assert!(fn_body(ed, "fn apply_cursor_line(").contains("line_start_position(&self.get_content(), line)"));
+        assert!(fn_body(ed, "fn apply_cursor_line(").contains("line_start_position(&text, line)"));
 
         // The shared handler: highlights reset (the copy may carry one),
         // gutter width laid out again (the line count changed), caret
@@ -1037,7 +1083,7 @@ pub(super) mod tests {
         use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
         use windows::Win32::System::LibraryLoader::LoadLibraryW;
         use windows::Win32::UI::WindowsAndMessaging::{
-            CreateWindowExW, DestroyWindow, GetWindowTextLengthW, GetWindowTextW, SendMessageW, SetWindowTextW,
+            CreateWindowExW, DestroyWindow, SendMessageW, SetWindowTextW,
             WINDOW_EX_STYLE, WINDOW_STYLE, WS_CHILD, WS_POPUP,
         };
 
@@ -1083,6 +1129,12 @@ pub(super) mod tests {
         }
 
         impl Rich {
+            /// The control's text, which the tests expect to be valid
+            /// (an inherent method: `r.text()` in the asserts is this one).
+            pub(in crate::ui::editor) fn text(&self) -> String {
+                crate::ui::editor_text::read_strict(self.ed).expect("valid UTF-16")
+            }
+
             /// Shift+Right: the active end moves one character right.
             fn select_with_shift_right(&self) {
                 crate::ui::editor::tom::extend_selection_right(self.ed).expect("MoveRight");
@@ -1090,13 +1142,8 @@ pub(super) mod tests {
         }
 
         impl LineEditSteps for Rich {
-            fn text(&self) -> String {
-                unsafe {
-                    let len = GetWindowTextLengthW(self.ed) as usize;
-                    let mut buf = vec![0u16; len + 1];
-                    let n = GetWindowTextW(self.ed, &mut buf) as usize;
-                    String::from_utf16(&buf[..n]).expect("utf-16")
-                }
+            fn text(&self) -> Result<String, EditorTextError> {
+                crate::ui::editor_text::read_strict(self.ed)
             }
             /// (anchor, active end), as EditorLineSteps reads it.
             fn selection(&self) -> (u32, u32) {
@@ -1271,6 +1318,23 @@ pub(super) mod tests {
             assert_eq!(r.text(), "hi", "the timestamp only");
             undo(&r);
             assert_eq!(r.text(), "");
+        }
+
+        #[test]
+        fn live_line_edits_refuse_a_lone_surrogate_and_change_nothing() {
+            // Half of an emoji typed (WM_CHAR): RichEdit keeps it. Ctrl+D or
+            // Alt+Up would copy or move a line read with it replaced.
+            let r = make("one\r\ntwo");
+            send(r.ed, 0x00B1, usize::MAX >> 1, -1); // EM_SETSEL end
+            send(r.ed, 0x0102, 0xD83D, 0); // WM_CHAR
+            let before = crate::ui::editor_text::read_units(r.ed).expect("units").to_vec();
+            assert_eq!(before.last(), Some(&0xD83D), "RichEdit keeps the lone surrogate");
+            let refused = |res: Result<bool, LineEditError<Utf16RangeError>>| {
+                assert!(matches!(res, Err(LineEditError::Unreadable(EditorTextError::InvalidUtf16 { line: 2, count: 1, .. }))), "{res:?}");
+            };
+            refused(run_line_edit(&r, duplicate_line_edit));
+            refused(run_line_edit(&r, delete_line_edit));
+            assert_eq!(crate::ui::editor_text::read_units(r.ed).expect("units").to_vec(), before, "the editor changed");
         }
 
         #[test]

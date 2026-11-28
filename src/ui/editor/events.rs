@@ -567,7 +567,12 @@ impl EditorForm {
                             f2.tab_drag_over.set(None);
                         }
                         if f2.tab_drag.get().is_some() && idx != active_idx {
-                            super::tab_ops::switch_editor_tab(&f2.editor, &f2.tab_bar, |tb| tb.set_active(idx));
+                            if let Err(e) = super::tab_ops::switch_editor_tab(&f2.editor, &f2.tab_bar, |tb| tb.set_active(idx)) {
+                                // No drag either: the tab bar stays as it was.
+                                f2.tab_drag.set(None);
+                                f2.tell_unreadable("tab_click", &e);
+                                return Some(0);
+                            }
                             *f2.detected_encoding.borrow_mut() = "UTF-8".to_string();
                             f2.update_title();
                             f2.update_status_bar();
@@ -673,8 +678,12 @@ impl EditorForm {
                         let (en_msg, en_min, en_max) = (enlink.msg, enlink.chrg_min, enlink.chrg_max);
                         // React on WM_LBUTTONUP = 0x0202
                         if en_msg == 0x0202 {
-                            let text = f2.get_content();
-                            let resolved = link_text_range(&text, en_min, en_max);
+                            // Only a URL is cut out of it: the display text.
+                            let text = f2.display_content();
+                            let resolved = match &text {
+                                Ok(text) => link_text_range(text, en_min, en_max).map_err(|e| format!("{:?}", e)),
+                                Err(e) => Err(format!("{:?}", e)),
+                            };
                             if let Err(ref err) = resolved {
                                 eprintln!("en_link: invalid range err={:?}", err);
                             }

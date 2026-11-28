@@ -5,11 +5,12 @@
 // the window; the tests below drive the sequence with a recording fake.
 
 use crate::features::outline::{self, Heading};
+use crate::ui::editor_text::EditorTextError;
 
 /// What the sequence needs from the window.
 pub(super) trait HeadingSteps {
-    /// The text of the active tab.
-    fn text(&self) -> String;
+    /// The text of the active tab (display text: headings and lines only).
+    fn text(&self) -> Result<String, EditorTextError>;
     fn lock_epoch(&self) -> u64;
     /// Show the dialog; the index of the chosen heading, `None` if cancelled.
     fn pick(&mut self, headings: &[Heading]) -> Option<usize>;
@@ -27,11 +28,18 @@ pub(super) enum HeadingOutcome {
     Moved { line: u32 },
     /// The dialog returned an index outside the list (a bug): nothing done.
     BadIndex { index: usize, count: usize },
+    /// The editor text could not be read: no dialog, the caller tells the user.
+    Unreadable(EditorTextError),
 }
 
 pub(super) fn go_to_heading<S: HeadingSteps>(s: &mut S) -> HeadingOutcome {
     // Only the headings cross the dialog, not the tab's text.
-    let headings = outline::headings(&s.text());
+    let text = match s.text() {
+        Ok(text) => text,
+        Err(e) => return HeadingOutcome::Unreadable(e),
+    };
+    let headings = outline::headings(&text);
+    drop(text);
     let epoch = s.lock_epoch();
     let Some(index) = s.pick(&headings) else {
         return HeadingOutcome::Cancelled;
@@ -53,7 +61,7 @@ mod tests {
     /// Records the steps in order; `answer` is what the dialog returns,
     /// `lock_during_dialog` moves the epoch while it is open.
     struct Fake {
-        text: String,
+        text: Result<String, EditorTextError>,
         answer: Option<usize>,
         lock_during_dialog: bool,
         epoch: u64,
@@ -63,12 +71,12 @@ mod tests {
 
     impl Fake {
         fn new(text: &str, answer: Option<usize>) -> Self {
-            Fake { text: text.into(), answer, lock_during_dialog: false, epoch: 7, shown: Vec::new(), log: Vec::new() }
+            Fake { text: Ok(text.into()), answer, lock_during_dialog: false, epoch: 7, shown: Vec::new(), log: Vec::new() }
         }
     }
 
     impl HeadingSteps for Fake {
-        fn text(&self) -> String {
+        fn text(&self) -> Result<String, EditorTextError> {
             self.text.clone()
         }
         fn lock_epoch(&self) -> u64 {
@@ -141,6 +149,15 @@ mod tests {
         let table = crate::read_source(dir.join("palette_ops.rs"));
         assert!(table.contains("GotoHeading => &self.menu_edit_goto_heading,"));
         assert!(table.contains("GotoHeading => self.on_goto_heading(),"));
+    }
+
+    #[test]
+    fn an_unreadable_text_opens_no_dialog_and_moves_nothing() {
+        let mut f = Fake::new("", Some(0));
+        let err = EditorTextError::ReadFailed { expected: 3, copied: 0 };
+        f.text = Err(err.clone());
+        assert_eq!(go_to_heading(&mut f), HeadingOutcome::Unreadable(err));
+        assert!(f.log.is_empty(), "{:?}", f.log);
     }
 
     #[test]

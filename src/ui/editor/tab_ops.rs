@@ -129,7 +129,9 @@ impl EditorForm {
         if index == active || index >= count {
             return;
         }
-        switch_editor_tab(&self.editor, &self.tab_bar, |tb| tb.set_active(index));
+        if let Err(e) = switch_editor_tab(&self.editor, &self.tab_bar, |tb| tb.set_active(index)) {
+            return self.tell_unreadable("switch_tab", &e);
+        }
         *self.detected_encoding.borrow_mut() = "UTF-8".to_string();
         self.update_title();
         self.update_status_bar();
@@ -140,10 +142,15 @@ impl EditorForm {
     /// Drop of a dragged tab: reorder, keep the same tab active, mark the
     /// document modified (the tab order is saved in the payload).
     pub(super) fn on_tab_drop(&self, from: usize, to: usize) {
-        // Keep the active tab's stored text current before the reorder.
+        // Keep the active tab's stored text current before the reorder; a
+        // text that cannot be stored refuses the drop.
         let active = self.tab_bar.borrow().active_index();
-        let content = self.get_content();
+        let content = match self.get_content() {
+            Ok(text) => Zeroizing::new(text),
+            Err(e) => return self.tell_unreadable("tab_drop", &e),
+        };
         self.tab_bar.borrow_mut().set_tab_content(active, &content);
+        drop(content);
         let moved = self.tab_bar.borrow().move_tab(from, to);
         match moved {
             Ok(true) => {
@@ -171,10 +178,13 @@ impl EditorForm {
         let name = crate::features::tabs::default_name(crate::features::i18n::current_language(), tb.count() + 1);
         drop(tb);
         // Save current tab content, add the new tab and switch to it
-        switch_editor_tab(&self.editor, &self.tab_bar, |tb| {
+        let switched = switch_editor_tab(&self.editor, &self.tab_bar, |tb| {
             let idx = tb.add_tab(&name);
             tb.set_active(idx);
         });
+        if let Err(e) = switched {
+            return self.tell_unreadable("new_tab", &e);
+        }
         self.mark_modified();
         self.update_title();
         self.update_status_bar();
@@ -188,9 +198,21 @@ impl EditorForm {
     }
 
     pub(super) fn close_tab_at(&self, index: usize) {
-        let active = self.tab_bar.borrow().active_index();
-        // Save current editor content to the active tab before closing
-        let content = Zeroizing::new(self.get_content());
+        let (active, count) = {
+            let tb = self.tab_bar.borrow();
+            (tb.active_index(), tb.count())
+        };
+        // The last tab is never closed: nothing to read nor refuse.
+        if count <= 1 {
+            return;
+        }
+        // Save current editor content to the active tab before closing: the
+        // editor is reloaded from the tabs afterwards, whichever tab closes,
+        // so a text that cannot be stored refuses the close.
+        let content = match self.get_content() {
+            Ok(text) => Zeroizing::new(text),
+            Err(e) => return self.tell_unreadable("close_tab", &e),
+        };
         self.tab_bar.borrow_mut().set_tab_content(active, &content);
         drop(content);
 
@@ -257,7 +279,9 @@ impl EditorForm {
     }
 
     pub(super) fn on_next_tab(&self) {
-        switch_editor_tab(&self.editor, &self.tab_bar, |tb| tb.next_tab());
+        if let Err(e) = switch_editor_tab(&self.editor, &self.tab_bar, |tb| tb.next_tab()) {
+            return self.tell_unreadable("next_tab", &e);
+        }
         *self.detected_encoding.borrow_mut() = "UTF-8".to_string();
         self.update_title();
         self.update_status_bar();
@@ -266,7 +290,9 @@ impl EditorForm {
     }
 
     pub(super) fn on_prev_tab(&self) {
-        switch_editor_tab(&self.editor, &self.tab_bar, |tb| tb.prev_tab());
+        if let Err(e) = switch_editor_tab(&self.editor, &self.tab_bar, |tb| tb.prev_tab()) {
+            return self.tell_unreadable("prev_tab", &e);
+        }
         *self.detected_encoding.borrow_mut() = "UTF-8".to_string();
         self.update_title();
         self.update_status_bar();
@@ -434,9 +460,17 @@ impl super::compare_flow::CompareSteps for FormCompareSteps<'_> {
     fn texts(&self) -> Option<(Zeroizing<String>, Zeroizing<String>)> {
         // Copies: no tab bar borrow lives across the dialog.
         let tb = self.form.tab_bar.borrow();
-        let saved = tb.get_saved_content(tb.active_index())?;
+        let saved = Zeroizing::new(tb.get_saved_content(tb.active_index())?);
         drop(tb);
-        Some((Zeroizing::new(saved), Zeroizing::new(self.form.get_content())))
+        // A diff to read: the display text (a lone surrogate, which no save
+        // can have written, shows as U+FFFD on its line).
+        match self.form.display_content() {
+            Ok(current) => Some((saved, Zeroizing::new(current))),
+            Err(e) => {
+                eprintln!("ERROR compare: editor text unreadable err={:?}", e);
+                None
+            }
+        }
     }
     fn inform(&mut self, message: &str) {
         self.form.inform(&t("compare.title"), message);
@@ -536,8 +570,9 @@ pub(super) fn menu_label(name: &str) -> String {
 
 /// What a tab switch needs from the editor (a fake in the sequence tests).
 pub(super) trait TabEditor {
-    /// The text shown now: the active tab's, as edited.
-    fn current_text(&self) -> String;
+    /// The text shown now: the active tab's, as edited. Read strictly: it is
+    /// stored in the tab.
+    fn current_text(&self) -> Result<String, EditorTextError>;
     /// Show a tab's text in place of the current one, with an empty undo
     /// history.
     fn load_tab_text(&self, text: &str);
@@ -547,8 +582,8 @@ pub(super) trait TabEditor {
 const EM_EMPTYUNDOBUFFER: u32 = 0x00CD;
 
 impl TabEditor for nwg::RichTextBox {
-    fn current_text(&self) -> String {
-        self.text()
+    fn current_text(&self) -> Result<String, EditorTextError> {
+        crate::ui::editor_text::read_strict(crate::ui::editor_text::hwnd_of(self.handle))
     }
 
     /// All tabs share the one RichEdit, hence one undo history: an entry
@@ -578,19 +613,26 @@ impl TabEditor for nwg::RichTextBox {
 /// then that tab's text is loaded with an empty undo history. The tab bar
 /// is not borrowed while the editor takes the text: WM_SETTEXT notifies the
 /// window, whose handlers read the tabs.
+///
+/// A text that cannot be read strictly (a lone surrogate) stops the switch
+/// before anything changes: the tab bar, the active tab and the editor (its
+/// text and its undo history) are left as they were, and the caller tells
+/// the user. Storing a substitute would destroy the note at the next load.
 pub(super) fn switch_editor_tab(
     editor: &impl TabEditor,
     tabs: &RefCell<crate::ui::tab_bar::TabBar>,
     select: impl FnOnce(&crate::ui::tab_bar::TabBar),
-) {
-    let content = editor.current_text();
+) -> Result<(), EditorTextError> {
+    let content = Zeroizing::new(editor.current_text()?);
     let new_content = {
         let tb = tabs.borrow();
         tb.set_tab_content(tb.active_index(), &content);
         select(&tb);
         tb.get_tab_content(tb.active_index())
     };
+    drop(content);
     editor.load_tab_text(&new_content);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -603,11 +645,13 @@ mod tests {
     struct FakeEditor {
         text: RefCell<String>,
         log: RefCell<Vec<String>>,
+        /// When set, reading the text fails with it (a lone surrogate).
+        unreadable: Option<EditorTextError>,
     }
 
     impl FakeEditor {
         fn showing(text: &str) -> Self {
-            FakeEditor { text: RefCell::new(text.to_string()), log: RefCell::new(vec![]) }
+            FakeEditor { text: RefCell::new(text.to_string()), log: RefCell::new(vec![]), unreadable: None }
         }
         fn log(&self) -> Vec<String> {
             self.log.borrow().clone()
@@ -615,9 +659,12 @@ mod tests {
     }
 
     impl TabEditor for FakeEditor {
-        fn current_text(&self) -> String {
+        fn current_text(&self) -> Result<String, EditorTextError> {
             self.log.borrow_mut().push("read".to_string());
-            self.text.borrow().clone()
+            match &self.unreadable {
+                Some(e) => Err(e.clone()),
+                None => Ok(self.text.borrow().clone()),
+            }
         }
         fn load_tab_text(&self, text: &str) {
             self.log.borrow_mut().push(format!("load {text}"));
@@ -638,10 +685,37 @@ mod tests {
     fn switch_stores_the_left_tab_then_loads_the_new_active_one() {
         let tabs = RefCell::new(two_tabs());
         let ed = FakeEditor::showing("aaa typed");
-        switch_editor_tab(&ed, &tabs, |tb| tb.set_active(1));
+        switch_editor_tab(&ed, &tabs, |tb| tb.set_active(1)).expect("readable");
         assert_eq!(ed.log(), ["read", "load bbb"], "read before the change, one load after");
         assert_eq!(tabs.borrow().get_tab_content(0), "aaa typed", "the left tab keeps what was typed");
         assert_eq!(tabs.borrow().active_index(), 1);
+    }
+
+    #[test]
+    fn switch_with_an_unreadable_text_changes_nothing() {
+        // A lone surrogate in the editor: nothing is stored in the tab left,
+        // the active tab does not change, the editor is not reloaded (its
+        // text and undo history stay), and the error goes to the caller.
+        let err = EditorTextError::InvalidUtf16 { unit: 3, line: 1, count: 1 };
+        for select in [
+            (|tb: &TabBar| tb.set_active(1)) as fn(&TabBar),
+            |tb: &TabBar| tb.next_tab(),
+            |tb: &TabBar| tb.prev_tab(),
+            |tb: &TabBar| {
+                let i = tb.add_tab("Note 3");
+                tb.set_active(i);
+            },
+        ] {
+            let tabs = RefCell::new(two_tabs());
+            let mut ed = FakeEditor::showing("aaa typed");
+            ed.unreadable = Some(err.clone());
+            assert_eq!(switch_editor_tab(&ed, &tabs, select), Err(err.clone()));
+            assert_eq!(ed.log(), ["read"], "no load after a failed read");
+            let tb = tabs.borrow();
+            assert_eq!((tb.active_index(), tb.count()), (0, 2), "the tab bar changed");
+            assert_eq!(tb.get_tab_content(0), "stale A", "something was stored in the tab left");
+            assert_eq!(tb.get_tab_content(1), "bbb");
+        }
     }
 
     #[test]
@@ -650,10 +724,10 @@ mod tests {
         // must go to the tab it was typed in, not to the next one.
         let tabs = RefCell::new(two_tabs());
         let ed = FakeEditor::showing("typed in A");
-        switch_editor_tab(&ed, &tabs, |tb| tb.next_tab());
+        switch_editor_tab(&ed, &tabs, |tb| tb.next_tab()).expect("readable");
         assert_eq!(tabs.borrow().get_tab_content(0), "typed in A");
         assert_eq!(tabs.borrow().get_tab_content(1), "bbb");
-        switch_editor_tab(&ed, &tabs, |tb| tb.prev_tab());
+        switch_editor_tab(&ed, &tabs, |tb| tb.prev_tab()).expect("readable");
         assert_eq!(ed.log(), ["read", "load bbb", "read", "load typed in A"]);
     }
 
@@ -663,7 +737,7 @@ mod tests {
         let ed = FakeEditor::showing("aaa");
         switch_editor_tab(&ed, &tabs, |tb| {
             tb.add_tab("Note 3");
-        });
+        }).expect("readable");
         assert_eq!(ed.log(), ["read", "load "]);
         assert_eq!(tabs.borrow().active_index(), 2);
         assert_eq!(tabs.borrow().get_tab_content(0), "aaa");
@@ -675,7 +749,7 @@ mod tests {
         // tab and comes back unchanged.
         let tabs = RefCell::new(TabBar::new());
         let ed = FakeEditor::showing("only");
-        switch_editor_tab(&ed, &tabs, |tb| tb.next_tab());
+        switch_editor_tab(&ed, &tabs, |tb| tb.next_tab()).expect("readable");
         assert_eq!(ed.log(), ["read", "load only"]);
         assert_eq!(tabs.borrow().get_tab_content(0), "only");
     }
@@ -792,7 +866,7 @@ mod tests {
             type_at_end(&r.editor, "XYZ");
             assert_ne!(send(&r.editor, EM_CANUNDO, 0, 0), 0, "the typing is undoable in its tab");
 
-            switch_editor_tab(&r.editor, &tabs, |tb| tb.set_active(1));
+            switch_editor_tab(&r.editor, &tabs, |tb| tb.set_active(1)).expect("readable");
             assert_eq!(r.editor.text(), "bbb");
             undo_redo_keep(&r.editor, "bbb", "XYZ");
 
@@ -804,11 +878,11 @@ mod tests {
             type_at_end(&r.editor, "123");
 
             // Back to A: both tabs intact, A's history is not restored.
-            switch_editor_tab(&r.editor, &tabs, |tb| tb.set_active(0));
+            switch_editor_tab(&r.editor, &tabs, |tb| tb.set_active(0)).expect("readable");
             assert_eq!(r.editor.text(), "aaaXYZ");
             assert_eq!(tabs.borrow().get_tab_content(1), "bbb123");
             undo_redo_keep(&r.editor, "aaaXYZ", "123");
-            switch_editor_tab(&r.editor, &tabs, |tb| tb.next_tab());
+            switch_editor_tab(&r.editor, &tabs, |tb| tb.next_tab()).expect("readable");
             assert_eq!(r.editor.text(), "bbb123");
             assert_eq!(tabs.borrow().get_tab_content(0), "aaaXYZ");
         }
@@ -819,16 +893,16 @@ mod tests {
             type_at_end(&r.editor, "XYZ");
             switch_editor_tab(&r.editor, &tabs, |tb| {
                 tb.add_tab("Note 3");
-            });
+            }).expect("readable");
             assert_eq!(r.editor.text(), "");
             undo_redo_keep(&r.editor, "", "aaa");
 
             type_at_end(&r.editor, "ccc");
-            switch_editor_tab(&r.editor, &tabs, |tb| tb.prev_tab());
+            switch_editor_tab(&r.editor, &tabs, |tb| tb.prev_tab()).expect("readable");
             assert_eq!(r.editor.text(), "bbb");
             undo_redo_keep(&r.editor, "bbb", "ccc");
 
-            switch_editor_tab(&r.editor, &tabs, |tb| tb.next_tab());
+            switch_editor_tab(&r.editor, &tabs, |tb| tb.next_tab()).expect("readable");
             assert_eq!(r.editor.text(), "ccc");
             undo_redo_keep(&r.editor, "ccc", "bbb");
             assert_eq!(tabs.borrow().get_tab_content(0), "aaaXYZ");
@@ -846,6 +920,74 @@ mod tests {
             r.editor.load_tab_text(&next);
             assert_eq!(r.editor.text(), "bbb");
             undo_redo_keep(&r.editor, "bbb", "secret");
+        }
+
+        const WM_CHAR: u32 = 0x0102;
+
+        /// The editor's text as the UTF-16 units RichEdit holds, read with
+        /// GetWindowTextW (no decoding: a lone surrogate stays visible).
+        fn raw_units(ed: &nwg::RichTextBox) -> Vec<u16> {
+            let nwg::ControlHandle::Hwnd(h) = ed.handle else { panic!("the editor has no window handle") };
+            let hwnd = windows::Win32::Foundation::HWND(h as *mut _);
+            unsafe {
+                let len = windows::Win32::UI::WindowsAndMessaging::GetWindowTextLengthW(hwnd) as usize;
+                let mut buf = vec![0u16; len + 1];
+                let n = windows::Win32::UI::WindowsAndMessaging::GetWindowTextW(hwnd, &mut buf) as usize;
+                buf.truncate(n);
+                buf
+            }
+        }
+
+        #[test]
+        fn live_tab_switch_keeps_a_note_holding_a_lone_surrogate() {
+            // A lone high surrogate typed at the end (WM_CHAR, as half of an
+            // emoji sent by SendInput / an IME): RichEdit keeps it
+            // (measured). The switch must never put a substitute text in
+            // the tab left, nor in the editor when coming back.
+            let (r, tabs) = rig();
+            send(&r.editor, EM_SETSEL, usize::MAX >> 1, -1);
+            send(&r.editor, WM_CHAR, 0xD83D, 0);
+            let before = raw_units(&r.editor);
+            assert_eq!(before, [0x61, 0x61, 0x61, 0xD83D], "RichEdit holds the lone surrogate");
+
+            let refused = switch_editor_tab(&r.editor, &tabs, |tb| tb.set_active(1));
+            assert_eq!(refused, Err(EditorTextError::InvalidUtf16 { unit: 3, line: 1, count: 1 }));
+            let stored = tabs.borrow().get_tab_content(0);
+            assert!(stored == "aaa", "the tab left lost its text: {:?}", stored);
+            assert_eq!(tabs.borrow().active_index(), 0, "the active tab changed");
+            assert_eq!(raw_units(&r.editor), before, "the editor was reloaded");
+            assert_ne!(send(&r.editor, EM_CANUNDO, 0, 0), 0, "the undo history was emptied");
+
+            // The second half arrives (the emoji typed as two WM_CHAR): the
+            // same switch now goes through with the exact pair.
+            send(&r.editor, WM_CHAR, 0xDE00, 0);
+            switch_editor_tab(&r.editor, &tabs, |tb| tb.set_active(1)).expect("a whole emoji is valid");
+            assert_eq!(tabs.borrow().get_tab_content(0), "aaa\u{1F600}");
+            assert_eq!(raw_units(&r.editor), "bbb".encode_utf16().collect::<Vec<_>>());
+        }
+
+        #[test]
+        fn live_readers_refuse_half_an_emoji_then_read_the_whole_one() {
+            // An emoji typed as two WM_CHAR passes through a lone high
+            // surrogate: the strict reader refuses it, the display reader
+            // keeps every position, and both read the pair once complete.
+            let (r, _tabs) = rig();
+            let hwnd = crate::ui::editor_text::hwnd_of(r.editor.handle);
+            r.editor.load_tab_text("l1\r\nl2");
+            send(&r.editor, EM_SETSEL, usize::MAX >> 1, -1);
+            send(&r.editor, WM_CHAR, 0xD83D, 0);
+            assert_eq!(
+                crate::ui::editor_text::read_strict(hwnd),
+                Err(EditorTextError::InvalidUtf16 { unit: 6, line: 2, count: 1 })
+            );
+            let shown = crate::ui::editor_text::read_display(hwnd).expect("display");
+            assert_eq!(shown, "l1\r\nl2\u{FFFD}");
+            assert_eq!(shown.encode_utf16().count(), raw_units(&r.editor).len());
+            send(&r.editor, WM_CHAR, 0xDE00, 0);
+            assert_eq!(crate::ui::editor_text::read_strict(hwnd), Ok("l1\r\nl2\u{1F600}".to_string()));
+            // nwg's reader, which no code may use any more, said this.
+            send(&r.editor, WM_CHAR, 0xD83D, 0);
+            assert_eq!(r.editor.text(), "Decoding error", "nwg 1.0.13 behaviour this fix works around");
         }
 
         #[test]

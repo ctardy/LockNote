@@ -9,7 +9,7 @@
 
 #[allow(unused_imports)]
 use super::*;
-use super::indent::{line_end_at, line_start_at, FormIndentSteps, IndentSteps};
+use super::indent::{line_end_at, line_start_at, FormIndentSteps, IndentSteps, TextRead};
 
 /// The bullet of Ctrl+. and of bullet lists.
 pub(super) const BULLET: &str = "• ";
@@ -144,7 +144,16 @@ pub(super) fn checkbox_toggle(line: &str) -> LineEdit {
 /// then swallows the WM_CHAR that follows), false when the control must
 /// insert the break.
 pub(super) fn run_enter(steps: &mut impl IndentSteps) -> bool {
-    let text = steps.text();
+    let text = match steps.text() {
+        Ok(text) => text,
+        Err(err) => {
+            // As for a caret that does not map: the control's own Enter is
+            // harmless, and a dialog on every Enter would be worse. The
+            // save tells the user if the text cannot be stored.
+            eprintln!("ERROR list enter: native Enter, editor text unreadable err={:?}", err);
+            return false;
+        }
+    };
     let (s, e) = steps.selection();
     if s != e {
         return false;
@@ -180,7 +189,10 @@ pub(super) fn run_enter(steps: &mut impl IndentSteps) -> bool {
 /// Apply Ctrl+Enter to the line holding the start of the selection. The
 /// selection keeps its place in the text.
 pub(super) fn run_toggle_checkbox(steps: &mut impl IndentSteps) {
-    let text = steps.text();
+    let text = match steps.text() {
+        Ok(text) => text,
+        Err(err) => return steps.tell_unreadable(&err),
+    };
     let (s, e) = steps.selection();
     let len = utf16_len(&text) as u32;
     let (s, e) = (s.min(len), e.min(len));
@@ -220,12 +232,13 @@ impl EditorForm {
     pub(super) fn handle_enter_bullet(&self) -> bool {
         // A consumed key skips handle_shortcut, which resets the timer.
         self.autolock.borrow_mut().reset();
-        run_enter(&mut FormIndentSteps { form: self })
+        // Only markers are inserted or removed: the display text.
+        run_enter(&mut FormIndentSteps { form: self, read: TextRead::Display })
     }
 
     /// Toggle or insert the checkbox of the current line (Ctrl+Enter).
     pub(super) fn on_toggle_checkbox(&self) {
-        run_toggle_checkbox(&mut FormIndentSteps { form: self });
+        run_toggle_checkbox(&mut FormIndentSteps { form: self, read: TextRead::Display });
     }
 }
 
@@ -402,17 +415,19 @@ mod tests {
         Select(u32, u32),
         Replace(String),
         Modified,
+        Unreadable(EditorTextError),
     }
 
     struct Fake {
         text: String,
         sel: (u32, u32),
         calls: Vec<Call>,
+        unreadable: Option<EditorTextError>,
     }
 
     impl Fake {
         fn new(text: &str, s: u32, e: u32) -> Self {
-            Fake { text: text.to_string(), sel: (s, e), calls: Vec::new() }
+            Fake { text: text.to_string(), sel: (s, e), calls: Vec::new(), unreadable: None }
         }
         /// What the control does with an Enter the list logic left to it.
         fn native_enter(&mut self) {
@@ -437,8 +452,14 @@ mod tests {
     }
 
     impl IndentSteps for Fake {
-        fn text(&self) -> String {
-            self.text.clone()
+        fn text(&self) -> Result<String, EditorTextError> {
+            match &self.unreadable {
+                Some(e) => Err(e.clone()),
+                None => Ok(self.text.clone()),
+            }
+        }
+        fn tell_unreadable(&mut self, e: &EditorTextError) {
+            self.calls.push(Call::Unreadable(e.clone()));
         }
         fn selection(&self) -> (u32, u32) {
             self.sel
@@ -459,6 +480,18 @@ mod tests {
         fn mark_modified(&mut self) {
             self.calls.push(Call::Modified);
         }
+    }
+
+    #[test]
+    fn seq_unreadable_text_leaves_enter_to_the_control_and_tells_on_ctrl_enter() {
+        let err = EditorTextError::ReadFailed { expected: 7, copied: 0 };
+        let mut f = Fake::new("1. eggs", 7, 7);
+        f.unreadable = Some(err.clone());
+        assert!(!run_enter(&mut f), "Enter goes to the control, no dialog");
+        assert!(f.calls.is_empty(), "{:?}", f.calls);
+        run_toggle_checkbox(&mut f);
+        assert_eq!(f.calls, vec![Call::Unreadable(err)]);
+        assert_eq!(f.text, "1. eggs");
     }
 
     #[test]

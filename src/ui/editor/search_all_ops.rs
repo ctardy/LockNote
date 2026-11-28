@@ -21,8 +21,9 @@ pub(super) trait SearchAllSteps {
     fn input_blocked(&self) -> bool;
     fn epoch(&self) -> u64;
     fn still_valid(&self, epoch: u64) -> bool;
-    /// The copy the dialog searches (no borrow kept).
-    fn collect_sources(&self) -> Sources;
+    /// The copy the dialog searches (no borrow kept); `None` when it could
+    /// not be made (the window told the user).
+    fn collect_sources(&self) -> Option<Sources>;
     /// Show the dialog; the result the user activated, if any.
     fn show_dialog(&self, sources: Sources) -> Option<Hit>;
     /// Show tab `tab` and select `start..end` (RichEdit positions).
@@ -39,7 +40,7 @@ pub(super) fn run<S: SearchAllSteps>(s: &S) {
         return;
     }
     let epoch = s.epoch();
-    let sources = s.collect_sources();
+    let Some(sources) = s.collect_sources() else { return };
     let Some(hit) = s.show_dialog(sources) else { return };
     // A lock (curtain) while the dialog was open: the answer is dropped.
     if !s.still_valid(epoch) || s.input_blocked() {
@@ -77,11 +78,23 @@ impl SearchAllSteps for FormSearchAllSteps<'_> {
     fn still_valid(&self, epoch: u64) -> bool {
         self.form.still_valid(epoch)
     }
-    fn collect_sources(&self) -> Sources {
-        self.form.search_all_sources()
+    fn collect_sources(&self) -> Option<Sources> {
+        match self.form.search_all_sources() {
+            Ok(sources) => Some(sources),
+            Err(e) => {
+                self.form.tell_unreadable("search_all", &e);
+                None
+            }
+        }
     }
     fn show_dialog(&self, sources: Sources) -> Option<Hit> {
-        let selection = self.form.current_selection_text();
+        let selection = match self.form.current_selection_text() {
+            Ok(selection) => selection,
+            Err(e) => {
+                self.form.tell_unreadable("search_all", &e);
+                return None;
+            }
+        };
         let initial = sa::initial_query(&selection);
         crate::ui::dialogs::search_all::SearchAllDialog::show(sources, initial, Some(self.form.window.handle))
     }
@@ -104,14 +117,16 @@ impl EditorForm {
 
     /// Copy what the dialog searches: every tab (the active one from the
     /// editor), the vault names and categories (no value), the prompts.
-    fn search_all_sources(&self) -> Sources {
+    fn search_all_sources(&self) -> Result<Sources, EditorTextError> {
         let active = self.tab_bar.borrow().active_index();
         let all = self.tab_bar.borrow().all_tabs();
         let mut tabs = Vec::with_capacity(all.len());
         for (i, mut tab) in all.into_iter().enumerate() {
             // Moved, not copied: the tab's own buffer is wiped with the copy.
             let stored = zeroize::Zeroizing::new(std::mem::take(&mut tab.content));
-            let text = if i == active { zeroize::Zeroizing::new(self.get_content()) } else { stored };
+            // Searched and shown only: the display text of the editor (a
+            // match's positions are the RichEdit's, one unit per unit).
+            let text = if i == active { zeroize::Zeroizing::new(self.display_content()?) } else { stored };
             tabs.push(sa::TabText { name: std::mem::take(&mut tab.name), text });
         }
         // SecretEntry clones are wiped when dropped, at the end of this map.
@@ -123,7 +138,7 @@ impl EditorForm {
             .collect();
         let prompts = self.prompts_panel.get_prompts();
         eprintln!("INFO search_all: dialog tabs={} vault={} prompts={}", tabs.len(), self.vault_panel.count(), prompts.len());
-        Sources { tabs, vault, prompts }
+        Ok(Sources { tabs, vault, prompts })
     }
 
     /// Show tab `tab` (as the tab list does) and select the match.
@@ -141,13 +156,12 @@ impl EditorForm {
             return;
         };
         if tab != active {
-            let content = self.get_content();
-            let tb = self.tab_bar.borrow_mut();
-            tb.set_tab_content(active, &content);
-            tb.set_active(tab);
-            let new_content = tb.get_tab_content(tab);
-            drop(tb);
-            self.editor.set_text(&new_content);
+            // As the tab list switches: a text that cannot be stored stops
+            // here, nothing changed (and the undo history is not carried
+            // from one tab to the other).
+            if let Err(e) = super::tab_ops::switch_editor_tab(&self.editor, &self.tab_bar, |tb| tb.set_active(tab)) {
+                return self.tell_unreadable("search_all_go_to_tab", &e);
+            }
             *self.detected_encoding.borrow_mut() = "UTF-8".to_string();
             self.update_title();
             self.update_status_bar();
@@ -219,11 +233,20 @@ mod tests {
         epoch: Cell<u64>,
         lock_in_dialog: bool,
         answer: Option<Hit>,
+        /// The editor text cannot be read: no sources (the window told the user).
+        unreadable: bool,
     }
 
     impl Fake {
         fn new(answer: Option<Hit>) -> Self {
-            Fake { log: RefCell::new(Vec::new()), blocked: Cell::new(false), epoch: Cell::new(7), lock_in_dialog: false, answer }
+            Fake {
+                log: RefCell::new(Vec::new()),
+                blocked: Cell::new(false),
+                epoch: Cell::new(7),
+                lock_in_dialog: false,
+                answer,
+                unreadable: false,
+            }
         }
         fn log(&self) -> Vec<String> {
             self.log.borrow().clone()
@@ -243,13 +266,16 @@ mod tests {
         fn still_valid(&self, epoch: u64) -> bool {
             epoch == self.epoch.get()
         }
-        fn collect_sources(&self) -> Sources {
+        fn collect_sources(&self) -> Option<Sources> {
             self.push("collect");
-            Sources {
+            if self.unreadable {
+                return None;
+            }
+            Some(Sources {
                 tabs: vec![sa::TabText { name: "A".into(), text: zeroize::Zeroizing::new("x".into()) }],
                 vault: Vec::new(),
                 prompts: Vec::new(),
-            }
+            })
         }
         fn show_dialog(&self, sources: Sources) -> Option<Hit> {
             self.push(format!("dialog tabs={}", sources.tabs.len()));
@@ -297,6 +323,14 @@ mod tests {
     }
 
     #[test]
+    fn without_sources_no_dialog_opens() {
+        let mut f = Fake::new(Some(tab_hit()));
+        f.unreadable = true;
+        run(&f);
+        assert_eq!(f.log(), ["collect"]);
+    }
+
+    #[test]
     fn closing_the_dialog_changes_nothing() {
         let f = Fake::new(None);
         run(&f);
@@ -328,7 +362,7 @@ mod tests {
             fn input_blocked(&self) -> bool { self.0.input_blocked() }
             fn epoch(&self) -> u64 { self.0.epoch() }
             fn still_valid(&self, epoch: u64) -> bool { self.0.still_valid(epoch) }
-            fn collect_sources(&self) -> Sources { self.0.collect_sources() }
+            fn collect_sources(&self) -> Option<Sources> { self.0.collect_sources() }
             fn show_dialog(&self, sources: Sources) -> Option<Hit> {
                 let hit = self.0.show_dialog(sources);
                 self.0.epoch.set(self.0.epoch.get() + 1);

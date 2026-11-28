@@ -280,6 +280,13 @@ text in the window; **Close without saving** closes and the unsaved changes
 are lost. The SSH keys loaded into ssh-agent by this file were already
 removed at that point; load them again if you keep LockNote open.
 
+**Invalid character.** Another program can type or paste half of an emoji
+or symbol into the editor. LockNote cannot store such a character. A save,
+a tab switch, an export, a backup and the commands that rewrite text then
+stop with an "Invalid character" message that gives its line, and nothing
+is written. The character may show as an empty box, or not at all: delete
+it on that line, then try again.
+
 ## 7. Tabs
 
 **What it does.** One LockNote file holds up to 20 tabs, each with its own

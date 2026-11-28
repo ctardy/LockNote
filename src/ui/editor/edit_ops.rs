@@ -154,7 +154,14 @@ impl EditorForm {
     /// Nothing is copied: copying stays an explicit user action (Ctrl+C).
     pub(super) fn on_dblclick_expand_selection(&self) {
         let sel = self.editor.selection();
-        let text = self.get_content();
+        // Only a selection is set: the display text keeps every position.
+        let text = match self.display_content() {
+            Ok(text) => text,
+            Err(e) => {
+                eprintln!("ERROR dblclick: native selection kept, editor text unreadable err={:?}", e);
+                return;
+            }
+        };
         match dblclick_target(&text, sel.start, sel.end) {
             Some((start, end)) => {
                 eprintln!("DEBUG dblclick: native={}..{} widened={}..{}", sel.start, sel.end, start, end);
@@ -301,7 +308,13 @@ impl EditorForm {
     pub(super) fn on_select_all(&self) {
         // RichEdit positions are UTF-16 units; nwg's len() counts chars and
         // would stop short of the end after an emoji.
-        let len = utf16_len(&self.get_content()) as u32;
+        let len = match self.display_content() {
+            Ok(text) => utf16_len(&text) as u32,
+            Err(e) => {
+                self.tell_unreadable("select_all", &e);
+                return;
+            }
+        };
         self.editor.set_selection(0..len);
     }
 
@@ -320,7 +333,15 @@ impl EditorForm {
         const BULLET: &str = "• ";
         const BULLET_U16: u32 = 2; // "• " is 1 code unit for the bullet + 1 for the space
 
-        let text = self.get_content();
+        // Positions only; what is inserted or removed is the bullet itself,
+        // never text read here: the display text is enough.
+        let text = match self.display_content() {
+            Ok(text) => text,
+            Err(e) => {
+                self.tell_unreadable("toggle_bullet", &e);
+                return;
+            }
+        };
         let sel = self.editor.selection();
         let (byte_caret, _) = utf16_range_to_byte_range(&text, sel.start as usize, sel.start as usize);
 
@@ -365,7 +386,10 @@ impl EditorForm {
     pub(super) fn on_show_find(&self) {
         use nwg::ControlHandle;
         if let ControlHandle::Hwnd(hwnd) = self.editor.handle {
-            let initial = self.current_selection_text();
+            let initial = match self.current_selection_text() {
+                Ok(initial) => initial,
+                Err(e) => return self.tell_unreadable("find", &e),
+            };
             crate::ui::dialogs::find_replace::FindReplaceDialog::show(hwnd as isize, false, &initial);
         }
     }
@@ -374,7 +398,10 @@ impl EditorForm {
     pub(super) fn on_show_replace(&self) {
         use nwg::ControlHandle;
         if let ControlHandle::Hwnd(hwnd) = self.editor.handle {
-            let initial = self.current_selection_text();
+            let initial = match self.current_selection_text() {
+                Ok(initial) => initial,
+                Err(e) => return self.tell_unreadable("replace", &e),
+            };
             crate::ui::dialogs::find_replace::FindReplaceDialog::show(hwnd as isize, true, &initial);
         }
     }
@@ -384,15 +411,17 @@ impl EditorForm {
         self.editor.set_focus();
     }
 
-    /// Return the currently selected text in the editor, or empty if nothing is selected.
-    pub(super) fn current_selection_text(&self) -> String {
-        let text = self.get_content();
+    /// Return the currently selected text in the editor, or empty if nothing
+    /// is selected. Display text (a lone surrogate shows as U+FFFD): it
+    /// seeds a search box or is printed, never stored nor written back.
+    pub(super) fn current_selection_text(&self) -> Result<String, EditorTextError> {
+        let text = self.display_content()?;
         let sel = self.editor.selection();
         let (start_b, end_b) = utf16_range_to_byte_range(&text, sel.start as usize, sel.end as usize);
         if start_b < end_b && end_b <= text.len() {
-            text[start_b..end_b].to_string()
+            Ok(text[start_b..end_b].to_string())
         } else {
-            String::new()
+            Ok(String::new())
         }
     }
 
@@ -402,10 +431,11 @@ impl EditorForm {
 
     /// Snapshot the per-session state (active tab + caret line) to persist
     /// in the payload on the next save.
-    pub(super) fn capture_session_state(&self) -> crate::features::session_state::SessionState {
+    /// The caret line is counted on the display text (positions only).
+    pub(super) fn capture_session_state(&self) -> Result<crate::features::session_state::SessionState, EditorTextError> {
         let active_tab = self.tab_bar.borrow().active_index();
 
-        let text = self.get_content();
+        let text = self.display_content()?;
         let sel = self.editor.selection();
         let (byte_pos, _) =
             utf16_range_to_byte_range(&text, sel.start as usize, sel.start as usize);
@@ -413,12 +443,12 @@ impl EditorForm {
             .matches('\n')
             .count() as u32;
 
-        crate::features::session_state::SessionState {
+        Ok(crate::features::session_state::SessionState {
             active_tab,
             cursor_line,
             agent_keys: self.ssh_agent_keys.borrow().clone(),
             ..Default::default()
-        }
+        })
     }
 
     /// Load a decrypted payload (after decompression and `Settings::parse`)
@@ -467,7 +497,14 @@ impl EditorForm {
     /// Move the caret to the first column of the given zero-based line and
     /// scroll it into view. Out-of-range lines are clamped to the document.
     pub(super) fn apply_cursor_line(&self, line: u32) {
-        let pos = line_start_position(&self.get_content(), line);
+        let text = match self.display_content() {
+            Ok(text) => text,
+            Err(e) => {
+                eprintln!("ERROR goto: caret not moved to line={}, editor text unreadable err={:?}", line, e);
+                return;
+            }
+        };
+        let pos = line_start_position(&text, line);
         self.editor.set_selection(pos..pos);
         self.editor.set_focus();
         self.send_editor_message(0x00B7, 0, 0); // EM_SCROLLCARET
@@ -476,7 +513,10 @@ impl EditorForm {
     pub(super) fn on_goto_line(&self) {
         use crate::ui::dialogs::goto_line::GoToLineDialog;
 
-        let text = self.get_content();
+        let text = match self.display_content() {
+            Ok(text) => text,
+            Err(e) => return self.tell_unreadable("goto_line", &e),
+        };
         let max_lines = text.split('\n').count().max(1) as u32;
         let current = current_line(&text, self.editor.selection().start);
 
@@ -494,6 +534,7 @@ impl EditorForm {
             HeadingOutcome::BadIndex { index, count } => {
                 eprintln!("ERROR outline: dialog returned index={} for count={}, caret not moved", index, count);
             }
+            HeadingOutcome::Unreadable(e) => self.tell_unreadable("goto_heading", &e),
             outcome => eprintln!("INFO outline: go to heading {:?}", outcome),
         }
     }
@@ -521,8 +562,9 @@ struct FormHeadingSteps<'a> {
 }
 
 impl super::heading_flow::HeadingSteps for FormHeadingSteps<'_> {
-    fn text(&self) -> String {
-        self.form.get_content()
+    /// Headings and their lines only: the display text.
+    fn text(&self) -> Result<String, EditorTextError> {
+        self.form.display_content()
     }
     fn lock_epoch(&self) -> u64 {
         self.form.lock_epoch()

@@ -51,9 +51,17 @@ impl EditorForm {
             }
         }
 
-        // Calculate gutter width based on paragraph count (real lines, not visual)
-        let text = self.editor.text();
-        let total_paragraphs = if text.is_empty() { 1 } else { text.matches('\n').count() + 1 };
+        // Calculate gutter width based on paragraph count (real lines, not
+        // visual). Only "\n" is counted: the raw units are enough, a lone
+        // surrogate changes nothing. A failed read keeps one line's width
+        // and is logged: the controls are still laid out.
+        let total_paragraphs = match crate::ui::editor_text::read_units(crate::ui::editor_text::hwnd_of(self.editor.handle)) {
+            Ok(units) => units.iter().filter(|&&u| u == u16::from(b'\n')).count() + 1,
+            Err(e) => {
+                eprintln!("ERROR layout: gutter sized for one line, editor text unreadable err={:?}", e);
+                1
+            }
+        };
         let show_line_numbers = self.settings.borrow().show_line_numbers;
         // Digits as wide as the gutter draws them (the zoom included, A2);
         // measured only when the gutter is shown.

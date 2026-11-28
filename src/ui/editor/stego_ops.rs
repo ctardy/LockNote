@@ -80,7 +80,10 @@ impl EditorForm {
             return;
         }
         // Step 4: Encrypt current tab content and embed
-        let content = Zeroizing::new(self.get_content());
+        let content = match self.get_content() {
+            Ok(text) => Zeroizing::new(text),
+            Err(e) => return self.tell_unreadable("stego_hide", &e),
+        };
         let encrypted = match crate::crypto::encrypt(
             &content,
             &password,
@@ -201,11 +204,16 @@ impl EditorForm {
                             .map(str::to_string)
                             .unwrap_or_else(|| t("stego.extracted_tab"));
                         // Save current tab content, switch to the new tab
-                        super::tab_ops::switch_editor_tab(&self.editor, &self.tab_bar, |tb| {
+                        let switched = super::tab_ops::switch_editor_tab(&self.editor, &self.tab_bar, |tb| {
                             let idx = tb.add_tab(&tab_name);
                             tb.set_tab_content(idx, &plaintext);
                             tb.set_active(idx);
                         });
+                        if let Err(e) = switched {
+                            // No tab was added: the extracted text is not
+                            // opened, the user can extract it again.
+                            return self.tell_unreadable("stego_open", &e);
+                        }
                         self.mark_modified();
                         self.update_title();
                         self.update_status_bar();

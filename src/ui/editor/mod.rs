@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use zeroize::Zeroizing;
+use crate::ui::editor_text::EditorTextError;
 
 
 /// The text of an i18n key in the current language.

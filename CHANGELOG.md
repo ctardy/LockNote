@@ -106,6 +106,26 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   TOTP secrets) and the decrypted note no longer leave copies behind (#41).
 
 ### Fixed
+- **A note holding half of an emoji was saved as "Decoding error"**: the
+  editor can hold an invalid character, half of an emoji or symbol (an
+  unpaired surrogate). It can get there when another program types or
+  pastes such a character, and it is there for a moment while an emoji is
+  typed as its two halves. The
+  editor text was then read as the literal "Decoding error". A save,
+  autosave, the close or lock save, a safety backup, a backup export, a
+  text export or a steganography image wrote that string in place of the
+  tab. A tab switch, a new tab, closing a tab, dragging a tab or going to a
+  Search All result replaced the tab in memory, with no undo, and the next
+  save made it permanent. Now these actions are refused and a message names
+  the line of the character and says that nothing was written: delete that
+  character, then try again. Regex Find and Replace, the line commands
+  (Ctrl+D, Ctrl+Shift+K, Alt+Up/Down, Edit > Lines, Convert Case) and
+  Tab / Shift+Tab on a selection are refused the same way, because they
+  would write the character back changed. The counters, the line numbers,
+  highlights, Go to Line, printing and Search All show such a character as
+  the replacement mark U+FFFD and keep working. Going to a Search All
+  result in another tab now also starts that tab with an empty undo
+  history, as a tab click does.
 - **Duplicate Line, Delete Line, Insert Timestamp and Go to Line with
   accents, emoji or several lines**: these commands counted positions in
   bytes, where the editor counts characters and a line break as one.

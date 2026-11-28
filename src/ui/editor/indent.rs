@@ -175,7 +175,10 @@ fn byte_at_clamped(text: &str, pos: u32) -> Result<usize, Utf16RangeError> {
 
 /// What `run_indent` (and `lists.rs`) needs from the editor.
 pub(super) trait IndentSteps {
-    fn text(&self) -> String;
+    /// The editor text (strict for Tab / Shift+Tab, see `TextRead`).
+    fn text(&self) -> Result<String, EditorTextError>;
+    /// The text could not be read: nothing was changed, tell the user.
+    fn tell_unreadable(&mut self, e: &EditorTextError);
     /// The selection in RichEdit positions.
     fn selection(&self) -> (u32, u32);
     fn set_selection(&mut self, start: u32, end: u32);
@@ -193,7 +196,15 @@ pub(super) fn run_indent(steps: &mut impl IndentSteps, dir: IndentDir) -> bool {
     if dir == IndentDir::In && s == e {
         return false;
     }
-    let text = steps.text();
+    let text = match steps.text() {
+        Ok(text) => text,
+        Err(err) => {
+            // Consumed without change: the indented lines are rebuilt from
+            // the text read, which would not be the editor's.
+            steps.tell_unreadable(&err);
+            return true;
+        }
+    };
     match block_indent(&text, s, e, dir) {
         Ok(IndentAction::Native) => false,
         Ok(IndentAction::Apply { replace: None, select }) => {
@@ -220,14 +231,32 @@ pub(super) fn run_indent(steps: &mut impl IndentSteps, dir: IndentDir) -> bool {
     }
 }
 
+/// How `FormIndentSteps` reads the editor text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum TextRead {
+    /// Tab / Shift+Tab rewrite the selected lines from the text read: a
+    /// lone surrogate refuses the edit (`EditorForm::get_content`).
+    Strict,
+    /// The list keys insert or remove markers only and use the text for
+    /// positions (`EditorForm::display_content`).
+    Display,
+}
+
 /// The editor behind `IndentSteps`.
 pub(super) struct FormIndentSteps<'a> {
     pub(super) form: &'a EditorForm,
+    pub(super) read: TextRead,
 }
 
 impl IndentSteps for FormIndentSteps<'_> {
-    fn text(&self) -> String {
-        self.form.get_content()
+    fn text(&self) -> Result<String, EditorTextError> {
+        match self.read {
+            TextRead::Strict => self.form.get_content(),
+            TextRead::Display => self.form.display_content(),
+        }
+    }
+    fn tell_unreadable(&mut self, e: &EditorTextError) {
+        self.form.tell_unreadable("indent", e);
     }
     fn selection(&self) -> (u32, u32) {
         let sel = self.form.editor.selection();
@@ -251,7 +280,7 @@ impl EditorForm {
         // A consumed key skips handle_shortcut, which resets the timer.
         self.autolock.borrow_mut().reset();
         let dir = if outdent { IndentDir::Out } else { IndentDir::In };
-        run_indent(&mut FormIndentSteps { form: self }, dir)
+        run_indent(&mut FormIndentSteps { form: self, read: TextRead::Strict }, dir)
     }
 }
 
@@ -500,6 +529,22 @@ mod tests {
         Select(u32, u32),
         Replace(String),
         Modified,
+        Unreadable(EditorTextError),
+    }
+
+    #[test]
+    fn seq_unreadable_text_is_told_consumed_and_changes_nothing() {
+        // A lone surrogate in the editor: the lines would be rebuilt from a
+        // text that is not the editor's. The key is consumed (no native tab
+        // replacing the selection) and the user is told once.
+        let err = EditorTextError::InvalidUtf16 { unit: 2, line: 1, count: 1 };
+        for dir in [IndentDir::In, IndentDir::Out] {
+            let mut f = Fake::new("ab\ncd", 0, 4);
+            f.unreadable = Some(err.clone());
+            assert!(run_indent(&mut f, dir), "{dir:?}: the key must be consumed");
+            assert_eq!(f.calls, vec![Call::Unreadable(err.clone())], "{dir:?}");
+            assert_eq!(f.text, "ab\ncd");
+        }
     }
 
     struct Fake {
@@ -507,18 +552,25 @@ mod tests {
         sel: (u32, u32),
         calls: Vec<Call>,
         text_reads: std::cell::Cell<usize>,
+        unreadable: Option<EditorTextError>,
     }
 
     impl Fake {
         fn new(text: &str, s: u32, e: u32) -> Self {
-            Fake { text: text.to_string(), sel: (s, e), calls: Vec::new(), text_reads: Default::default() }
+            Fake { text: text.to_string(), sel: (s, e), calls: Vec::new(), text_reads: Default::default(), unreadable: None }
         }
     }
 
     impl IndentSteps for Fake {
-        fn text(&self) -> String {
+        fn text(&self) -> Result<String, EditorTextError> {
             self.text_reads.set(self.text_reads.get() + 1);
-            self.text.clone()
+            match &self.unreadable {
+                Some(e) => Err(e.clone()),
+                None => Ok(self.text.clone()),
+            }
+        }
+        fn tell_unreadable(&mut self, e: &EditorTextError) {
+            self.calls.push(Call::Unreadable(e.clone()));
         }
         fn selection(&self) -> (u32, u32) {
             self.sel

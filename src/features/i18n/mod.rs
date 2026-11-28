@@ -782,6 +782,11 @@ fn build_en() -> Dict {
 
     // Save/error
     m.insert("save.error.title", "Save Error");
+    m.insert("editor.text.title", "Invalid character");
+    m.insert("editor.text.invalid", "Line {line} of this tab holds an invalid character: half of an emoji or symbol ({count} in all), which LockNote cannot store. The action was cancelled and nothing was written.\n\nDelete that character (it may show as an empty box, or not at all), then try again.");
+    m.insert("editor.text.unreadable", "LockNote could not read the text of the editor. The action was cancelled and nothing was written.");
+    m.insert("editor.text.invalid.short", "Invalid character on line {line}: delete it first");
+    m.insert("editor.text.unreadable.short", "The editor text could not be read");
     m.insert("save.error.msg", "Failed to save: {}");
     m.insert("export.success.title", "Export");
     m.insert("export.success.msg", "Note exported to:\n{}");
@@ -1501,6 +1506,11 @@ fn build_fr() -> Dict {
     m.insert("drop.directory", "Les dossiers ne peuvent pas \u{00ea}tre d\u{00e9}pos\u{00e9}s dans LockNote. D\u{00e9}posez plut\u{00f4}t des fichiers individuels.");
 
     m.insert("save.error.title", "Erreur de sauvegarde");
+    m.insert("editor.text.title", "Caract\u{00e8}re invalide");
+    m.insert("editor.text.invalid", "La ligne {line} de cet onglet contient un caract\u{00e8}re invalide : la moiti\u{00e9} d'un emoji ou d'un symbole ({count} en tout), que LockNote ne peut pas enregistrer. L'action a \u{00e9}t\u{00e9} annul\u{00e9}e et rien n'a \u{00e9}t\u{00e9} \u{00e9}crit.\n\nSupprimez ce caract\u{00e8}re (il peut appara\u{00ee}tre comme une case vide, ou pas du tout), puis r\u{00e9}essayez.");
+    m.insert("editor.text.unreadable", "LockNote n'a pas pu lire le texte de l'\u{00e9}diteur. L'action a \u{00e9}t\u{00e9} annul\u{00e9}e et rien n'a \u{00e9}t\u{00e9} \u{00e9}crit.");
+    m.insert("editor.text.invalid.short", "Caract\u{00e8}re invalide ligne {line} : supprimez-le d'abord");
+    m.insert("editor.text.unreadable.short", "Le texte de l'\u{00e9}diteur n'a pas pu \u{00ea}tre lu");
     m.insert("save.error.msg", "\u{00c9}chec de la sauvegarde : {}");
     m.insert("export.success.title", "Exportation");
     m.insert("export.success.msg", "Note export\u{00e9}e vers :\n{}");
@@ -2216,6 +2226,11 @@ fn build_es() -> Dict {
     m.insert("drop.directory", "No se pueden soltar carpetas en LockNote. Suelta archivos individuales.");
 
     m.insert("save.error.title", "Error al guardar");
+    m.insert("editor.text.title", "Car\u{00e1}cter no v\u{00e1}lido");
+    m.insert("editor.text.invalid", "La l\u{00ed}nea {line} de esta pesta\u{00f1}a contiene un car\u{00e1}cter no v\u{00e1}lido: la mitad de un emoji o s\u{00ed}mbolo ({count} en total), que LockNote no puede guardar. La acci\u{00f3}n se cancel\u{00f3} y no se escribi\u{00f3} nada.\n\nElimine ese car\u{00e1}cter (puede verse como un cuadro vac\u{00ed}o, o no verse) y vuelva a intentarlo.");
+    m.insert("editor.text.unreadable", "LockNote no pudo leer el texto del editor. La acci\u{00f3}n se cancel\u{00f3} y no se escribi\u{00f3} nada.");
+    m.insert("editor.text.invalid.short", "Car\u{00e1}cter no v\u{00e1}lido en la l\u{00ed}nea {line}: elim\u{00ed}nelo primero");
+    m.insert("editor.text.unreadable.short", "No se pudo leer el texto del editor");
     m.insert("save.error.msg", "Error al guardar: {}");
     m.insert("export.success.title", "Exportaci\u{00f3}n");
     m.insert("export.success.msg", "Nota exportada a:\n{}");
@@ -2931,6 +2946,11 @@ fn build_de() -> Dict {
     m.insert("drop.directory", "Ordner k\u{00f6}nnen nicht in LockNote abgelegt werden. Bitte einzelne Dateien ablegen.");
 
     m.insert("save.error.title", "Speicherfehler");
+    m.insert("editor.text.title", "Ung\u{00fc}ltiges Zeichen");
+    m.insert("editor.text.invalid", "Zeile {line} dieses Tabs enth\u{00e4}lt ein ung\u{00fc}ltiges Zeichen: die H\u{00e4}lfte eines Emojis oder Symbols ({count} insgesamt), das LockNote nicht speichern kann. Die Aktion wurde abgebrochen, es wurde nichts geschrieben.\n\nL\u{00f6}schen Sie dieses Zeichen (es kann als leeres K\u{00e4}stchen oder gar nicht angezeigt werden) und versuchen Sie es erneut.");
+    m.insert("editor.text.unreadable", "LockNote konnte den Text des Editors nicht lesen. Die Aktion wurde abgebrochen, es wurde nichts geschrieben.");
+    m.insert("editor.text.invalid.short", "Ung\u{00fc}ltiges Zeichen in Zeile {line}: zuerst l\u{00f6}schen");
+    m.insert("editor.text.unreadable.short", "Der Editortext konnte nicht gelesen werden");
     m.insert("save.error.msg", "Speichern fehlgeschlagen: {}");
     m.insert("export.success.title", "Export");
     m.insert("export.success.msg", "Notiz exportiert nach:\n{}");

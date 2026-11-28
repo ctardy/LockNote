@@ -18,6 +18,8 @@ pub(super) enum PrintError {
     PageTooSmall,
     /// A GDI call of the print job failed (its name).
     Gdi(&'static str),
+    /// The editor text could not be read: nothing was printed.
+    Unreadable(EditorTextError),
 }
 
 /// The message shown when printing fails.
@@ -28,6 +30,7 @@ pub(super) fn print_error_text(e: &PrintError) -> String {
             t("print.error.failed").replace("{error}", &format!("PrintDlgW 0x{:04X}", code))
         }
         PrintError::Gdi(call) => t("print.error.failed").replace("{error}", &format!("{} failed", call)),
+        PrintError::Unreadable(e) => e.user_message(),
     }
 }
 
@@ -213,7 +216,7 @@ pub(super) trait PrintSteps {
     /// The Windows print dialog; `None` when cancelled.
     fn choose_printer(&mut self) -> Result<Option<Self::Dc>, PrintError>;
     /// The selection, or the whole active tab, and the tab name.
-    fn job(&mut self) -> PrintJob;
+    fn job(&mut self) -> Result<PrintJob, PrintError>;
     /// Print `job`; the number of pages printed.
     fn render(&mut self, dc: &Self::Dc, job: &PrintJob) -> Result<usize, PrintError>;
     /// DeleteDC.
@@ -246,8 +249,10 @@ pub(super) fn run_print<S: PrintSteps>(steps: &mut S) {
         }
     };
     let result = if steps.still_valid() {
-        let job = steps.job();
-        Some(steps.render(&dc, &job))
+        Some(match steps.job() {
+            Ok(job) => steps.render(&dc, &job),
+            Err(e) => Err(e),
+        })
     } else {
         eprintln!("INFO print: dropped, the note locked meanwhile");
         None
@@ -308,11 +313,13 @@ impl PrintSteps for FormPrintSteps<'_> {
         }
     }
 
-    fn job(&mut self) -> PrintJob {
+    /// What is printed is shown, not stored: the display text (a lone
+    /// surrogate prints as U+FFFD).
+    fn job(&mut self) -> Result<PrintJob, PrintError> {
         let header = self.form.tab_bar.borrow().active_tab().name;
-        let whole = Zeroizing::new(self.form.get_content());
-        let selection = Zeroizing::new(self.form.current_selection_text());
-        PrintJob { header, text: Zeroizing::new(print_text(&whole, &selection).to_string()) }
+        let whole = Zeroizing::new(self.form.display_content().map_err(PrintError::Unreadable)?);
+        let selection = Zeroizing::new(self.form.current_selection_text().map_err(PrintError::Unreadable)?);
+        Ok(PrintJob { header, text: Zeroizing::new(print_text(&whole, &selection).to_string()) })
     }
 
     fn render(&mut self, dc: &Self::Dc, job: &PrintJob) -> Result<usize, PrintError> {
@@ -665,13 +672,14 @@ mod tests {
         /// Answers of `still_valid`, in order (true once exhausted).
         valid: Vec<bool>,
         printer: Result<Option<()>, PrintError>,
+        job: Result<(), PrintError>,
         render: Result<usize, PrintError>,
         log: Vec<String>,
     }
 
     impl Fake {
         fn new() -> Fake {
-            Fake { confirm: true, valid: Vec::new(), printer: Ok(Some(())), render: Ok(2), log: Vec::new() }
+            Fake { confirm: true, valid: Vec::new(), printer: Ok(Some(())), job: Ok(()), render: Ok(2), log: Vec::new() }
         }
     }
 
@@ -689,9 +697,10 @@ mod tests {
             self.log.push("dialog".into());
             self.printer.clone()
         }
-        fn job(&mut self) -> PrintJob {
+        fn job(&mut self) -> Result<PrintJob, PrintError> {
             self.log.push("job".into());
-            PrintJob { header: "Tab".into(), text: Zeroizing::new("text".into()) }
+            self.job.clone()?;
+            Ok(PrintJob { header: "Tab".into(), text: Zeroizing::new("text".into()) })
         }
         fn render(&mut self, _dc: &(), job: &PrintJob) -> Result<usize, PrintError> {
             self.log.push(format!("render:{}", job.header));
@@ -760,6 +769,17 @@ mod tests {
         assert_eq!(
             f.log,
             ["confirm", "valid?", "dialog", "valid?", "job", "render:Tab", "release", "valid?", "report:Gdi(\"StartDocW\")"]
+        );
+    }
+
+    #[test]
+    fn an_unreadable_text_prints_nothing_and_releases_the_printer_before_the_message() {
+        let mut f = Fake::new();
+        f.job = Err(PrintError::Unreadable(EditorTextError::ReadFailed { expected: 3, copied: 0 }));
+        run_print(&mut f);
+        assert_eq!(
+            f.log,
+            ["confirm", "valid?", "dialog", "valid?", "job", "release", "valid?", "report:Unreadable(ReadFailed { expected: 3, copied: 0 })"]
         );
     }
 

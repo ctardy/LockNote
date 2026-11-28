@@ -947,8 +947,8 @@
         fn selection(&self) -> (usize, usize, usize) {
             self.sel
         }
-        fn text(&self) -> String {
-            self.text.clone()
+        fn text(&self) -> Result<String, EditorTextError> {
+            Ok(self.text.clone())
         }
         fn shown(&self) -> String {
             self.shown.clone()
@@ -1756,4 +1756,90 @@
         assert_eq!(hidden, (0, 700));
         // Without a side panel the editor spans the whole client width.
         assert_eq!(editor_columns(800, 0, 0), (0, 800));
+    }
+
+    // ── editor text read strictly (a lone surrogate is never "Decoding error") ──
+
+    /// The code part of an editor source file (its test module left out).
+    fn code_part(src: &str) -> &str {
+        src.split("#[cfg(test)]").next().expect("code part")
+    }
+
+    #[test]
+    fn no_code_reads_the_editor_through_nwg_text() {
+        // nwg's RichTextBox::text() returns the literal "Decoding error" for
+        // a text holding a lone surrogate, which a save then stored in place
+        // of the note. Every reader goes through crate::ui::editor_text.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui");
+        let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(root.join("editor"))
+            .expect("src/ui/editor")
+            .map(|e| e.expect("entry").path())
+            .filter(|p| p.extension().is_some_and(|x| x == "rs"))
+            .collect();
+        files.push(root.join("dialogs").join("find_replace.rs"));
+        files.push(root.join("dialogs").join("regex_search.rs"));
+        assert!(files.len() > 30, "the editor sources were not found");
+        for file in &files {
+            let src = crate::read_source(file);
+            let code = code_part(&src);
+            for banned in ["editor.text()", "RichEditTarget(hwnd).text()"] {
+                assert!(!code.contains(banned), "{} reads the editor with {banned}", file.display());
+            }
+        }
+        // The regex target reads strictly, the dialog's count with the
+        // display reader; no lossy decoding of the editor there.
+        let fr = crate::read_source(root.join("dialogs").join("find_replace.rs"));
+        let fr = code_part(&fr);
+        assert!(!fr.contains("from_utf16_lossy"), "find_replace decodes the editor lossily");
+        assert!(fr.contains("crate::ui::editor_text::read_strict(self.0)"));
+        let content = crate::read_source(root.join("editor").join("content.rs"));
+        assert!(content.contains("pub(super) fn get_content(&self) -> Result<String, EditorTextError> {\n        crate::ui::editor_text::read_strict("));
+    }
+
+    #[test]
+    fn the_save_reads_strictly_before_syncing_or_writing_anything() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
+        let src = crate::read_source(dir.join("file_ops.rs"));
+        let start = src.find("pub(super) fn save_note(&self)").expect("save_note");
+        let body = &src[start..start + src[start..].find("\n    }\n").expect("end of save_note")];
+        let read = body.find("let note_text = match self.get_content() {").expect("strict read");
+        let refused = &body[read..];
+        let refused = &refused[..refused.find("};").expect("end of the read")];
+        assert!(refused.contains("return Err(SaveFailure::Failed(e.user_message()));"), "{refused}");
+        for later in ["set_tab_content(", "crypto::encrypt(", "write_data(", "self.mark_clean()"] {
+            let at = body.find(later).unwrap_or_else(|| panic!("{later} not found"));
+            assert!(at > read, "{later} runs before the strict read");
+        }
+        // Failed is shown by on_save (Refused would be silent on Ctrl+S).
+        assert!(body.matches("SaveFailure::Failed(e.user_message())").count() == 2, "read and session state");
+    }
+
+    #[test]
+    fn readers_run_while_typing_never_open_a_dialog() {
+        // EN_CHANGE / typing / timer paths: an emoji typed as two WM_CHAR
+        // leaves a lone surrogate for a moment, and a dialog there would run
+        // a modal loop between the two halves. They read the display text
+        // (or the raw units) and only log.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui").join("editor");
+        let body = |file: &str, f: &str| {
+            let src = crate::read_source(dir.join(file));
+            let start = src.find(f).unwrap_or_else(|| panic!("{f} not found in {file}"));
+            let end = start + src[start..].find("\n    }\n").expect("end of fn");
+            src[start..end].to_string()
+        };
+        for (file, f) in [
+            ("content.rs", "pub(super) fn update_status_bar(&self)"),
+            ("content.rs", "pub(super) fn refresh_caret_status(&self)"),
+            ("content.rs", "impl CaretStatusSteps for WindowCaretStatus<'_> {"),
+            ("highlight.rs", "pub(super) fn update_occurrence_highlights(&self)"),
+            ("layout.rs", "pub(super) fn layout_controls(&self)"),
+            ("edit_ops.rs", "pub(super) fn on_dblclick_expand_selection(&self)"),
+        ] {
+            let b = body(file, f);
+            for banned in ["tell_unreadable(", "self.inform(", "get_content()"] {
+                assert!(!b.contains(banned), "{f} ({file}) calls {banned}");
+            }
+        }
+        let lists = body("lists.rs", "pub(super) fn run_enter(");
+        assert!(!lists.contains("tell_unreadable("), "Enter must not open a dialog");
     }
