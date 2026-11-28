@@ -65,7 +65,7 @@ impl EditorForm {
             // bug, logged and shown; the text was not touched.
             Err(LineEditError::Compute(e)) => {
                 eprintln!("ERROR case: op={:?} selection not mapped onto the text: {:?}", op, e);
-                self.inform(&t("case.error.title"), &t("case.error.mapping").replace("{msg}", &format!("{:?}", e)));
+                self.inform(&t("case.error.title"), &range_error_text(crate::features::i18n::current_language(), "case.error.mapping", &e));
             }
         }
     }

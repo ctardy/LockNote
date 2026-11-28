@@ -1889,3 +1889,87 @@
         let lists = body("lists.rs", "pub(super) fn run_enter(");
         assert!(!lists.contains("tell_unreadable("), "Enter must not open a dialog");
     }
+
+    // ── Position mapping errors shown to the user ──
+
+    const MAPPING_KEYS: [&str; 2] = ["lines.error.mapping", "case.error.mapping"];
+
+    fn all_range_errors() -> [Utf16RangeError; 4] {
+        [
+            Utf16RangeError::MidSurrogate { pos: 2 },
+            Utf16RangeError::OutOfBounds { max: 5, len_u16: 2 },
+            Utf16RangeError::Negative,
+            Utf16RangeError::Empty,
+        ]
+    }
+
+    #[test]
+    fn mid_surrogate_message_is_readable_in_french() {
+        use crate::features::i18n::Language;
+        assert_eq!(
+            range_error_text(Language::French, "lines.error.mapping", &Utf16RangeError::MidSurrogate { pos: 2 }),
+            "La s\u{00e9}lection n'a pas pu \u{00ea}tre lue (caract\u{00e8}re invalide \u{00e0} la position 3). \
+             La note n'a pas \u{00e9}t\u{00e9} modifi\u{00e9}e. Replacez le curseur puis r\u{00e9}essayez."
+        );
+    }
+
+    #[test]
+    fn out_of_bounds_message_is_readable_in_english() {
+        use crate::features::i18n::Language;
+        assert_eq!(
+            range_error_text(Language::English, "case.error.mapping", &Utf16RangeError::OutOfBounds { max: 5, len_u16: 2 }),
+            "The selection could not be read (position 6 is past the end of the text, 2 characters long). \
+             The case was not converted and the note was not changed. Select the text again, then retry."
+        );
+    }
+
+    #[test]
+    fn mapping_error_messages_never_show_the_debug_form() {
+        use crate::features::i18n::Language;
+        for lang in [Language::English, Language::French, Language::Spanish, Language::German] {
+            for key in MAPPING_KEYS {
+                for e in all_range_errors() {
+                    let text = range_error_text(lang, key, &e);
+                    let debug = format!("{:?}", e);
+                    assert!(!text.contains(&debug), "{lang:?} {key}: {text}");
+                    for raw in ["MidSurrogate", "OutOfBounds", "Negative", "Empty", "pos:", "len_u16", "{", "}", "["] {
+                        assert!(!text.contains(raw), "{lang:?} {key} shows {raw:?}: {text}");
+                    }
+                    match e {
+                        Utf16RangeError::MidSurrogate { .. } => assert!(text.contains(" 3"), "{lang:?} {key}: {text}"),
+                        Utf16RangeError::OutOfBounds { .. } => {
+                            assert!(text.contains(" 6") && text.contains(" 2"), "{lang:?} {key}: {text}")
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_language_has_its_own_mapping_error_text() {
+        // A key missing in a language would silently fall back to English.
+        use crate::features::i18n::Language;
+        for lang in [Language::French, Language::Spanish, Language::German] {
+            for key in MAPPING_KEYS {
+                for e in all_range_errors() {
+                    assert_ne!(range_error_text(lang, key, &e), range_error_text(Language::English, key, &e), "{lang:?} {key} {e:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn mapping_errors_reach_the_user_through_range_error_text() {
+        // Structural: the information boxes of Ctrl+D / Ctrl+Shift+K and
+        // Convert Case never format the error themselves.
+        for (file, src) in [("line_ops.rs", include_str!("line_ops.rs")), ("case_ops.rs", include_str!("case_ops.rs"))] {
+            let prod = src.split("#[cfg(test)]").next().unwrap();
+            for line in prod.lines().filter(|l| l.contains(".error.mapping")) {
+                assert!(line.contains("range_error_text("), "{file}: {}", line.trim());
+                assert!(!line.contains(":?"), "{file}: {}", line.trim());
+            }
+            assert!(prod.contains(".error.mapping"), "{file} still shows the mapping error");
+        }
+    }

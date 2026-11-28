@@ -359,7 +359,7 @@ impl EditorForm {
             Err(LineEditError::Unreadable(e)) => self.tell_unreadable(what, &e),
             Err(LineEditError::Compute(e)) => {
                 eprintln!("ERROR lines: {} selection not mapped onto the text: {:?}", what, e);
-                self.inform(&t("lines.error.title"), &t("lines.error.mapping").replace("{msg}", &format!("{:?}", e)));
+                self.inform(&t("lines.error.title"), &range_error_text(crate::features::i18n::current_language(), "lines.error.mapping", &e));
             }
         }
     }
@@ -1182,7 +1182,7 @@ pub(super) mod tests {
         for call in ["self.reset_occurrence_highlights()", "self.layout_controls()", "self.send_editor_message(0x00B7, 0, 0)"] {
             assert!(h[changed..].contains(call), "{call}");
         }
-        assert!(h.contains("eprintln!(\"ERROR lines:") && h.contains("t(\"lines.error.mapping\")") && h.contains("self.inform("));
+        assert!(h.contains("eprintln!(\"ERROR lines:") && h.contains("range_error_text(crate::features::i18n::current_language(), \"lines.error.mapping\", &e)") && h.contains("self.inform("));
     }
 
     #[test]

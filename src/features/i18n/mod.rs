@@ -324,7 +324,7 @@ fn build_en() -> Dict {
     m.insert("menu.edit.case.lower", "&lowercase\tCtrl+U");
     m.insert("menu.edit.case.title", "&Title Case");
     m.insert("case.error.title", "Convert Case");
-    m.insert("case.error.mapping", "The case was not converted: {msg}");
+    m.insert("case.error.mapping", "The selection could not be read ({msg}). The case was not converted and the note was not changed. Select the text again, then retry.");
     m.insert("menu.edit.lines", "Li&nes");
     m.insert("menu.edit.lines.sortasc", "Sort Lines &Ascending");
     m.insert("menu.edit.lines.sortdesc", "Sort Lines &Descending");
@@ -333,7 +333,11 @@ fn build_en() -> Dict {
     m.insert("menu.edit.lines.trim", "&Trim Trailing Whitespace");
     m.insert("lines.error.title", "Lines");
     m.insert("lines.error.sort", "The lines were not sorted: {msg}");
-    m.insert("lines.error.mapping", "The line was not changed: {msg}");
+    m.insert("lines.error.mapping", "The selection could not be read ({msg}). The note was not changed. Place the caret again, then retry.");
+    m.insert("range.error.mid_surrogate", "invalid character at position {pos}");
+    m.insert("range.error.out_of_bounds", "position {pos} is past the end of the text, {len} characters long");
+    m.insert("range.error.negative", "negative position");
+    m.insert("range.error.empty", "empty range");
     m.insert("menu.edit.selectall", "Select &All\tCtrl+A");
     m.insert("menu.edit.timestamp", "Insert &Timestamp\tF5");
 
@@ -1066,7 +1070,7 @@ fn build_fr() -> Dict {
     m.insert("menu.edit.case.lower", "m&inuscules\tCtrl+U");
     m.insert("menu.edit.case.title", "&Premi\u{00e8}re lettre des mots en majuscule");
     m.insert("case.error.title", "Convertir la casse");
-    m.insert("case.error.mapping", "La casse n'a pas \u{00e9}t\u{00e9} convertie : {msg}");
+    m.insert("case.error.mapping", "La s\u{00e9}lection n'a pas pu \u{00ea}tre lue ({msg}). La casse n'a pas \u{00e9}t\u{00e9} convertie et la note n'a pas \u{00e9}t\u{00e9} modifi\u{00e9}e. Refaites la s\u{00e9}lection puis r\u{00e9}essayez.");
     m.insert("menu.edit.lines", "Lig&nes");
     m.insert("menu.edit.lines.sortasc", "Trier par ordre &croissant");
     m.insert("menu.edit.lines.sortdesc", "Trier par ordre &d\u{00e9}croissant");
@@ -1075,7 +1079,11 @@ fn build_fr() -> Dict {
     m.insert("menu.edit.lines.trim", "Supprimer les &espaces de fin");
     m.insert("lines.error.title", "Lignes");
     m.insert("lines.error.sort", "Les lignes n'ont pas \u{00e9}t\u{00e9} tri\u{00e9}es : {msg}");
-    m.insert("lines.error.mapping", "La ligne n'a pas \u{00e9}t\u{00e9} modifi\u{00e9}e : {msg}");
+    m.insert("lines.error.mapping", "La s\u{00e9}lection n'a pas pu \u{00ea}tre lue ({msg}). La note n'a pas \u{00e9}t\u{00e9} modifi\u{00e9}e. Replacez le curseur puis r\u{00e9}essayez.");
+    m.insert("range.error.mid_surrogate", "caract\u{00e8}re invalide \u{00e0} la position {pos}");
+    m.insert("range.error.out_of_bounds", "position {pos} au-del\u{00e0} de la fin du texte, qui compte {len} caract\u{00e8}res");
+    m.insert("range.error.negative", "position n\u{00e9}gative");
+    m.insert("range.error.empty", "plage vide");
     m.insert("menu.edit.selectall", "&Tout s\u{00e9}lectionner\tCtrl+A");
     m.insert("menu.edit.timestamp", "Ins\u{00e9}rer un &horodatage\tF5");
 
@@ -1785,7 +1793,7 @@ fn build_es() -> Dict {
     m.insert("menu.edit.case.lower", "mi&n\u{00fa}sculas\tCtrl+U");
     m.insert("menu.edit.case.title", "&Tipo T\u{00ed}tulo");
     m.insert("case.error.title", "Convertir may\u{00fa}sculas");
-    m.insert("case.error.mapping", "No se convirtieron las may\u{00fa}sculas: {msg}");
+    m.insert("case.error.mapping", "No se pudo leer la selecci\u{00f3}n ({msg}). No se convirtieron las may\u{00fa}sculas y la nota no se modific\u{00f3}. Vuelva a seleccionar el texto e int\u{00e9}ntelo de nuevo.");
     m.insert("menu.edit.lines", "L\u{00ed}&neas");
     m.insert("menu.edit.lines.sortasc", "Ordenar l\u{00ed}neas &ascendente");
     m.insert("menu.edit.lines.sortdesc", "Ordenar l\u{00ed}neas &descendente");
@@ -1794,7 +1802,11 @@ fn build_es() -> Dict {
     m.insert("menu.edit.lines.trim", "Quitar espacios &finales");
     m.insert("lines.error.title", "L\u{00ed}neas");
     m.insert("lines.error.sort", "No se ordenaron las l\u{00ed}neas: {msg}");
-    m.insert("lines.error.mapping", "No se modific\u{00f3} la l\u{00ed}nea: {msg}");
+    m.insert("lines.error.mapping", "No se pudo leer la selecci\u{00f3}n ({msg}). La nota no se modific\u{00f3}. Vuelva a colocar el cursor e int\u{00e9}ntelo de nuevo.");
+    m.insert("range.error.mid_surrogate", "car\u{00e1}cter no v\u{00e1}lido en la posici\u{00f3}n {pos}");
+    m.insert("range.error.out_of_bounds", "la posici\u{00f3}n {pos} est\u{00e1} m\u{00e1}s all\u{00e1} del final del texto, que tiene {len} caracteres");
+    m.insert("range.error.negative", "posici\u{00f3}n negativa");
+    m.insert("range.error.empty", "intervalo vac\u{00ed}o");
     m.insert("menu.edit.selectall", "Seleccionar &todo\tCtrl+A");
     m.insert("menu.edit.timestamp", "Insertar marca de &tiempo\tF5");
 
@@ -2505,7 +2517,7 @@ fn build_de() -> Dict {
     m.insert("menu.edit.case.lower", "&kleinbuchstaben\tStrg+U");
     m.insert("menu.edit.case.title", "&Wortanf\u{00e4}nge gro\u{00df}");
     m.insert("case.error.title", "Gro\u{00df}-/Kleinschreibung");
-    m.insert("case.error.mapping", "Die Schreibweise wurde nicht umgewandelt: {msg}");
+    m.insert("case.error.mapping", "Die Auswahl konnte nicht gelesen werden ({msg}). Die Schreibweise wurde nicht umgewandelt, die Notiz wurde nicht ge\u{00e4}ndert. W\u{00e4}hlen Sie den Text erneut aus und versuchen Sie es noch einmal.");
     m.insert("menu.edit.lines", "Ze&ilen");
     m.insert("menu.edit.lines.sortasc", "&Aufsteigend sortieren");
     m.insert("menu.edit.lines.sortdesc", "Ab&steigend sortieren");
@@ -2514,7 +2526,11 @@ fn build_de() -> Dict {
     m.insert("menu.edit.lines.trim", "&Leerzeichen am Zeilenende entfernen");
     m.insert("lines.error.title", "Zeilen");
     m.insert("lines.error.sort", "Die Zeilen wurden nicht sortiert: {msg}");
-    m.insert("lines.error.mapping", "Die Zeile wurde nicht ge\u{00e4}ndert: {msg}");
+    m.insert("lines.error.mapping", "Die Auswahl konnte nicht gelesen werden ({msg}). Die Notiz wurde nicht ge\u{00e4}ndert. Setzen Sie den Cursor neu und versuchen Sie es noch einmal.");
+    m.insert("range.error.mid_surrogate", "ung\u{00fc}ltiges Zeichen an Position {pos}");
+    m.insert("range.error.out_of_bounds", "Position {pos} liegt hinter dem Textende, der Text hat {len} Zeichen");
+    m.insert("range.error.negative", "negative Position");
+    m.insert("range.error.empty", "leerer Bereich");
     m.insert("menu.edit.selectall", "Alles aus&w\u{00e4}hlen\tStrg+A");
     m.insert("menu.edit.timestamp", "&Zeitstempel einf\u{00fc}gen\tF5");
 

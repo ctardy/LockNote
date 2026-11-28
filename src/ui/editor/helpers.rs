@@ -264,6 +264,32 @@ pub(super) enum Utf16RangeError {
     MidSurrogate { pos: usize },
 }
 
+impl Utf16RangeError {
+    /// The cause in words, in `lang`: the one place that turns this error
+    /// into user text (the Debug form stays in the ERROR log). Positions
+    /// are shown counted from 1.
+    pub(super) fn user_message(&self, lang: crate::features::i18n::Language) -> String {
+        use crate::features::i18n::get_for;
+        match self {
+            Utf16RangeError::Negative => get_for(lang, "range.error.negative").to_string(),
+            Utf16RangeError::Empty => get_for(lang, "range.error.empty").to_string(),
+            Utf16RangeError::MidSurrogate { pos } => {
+                get_for(lang, "range.error.mid_surrogate").replace("{pos}", &(pos + 1).to_string())
+            }
+            Utf16RangeError::OutOfBounds { max, len_u16 } => get_for(lang, "range.error.out_of_bounds")
+                .replace("{pos}", &(max + 1).to_string())
+                .replace("{len}", &len_u16.to_string()),
+        }
+    }
+}
+
+/// The text of the information box for a mapping error: the template
+/// `key` of `lang` (`lines.error.mapping`, `case.error.mapping`) with the
+/// cause in place of its `{msg}`.
+pub(super) fn range_error_text(lang: crate::features::i18n::Language, key: &str, e: &Utf16RangeError) -> String {
+    crate::features::i18n::get_for(lang, key).replace("{msg}", &e.user_message(lang))
+}
+
 /// Resolve the text of a RichEdit `CHARRANGE` (EN_LINK). Positions are
 /// RichEdit character positions (UTF-16 code units, `\r\n` = 1).
 pub(super) fn link_text_range(text: &str, chrg_min: i32, chrg_max: i32) -> Result<&str, Utf16RangeError> {
