@@ -36,10 +36,9 @@ impl EditorForm {
         };
         match unlocked {
             Some((password, decrypted_text)) => {
-                // The decrypted text, its decompressed form and the payload
-                // read from it are moved into wrappers, wiped on drop
-                // (issue #41).
-                let decrypted_text = Zeroizing::new(decrypted_text);
+                // The decrypted text (wrapped by `crypto::decrypt`, issue
+                // #42), its decompressed form and the payload read from it
+                // are in wrappers, wiped on drop (issue #41).
                 let decrypted_text = Zeroizing::new(crate::features::compression::decompress(&decrypted_text));
                 let (settings, note_text) = crate::settings::Settings::parse(&decrypted_text);
                 let note_text = Zeroizing::new(note_text);
@@ -713,14 +712,14 @@ impl EditorForm {
 
     /// Parse the decrypted payload and restore editor state in place.
     /// Shared between the inline unlock flow and (future) alternative paths.
-    pub(super) fn restore_after_unlock(&self, password: Zeroizing<String>, plaintext: String) {
+    pub(super) fn restore_after_unlock(&self, password: Zeroizing<String>, plaintext: Zeroizing<String>) {
         // A wipe still pending from the lock must not hit the restored notes.
         self.wipe_pending.set(false);
         *self.password.borrow_mut() = password;
 
-        // The decrypted text, its decompressed form and the payload read
-        // from it are moved into wrappers, wiped on drop (issue #41).
-        let plaintext = Zeroizing::new(plaintext);
+        // The decrypted text (wrapped by `crypto::decrypt`, issue #42), its
+        // decompressed form and the payload read from it are in wrappers,
+        // wiped on drop (issue #41).
         let plaintext = Zeroizing::new(crate::features::compression::decompress(&plaintext));
         let (mut settings, note_text) = crate::settings::Settings::parse(&plaintext);
         let note_text = Zeroizing::new(note_text);

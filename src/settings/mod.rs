@@ -1418,13 +1418,15 @@ mod tests {
     /// Issue #41: the startup unlock moves the decrypted text, its
     /// decompressed form and the note into wrappers (wiped on drop), hands
     /// the note to the editor by a move, and wipes the 2FA secret when the
-    /// TOTP check fails.
+    /// TOTP check fails. Since #42 the decrypted text comes wrapped from
+    /// `crypto::decrypt` through the unlock dialog (types pinned by
+    /// `crypto::tests::issue42_decrypted_text_is_wrapped_up_to_the_callers`).
     #[test]
     fn the_startup_unlock_wipes_the_decrypted_text() {
         let body = source_region("src/ui/mod.rs", "fn run_session(", "\n}\n");
         assert!(in_order(
             &body,
-            "let decrypted_text = zeroize::Zeroizing::new(decrypted_text);",
+            "Some((password, decrypted_text)) => {",
             "let decrypted_text = zeroize::Zeroizing::new(crate::features::compression::decompress(&decrypted_text));"
         ));
         assert!(body.contains(
@@ -1442,16 +1444,15 @@ mod tests {
         let disk = source_region("src/ui/editor/lock_ops.rs", "    pub(super) fn unlock_from_disk(", "\n    }\n");
         assert!(in_order(
             &disk,
-            "let decrypted_text = Zeroizing::new(decrypted_text);",
+            "Some((password, decrypted_text)) => {",
             "let decrypted_text = Zeroizing::new(crate::features::compression::decompress(&decrypted_text));"
         ));
         assert!(disk.contains("crate::settings::Settings::parse(&decrypted_text);\n                let note_text = Zeroizing::new(note_text);"));
         let restore = source_region("src/ui/editor/lock_ops.rs", "    pub(super) fn restore_after_unlock(", "\n    }\n");
-        assert!(in_order(
-            &restore,
-            "let plaintext = Zeroizing::new(plaintext);",
-            "let plaintext = Zeroizing::new(crate::features::compression::decompress(&plaintext));"
+        assert!(restore.starts_with(
+            "    pub(super) fn restore_after_unlock(&self, password: Zeroizing<String>, plaintext: Zeroizing<String>) {"
         ));
+        assert!(restore.contains("let plaintext = Zeroizing::new(crate::features::compression::decompress(&plaintext));"));
         assert!(restore.contains("crate::settings::Settings::parse(&plaintext);\n        let note_text = Zeroizing::new(note_text);"));
         for body in [&disk, &restore] {
             assert!(!body.contains(".clone())"), "a copy before a wrap");

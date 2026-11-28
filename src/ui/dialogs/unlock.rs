@@ -1,8 +1,9 @@
 // UnlockDialog — Password prompt with attempt limiting
 //
 // Max 5 attempts. On each failure displays "Wrong password (N/5)".
-// Returns Option<(Zeroizing<String>, String)>: (password, decrypted_text), or None if cancelled/max reached.
-// The password is wrapped in Zeroizing so its buffer is wiped when the caller drops it.
+// Returns Option<(Zeroizing<String>, Zeroizing<String>)>: (password, decrypted_text), or None if cancelled/max reached.
+// Both are wrapped in Zeroizing so their buffers are wiped when the caller drops them
+// (the decrypted text as `crypto::decrypt` returns it, moved, issue #42).
 // Clears TextBox on drop for security.
 //
 // Look: the shared card of `ui::lock_card` (padlock, title, prompt, password
@@ -53,12 +54,12 @@ impl UnlockDialog {
     /// `encrypted_data` is the raw encrypted payload.
     /// Uses `crate::crypto::decrypt` to attempt decryption.
     /// Returns Some((password, decrypted_text)) on success, None on cancel/max attempts.
-    pub fn show(encrypted_data: &[u8]) -> Option<(Zeroizing<String>, String)> {
+    pub fn show(encrypted_data: &[u8]) -> Option<(Zeroizing<String>, Zeroizing<String>)> {
         Self::show_with_parent(encrypted_data, None)
     }
 
     /// Show the unlock dialog, optionally centered on a parent window.
-    pub fn show_with_parent(encrypted_data: &[u8], parent_hwnd: Option<isize>) -> Option<(Zeroizing<String>, String)> {
+    pub fn show_with_parent(encrypted_data: &[u8], parent_hwnd: Option<isize>) -> Option<(Zeroizing<String>, Zeroizing<String>)> {
         // Fix #036: hold the global persistence lock for the entire unlock
         // session. An in-flight autosave (non-blocking, try_acquire) will
         // simply skip its tick, and a concurrent autolock (blocking acquire)
@@ -221,7 +222,7 @@ impl UnlockDialog {
         let backoff_remaining: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
 
         // Result: Some((password, decrypted_text))
-        let result: Rc<RefCell<Option<(Zeroizing<String>, String)>>> = Rc::new(RefCell::new(None));
+        let result: Rc<RefCell<Option<(Zeroizing<String>, Zeroizing<String>)>>> = Rc::new(RefCell::new(None));
         let attempts: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
 
         let window_handle = window.handle;
@@ -434,12 +435,12 @@ fn taskbar_ex_style(ex_style: isize, has_parent: bool) -> isize {
 // ---------------------------------------------------------------------------
 
 /// Show the unlock dialog. Convenience wrapper.
-pub fn show(encrypted_data: &[u8]) -> Option<(Zeroizing<String>, String)> {
+pub fn show(encrypted_data: &[u8]) -> Option<(Zeroizing<String>, Zeroizing<String>)> {
     UnlockDialog::show(encrypted_data)
 }
 
 /// Show the unlock dialog centered on a parent window.
-pub fn show_with_parent(encrypted_data: &[u8], parent_hwnd: isize) -> Option<(Zeroizing<String>, String)> {
+pub fn show_with_parent(encrypted_data: &[u8], parent_hwnd: isize) -> Option<(Zeroizing<String>, Zeroizing<String>)> {
     UnlockDialog::show_with_parent(encrypted_data, Some(parent_hwnd))
 }
 

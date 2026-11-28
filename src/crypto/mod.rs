@@ -4,7 +4,14 @@
 //   [salt 16][iv 16][m_cost 4 LE][t_cost 4 LE][p_lanes 4 LE][hmac 32][ciphertext ...]
 //   HMAC is computed over salt || iv || m_cost || t_cost || p_lanes || ciphertext.
 //
-// All sensitive buffers are zeroed after use via `zeroize`.
+// All sensitive buffers are zeroed after use via `zeroize`, on every way
+// out (issue #42): the keys, the Argon2 working memory, the padded plaintext
+// buffer of `encrypt` and the decryption buffer of `decrypt`, which becomes
+// the returned text (a `Zeroizing<String>`, never copied). The AES key
+// schedule and the CBC state wipe themselves on drop (their "zeroize"
+// features), and so do the Argon2 intermediate hashes. Out of reach: the
+// keyed HMAC state (hmac 0.13 does not wipe it; MAC key material only), and
+// stack copies made by moves of the key arrays and inside the crates.
 
 use aes::Aes256;
 use argon2::Argon2;
@@ -12,7 +19,7 @@ use cbc::cipher::{BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};
 use hmac::{Hmac, KeyInit, Mac};
 use rand::Rng;
 use sha2::Sha256;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 type Aes256CbcEnc = cbc::Encryptor<Aes256>;
 type Aes256CbcDec = cbc::Decryptor<Aes256>;
@@ -190,9 +197,13 @@ fn derive_keys(
 
     let params = argon2::Params::new(m_cost, t_cost, p_lanes, Some(64))
         .map_err(|e| CryptoError::InvalidParameters(e.to_string()))?;
+    // The Argon2 working memory (m_cost KiB) is derived from the password and
+    // its last blocks make the keys: given by us so it is wiped before it is
+    // freed (`hash_password_into` frees its own memory unwiped).
+    let mut blocks: Zeroizing<Vec<argon2::Block>> = Zeroizing::new(vec![argon2::Block::new(); params.block_count()]);
     let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
     argon2
-        .hash_password_into(password.as_bytes(), salt, key_material)
+        .hash_password_into_with_memory(password.as_bytes(), salt, key_material, &mut blocks[..])
         .map_err(|e| CryptoError::KdfFailed(e.to_string()))?;
 
     let mut enc_key = [0u8; KEY_SIZE];
@@ -274,19 +285,41 @@ fn encrypt_with(
     let mut salt = *salt;
     let mut iv = *iv;
 
-    // 2. Derive keys
+    // 2. Derive keys. Nothing between here and the wipe returns early: the
+    // fallible steps are in `seal`.
     let (mut enc_key, mut mac_key) = derive_keys(password, &salt, m_cost, t_cost, p_lanes)?;
+    let sealed = seal(plaintext, &enc_key, &mac_key, &salt, &iv, m_cost, t_cost, p_lanes);
 
-    // 3. Encrypt (AES-256-CBC, PKCS7 padding)
-    let mut plain_bytes = plaintext.as_bytes().to_vec();
-    let padded_len = (plain_bytes.len() / 16 + 1) * 16;
-    let mut buf = vec![0u8; padded_len];
-    buf[..plain_bytes.len()].copy_from_slice(&plain_bytes);
+    // 7. Zeroize sensitive material
+    enc_key.zeroize();
+    mac_key.zeroize();
+    salt.zeroize();
+    iv.zeroize();
+    sealed
+}
 
-    let ciphertext = Aes256CbcEnc::new(&enc_key.into(), &iv.into())
-        .encrypt_padded::<cbc::cipher::block_padding::Pkcs7>(&mut buf, plain_bytes.len())
-        .map_err(|e| CryptoError::Encryption(e.to_string()))?
-        .to_vec();
+/// Steps 3 to 6 of `encrypt_with`, with the keys derived.
+#[allow(clippy::too_many_arguments)]
+fn seal(
+    plaintext: &str,
+    enc_key: &[u8; KEY_SIZE],
+    mac_key: &[u8; KEY_SIZE],
+    salt: &[u8; SALT_SIZE],
+    iv: &[u8; IV_SIZE],
+    m_cost: u32,
+    t_cost: u32,
+    p_lanes: u32,
+) -> Result<Vec<u8>, CryptoError> {
+    // 3. Encrypt in place (AES-256-CBC, PKCS7 padding): the plaintext is
+    // copied once, into the buffer sized for its padding, wiped on every way
+    // out.
+    let plain = plaintext.as_bytes();
+    let mut buf: Zeroizing<Vec<u8>> = Zeroizing::new(vec![0u8; (plain.len() / 16 + 1) * 16]);
+    buf[..plain.len()].copy_from_slice(plain);
+
+    let ciphertext = Aes256CbcEnc::new(&(*enc_key).into(), &(*iv).into())
+        .encrypt_padded::<cbc::cipher::block_padding::Pkcs7>(&mut buf, plain.len())
+        .map_err(|e| CryptoError::Encryption(e.to_string()))?;
 
     // 4. Encode Argon2id parameters as 12 bytes little-endian
     let mut params_bytes = [0u8; ARGON2_PARAMS_SIZE];
@@ -295,25 +328,16 @@ fn encrypt_with(
     params_bytes[8..12].copy_from_slice(&p_lanes.to_le_bytes());
 
     // 5. Compute HMAC over salt || iv || params || ciphertext
-    let hmac_value = compute_hmac(&mac_key, &salt, &iv, &params_bytes, &ciphertext)?;
+    let hmac_value = compute_hmac(mac_key, salt, iv, &params_bytes, ciphertext)?;
 
     // 6. Assemble output: salt || iv || params || hmac || ciphertext
     let mut output =
         Vec::with_capacity(SALT_SIZE + IV_SIZE + ARGON2_PARAMS_SIZE + HMAC_SIZE + ciphertext.len());
-    output.extend_from_slice(&salt);
-    output.extend_from_slice(&iv);
+    output.extend_from_slice(salt);
+    output.extend_from_slice(iv);
     output.extend_from_slice(&params_bytes);
     output.extend_from_slice(&hmac_value);
-    output.extend_from_slice(&ciphertext);
-
-    // 7. Zeroize sensitive material
-    enc_key.zeroize();
-    mac_key.zeroize();
-    salt.zeroize();
-    iv.zeroize();
-    plain_bytes.zeroize();
-    buf.zeroize();
-
+    output.extend_from_slice(ciphertext);
     Ok(output)
 }
 
@@ -329,7 +353,10 @@ fn encrypt_with(
 ///
 /// UI callers must avoid leaking the specific variant back to the user when
 /// showing "Invalid password" — see `CryptoError::HmacMismatch`.
-pub fn decrypt(data: &[u8], password: &str) -> Result<String, CryptoError> {
+///
+/// The text is decrypted in place, in a copy of the ciphertext, and that
+/// buffer is returned as the text: wiped when the caller drops it.
+pub fn decrypt(data: &[u8], password: &str) -> Result<Zeroizing<String>, CryptoError> {
     if data.len() < MIN_PAYLOAD_SIZE {
         return Err(CryptoError::InvalidInput(format!(
             "payload too short ({} bytes, min {})",
@@ -387,8 +414,9 @@ pub fn decrypt(data: &[u8], password: &str) -> Result<String, CryptoError> {
         return Err(CryptoError::HmacMismatch);
     }
 
-    // Decrypt
-    let mut ct_buf = ciphertext.to_vec();
+    // Decrypt in place: `buf` ends holding the plaintext, then becomes the
+    // returned text (no copy). Wiped on every way out.
+    let mut buf: Zeroizing<Vec<u8>> = Zeroizing::new(ciphertext.to_vec());
     // `iv` is IV_SIZE bytes by the slicing above.
     let iv: [u8; IV_SIZE] = match iv.try_into() {
         Ok(a) => a,
@@ -398,29 +426,31 @@ pub fn decrypt(data: &[u8], password: &str) -> Result<String, CryptoError> {
             return Err(CryptoError::InvalidInput("IV length".into()));
         }
     };
-    let plaintext_result = Aes256CbcDec::new(&enc_key.into(), &iv.into())
-        .decrypt_padded::<cbc::cipher::block_padding::Pkcs7>(&mut ct_buf);
+    let plaintext_len = Aes256CbcDec::new(&enc_key.into(), &iv.into())
+        .decrypt_padded::<cbc::cipher::block_padding::Pkcs7>(&mut buf)
+        .map(|plain| plain.len());
 
     enc_key.zeroize();
     mac_key.zeroize();
 
-    match plaintext_result {
-        Ok(plain_bytes) => {
-            let owned = plain_bytes.to_vec();
-            ct_buf.zeroize();
+    // Post-HMAC PKCS7 padding failure. Unreachable without key knowledge
+    // (the MAC already passed), so collapse into HmacMismatch for the same
+    // reason as the UTF-8 failure below.
+    let Ok(plaintext_len) = plaintext_len else {
+        return Err(CryptoError::HmacMismatch);
+    };
+    // The padding bytes stay in the spare capacity, wiped with the rest.
+    buf.truncate(plaintext_len);
+    match String::from_utf8(std::mem::take(&mut *buf)) {
+        Ok(text) => Ok(Zeroizing::new(text)),
+        Err(e) => {
             // Post-HMAC: a UTF-8 failure means the HMAC-authenticated
             // plaintext somehow isn't valid UTF-8. That should not happen
             // in normal operation and, if it does, the caller gets no
             // benefit from distinguishing this from a bad password. Flatten
             // to HmacMismatch so UI code cannot build a padding/utf8 oracle
             // out of the variants.
-            String::from_utf8(owned).map_err(|_| CryptoError::HmacMismatch)
-        }
-        Err(_) => {
-            // Post-HMAC PKCS7 padding failure. Unreachable without key
-            // knowledge (the MAC already passed), so collapse into
-            // HmacMismatch for the same reason as above.
-            ct_buf.zeroize();
+            e.into_bytes().zeroize();
             Err(CryptoError::HmacMismatch)
         }
     }
@@ -445,7 +475,7 @@ mod tests {
         let plaintext = "Hello, LockNote!";
         let encrypted = encrypt(plaintext, password, TEST_M, TEST_T, TEST_P).unwrap();
         let decrypted = decrypt(&encrypted, password).unwrap();
-        assert_eq!(decrypted, plaintext);
+        assert_eq!(decrypted.as_str(), plaintext);
     }
 
     #[test]
@@ -455,7 +485,7 @@ mod tests {
         let encrypted = encrypt(plaintext, password, TEST_M, TEST_T, TEST_P).unwrap();
         assert!(encrypted.len() >= MIN_PAYLOAD_SIZE);
         let decrypted = decrypt(&encrypted, password).unwrap();
-        assert_eq!(decrypted, String::new());
+        assert_eq!(decrypted.as_str(), "");
     }
 
     #[test]
@@ -464,7 +494,7 @@ mod tests {
         let plaintext = "Caf\u{00e9} \u{1f512}\u{1f4dd} \u{65e5}\u{672c}\u{8a9e} \u{0410}\u{0411}\u{0412}";
         let encrypted = encrypt(plaintext, password, TEST_M, TEST_T, TEST_P).unwrap();
         let decrypted = decrypt(&encrypted, password).unwrap();
-        assert_eq!(decrypted, plaintext);
+        assert_eq!(decrypted.as_str(), plaintext);
     }
 
     #[test]
@@ -474,7 +504,7 @@ mod tests {
         let encrypted = encrypt(&plaintext, password, TEST_M, TEST_T, TEST_P).unwrap();
         let decrypted = decrypt(&encrypted, password).unwrap();
         assert_eq!(decrypted.len(), 100_000);
-        assert_eq!(decrypted, plaintext);
+        assert_eq!(decrypted.as_str(), plaintext);
     }
 
     #[test]
@@ -566,7 +596,7 @@ mod tests {
         let encrypted = encrypt(plaintext, "pass", TEST_M, TEST_T, TEST_P).unwrap();
         let ct_len = encrypted.len() - SALT_SIZE - IV_SIZE - ARGON2_PARAMS_SIZE - HMAC_SIZE;
         assert_eq!(ct_len, 32); // 16 data + 16 padding
-        assert_eq!(decrypt(&encrypted, "pass").unwrap(), plaintext);
+        assert_eq!(decrypt(&encrypted, "pass").unwrap().as_str(), plaintext);
     }
 
     #[test]
@@ -611,7 +641,7 @@ mod tests {
         let plain = "LockNote KAT \u{2014} \u{e9}t\u{e9} 0123456789abcdef!";
         let out = encrypt_with(plain, "correct horse", 256, 2, 2, &salt, &iv).unwrap();
         assert_eq!(hex(&out), "000102030405060708090a0b0c0d0e0ff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff00010000020000000200000093ac0336f440718903bc82b4213be40f629e903f15215437a08a152fdc46724617a8ddbb5321704f076c31165366adc4f4627ea1914ffcd52d8688bd56eeceefbf04b149ec21d5f32008b6b08a00e237");
-        assert_eq!(decrypt(&out, "correct horse").unwrap(), plain);
+        assert_eq!(decrypt(&out, "correct horse").unwrap().as_str(), plain);
     }
 
     #[test]
@@ -678,5 +708,95 @@ mod tests {
             let wire = issue42_encrypt_raw(bad, "pw");
             assert!(matches!(decrypt(&wire, "pw"), Err(CryptoError::HmacMismatch)), "{:?}", bad);
         }
+    }
+
+    // ---- Issue #42 ----
+
+    /// The decrypted text is wrapped (wiped on drop) from `decrypt` up to
+    /// the unlock dialog's callers, and the AES key schedule and the CBC
+    /// states wipe themselves (their "zeroize" features): checked by the
+    /// compiler. (hmac 0.13 has no wiping of its keyed state.)
+    #[test]
+    fn issue42_decrypted_text_is_wrapped_up_to_the_callers() {
+        fn wipes_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+        let _: fn(&[u8], &str) -> Result<Zeroizing<String>, CryptoError> = decrypt;
+        let _: fn(&[u8]) -> Option<(Zeroizing<String>, Zeroizing<String>)> = crate::ui::dialogs::unlock::show;
+        let _: fn(&[u8], isize) -> Option<(Zeroizing<String>, Zeroizing<String>)> = crate::ui::dialogs::unlock::show_with_parent;
+        wipes_on_drop::<Aes256>();
+        wipes_on_drop::<Aes256CbcEnc>();
+        wipes_on_drop::<Aes256CbcDec>();
+    }
+
+    /// `decrypt` hands back the buffer it decrypted in (its capacity is the
+    /// ciphertext's length), not a copy of the plaintext.
+    #[test]
+    fn issue42_decrypt_returns_its_decryption_buffer() {
+        for plain in ["", "a", "0123456789abcdef", "\u{e9}t\u{e9} \u{1f512} and some more text"] {
+            let out = encrypt(plain, "pw", TEST_M, TEST_T, TEST_P).unwrap();
+            let ct_len = out.len() - SALT_SIZE - IV_SIZE - ARGON2_PARAMS_SIZE - HMAC_SIZE;
+            let text = decrypt(&out, "pw").unwrap();
+            assert_eq!((text.as_str(), text.capacity()), (plain, ct_len));
+        }
+    }
+
+    fn issue42_fn_body(src: &str, start: &str) -> String {
+        let at = src.find(start).unwrap_or_else(|| panic!("{start}"));
+        let len = src[at..].find("\n}\n").unwrap();
+        src[at..at + len].to_string()
+    }
+
+    /// The wiping that tests cannot watch (freed memory), pinned in the source.
+    #[test]
+    fn issue42_crypto_buffers_are_wiped_on_every_way_out() {
+        let src = crate::read_source("src/crypto/mod.rs");
+        let derive = issue42_fn_body(&src, "fn derive_keys(");
+        assert!(derive.contains("let mut blocks: Zeroizing<Vec<argon2::Block>> = Zeroizing::new(vec![argon2::Block::new(); params.block_count()]);"));
+        assert!(derive.contains(".hash_password_into_with_memory(password.as_bytes(), salt, key_material, &mut blocks[..])"));
+        assert!(!derive.contains(".hash_password_into("), "Argon2 memory allocated (and freed unwiped) by the crate");
+
+        let enc = issue42_fn_body(&src, "fn encrypt_with(");
+        let from_keys = &enc[enc.find("let (mut enc_key, mut mac_key) = derive_keys(").unwrap()..];
+        let until_wipe = &from_keys[..from_keys.find("enc_key.zeroize();").unwrap()];
+        assert!(until_wipe.contains("let sealed = seal(plaintext, &enc_key, &mac_key, &salt, &iv, m_cost, t_cost, p_lanes);"));
+        assert_eq!(until_wipe.matches('?').count(), 1, "an early return skips the key wipe: {until_wipe}");
+        assert!(enc.contains("mac_key.zeroize();"));
+
+        let seal = issue42_fn_body(&src, "fn seal(");
+        assert!(seal.contains("let mut buf: Zeroizing<Vec<u8>> = Zeroizing::new(vec![0u8; (plain.len() / 16 + 1) * 16]);"));
+        assert!(!seal.contains("to_vec()"), "a copy of the plaintext or the ciphertext");
+
+        let dec = issue42_fn_body(&src, "pub fn decrypt(");
+        assert!(dec.contains("let mut buf: Zeroizing<Vec<u8>> = Zeroizing::new(ciphertext.to_vec());"));
+        assert!(dec.contains("match String::from_utf8(std::mem::take(&mut *buf)) {"));
+        assert!(dec.contains("e.into_bytes().zeroize();"), "a non-UTF-8 plaintext freed unwiped");
+        assert_eq!(dec.matches("to_vec()").count(), 1, "one copy: the ciphertext, decrypted in place");
+    }
+
+    /// Every caller of `decrypt` keeps its wrapper or moves the text out of
+    /// it: no copy on the way.
+    #[test]
+    fn issue42_decrypted_text_is_moved_not_copied() {
+        let read = |p: &str| crate::read_source(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(p));
+        let unlock = read("src/ui/dialogs/unlock.rs");
+        assert!(unlock.contains(
+            "                            Ok(plaintext) => {\n                                *result_clone.borrow_mut() = Some((pw, plaintext));\n"
+        ));
+        let lock_ops = read("src/ui/editor/lock_ops.rs");
+        assert!(lock_ops.contains("            Ok(plaintext) => {\n                self.restore_after_unlock(pw, plaintext);\n"));
+        let stego = read("src/features/stego/mod.rs");
+        assert!(stego.contains("        Ok(mut plaintext) => Ok(std::mem::take(&mut *plaintext)),\n"));
+        let backup = read("src/features/backup/mod.rs");
+        assert!(backup.contains("    let compressed: Zeroizing<String> =\n        crate::crypto::decrypt(&bytes[HEADER_LEN..], password).map_err("));
+        assert!(backup.contains("    let plain: Zeroizing<String> =\n        crate::crypto::decrypt(&encrypted, password).map_err("));
+        // Every production call site is one of those (tests excepted).
+        let calls: usize = ["src/ui/dialogs/unlock.rs", "src/ui/editor/lock_ops.rs", "src/features/stego/mod.rs", "src/features/backup/mod.rs", "src/ui/mod.rs"]
+            .iter()
+            .map(|p| {
+                let src = read(p);
+                let code = src.split("#[cfg(test)]").next().unwrap().to_string();
+                code.matches("crypto::decrypt(").count()
+            })
+            .sum();
+        assert_eq!(calls, 5);
     }
 }

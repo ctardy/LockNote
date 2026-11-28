@@ -353,12 +353,11 @@ fn check_kdf_cost(wire: &[u8]) -> Result<(), BackupError> {
 pub fn decode(bytes: &[u8], password: &str) -> Result<Backup, BackupError> {
     let format = peek_format(bytes)?;
     check_kdf_cost(&bytes[HEADER_LEN..])?;
-    let compressed: Zeroizing<String> = Zeroizing::new(
+    let compressed: Zeroizing<String> =
         crate::crypto::decrypt(&bytes[HEADER_LEN..], password).map_err(|e| match e {
             crate::crypto::CryptoError::HmacMismatch => BackupError::WrongPasswordOrCorrupt,
             other => BackupError::Corrupt(other.to_string()),
-        })?,
-    );
+        })?;
     let json: Zeroizing<String> = Zeroizing::new(crate::features::compression::decompress(&compressed));
     let root: Value = serde_json::from_str(&json)
         .map_err(|_| BackupError::Corrupt("content is not valid JSON".into()))?;
@@ -389,12 +388,11 @@ pub fn decode(bytes: &[u8], password: &str) -> Result<Backup, BackupError> {
 pub fn decode_exe_payload(raw_payload: &[u8], password: &str) -> Result<Backup, BackupError> {
     let (_hint, encrypted) = crate::storage::split_hint_and_encrypted(raw_payload);
     check_kdf_cost(&encrypted)?;
-    let plain: Zeroizing<String> = Zeroizing::new(
+    let plain: Zeroizing<String> =
         crate::crypto::decrypt(&encrypted, password).map_err(|e| match e {
             crate::crypto::CryptoError::HmacMismatch => BackupError::WrongPasswordOrCorrupt,
             other => BackupError::Corrupt(other.to_string()),
-        })?,
-    );
+        })?;
     let text: Zeroizing<String> = Zeroizing::new(crate::features::compression::decompress(&plain));
     drop(plain);
     let (mut settings, note_text) = Settings::parse(&text);

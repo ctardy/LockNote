@@ -292,10 +292,9 @@ fn run_session(exe_path: PathBuf) {
             // Existing data — prompt to unlock
             match dialogs::unlock::show(&encrypted) {
                 Some((password, decrypted_text)) => {
-                    // The decrypted text, its decompressed form and the note
-                    // read from it are moved into wrappers, wiped on drop on
-                    // every way out (issue #41).
-                    let decrypted_text = zeroize::Zeroizing::new(decrypted_text);
+                    // The decrypted text (wrapped by `crypto::decrypt`, issue
+                    // #42), its decompressed form and the note read from it
+                    // are in wrappers, wiped on drop on every way out (#41).
                     // Decompress after decryption
                     let decrypted_text = zeroize::Zeroizing::new(crate::features::compression::decompress(&decrypted_text));
                     let (mut settings, note_text) = crate::settings::Settings::parse(&decrypted_text);

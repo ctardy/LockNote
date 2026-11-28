@@ -93,7 +93,7 @@ fn full_chain_password_change() {
     // pw1 no longer works on new ciphertext
     assert!(crypto::decrypt(&encrypted2, pw1).is_err());
     // pw2 works
-    assert_eq!(crypto::decrypt(&encrypted2, pw2).unwrap(), plaintext);
+    assert_eq!(crypto::decrypt(&encrypted2, pw2).unwrap().as_str(), plaintext);
 }
 
 #[test]
@@ -189,7 +189,7 @@ fn storage_marker_preserved_across_updates() {
     let recovered = s.read().expect("notes in the .tmp");
     assert_eq!(recovered, payload);
     let decrypted = crypto::decrypt(&recovered, "pw").unwrap();
-    assert_eq!(decrypted, "original note");
+    assert_eq!(decrypted.as_str(), "original note");
 }
 
 /// Issue #42 characterisation (written and green before the change): a save

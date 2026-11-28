@@ -300,8 +300,10 @@ pub fn extract(file_data: &[u8], password: &str) -> Result<String, StegoError> {
     // Attempt decryption — HMAC verification confirms validity.
     // Any crypto error is flattened to DecryptionFailed so callers cannot
     // distinguish wrong-password from corrupted-data (anti-oracle).
+    // The text leaves its wrapper by a move (no copy): `extract` keeps its
+    // `String` result (its caller is outside issue #42).
     match crate::crypto::decrypt(payload, password) {
-        Ok(plaintext) => Ok(plaintext),
+        Ok(mut plaintext) => Ok(std::mem::take(&mut *plaintext)),
         Err(_) => Err(StegoError::DecryptionFailed),
     }
 }

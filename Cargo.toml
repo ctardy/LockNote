@@ -18,13 +18,14 @@ name = "locknote-swap"
 path = "src/bin/locknote_swap.rs"
 
 [dependencies]
-# Crypto
-aes = "0.9"
-cbc = { version = "0.2", features = ["alloc"] }
+# Crypto. "zeroize": the AES key schedule, the CBC state and the Argon2
+# intermediate hashes wipe themselves (issue #42).
+aes = { version = "0.9", features = ["zeroize"] }
+cbc = { version = "0.2", features = ["alloc", "zeroize"] }
 hmac = "0.13"
 sha2 = "0.11"
 sha1 = "0.11"
-argon2 = "0.6"
+argon2 = { version = "0.6", features = ["zeroize"] }
 rand = "0.10"
 
 # Release integrity: the updater verifies the Ed25519-signed SHA256SUMS.txt.
