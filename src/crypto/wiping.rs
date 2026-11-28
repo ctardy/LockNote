@@ -63,10 +63,32 @@ impl WipingBuf {
         }
     }
 
+    /// `reserve` that reports an allocation failure instead of aborting (for
+    /// a reader whose old code got the error from `read_to_string`). The
+    /// buffer is unchanged on failure.
+    pub fn try_reserve(&mut self, additional: usize) -> Result<(), std::collections::TryReserveError> {
+        let needed = self.buf.len().saturating_add(additional);
+        if needed > self.buf.capacity() {
+            let new_capacity = needed.max(self.buf.capacity().saturating_mul(2)).max(64);
+            let mut grown = Vec::new();
+            if grown.try_reserve_exact(new_capacity).is_err() {
+                // Doubling may be what does not fit: the exact need, once more.
+                grown.try_reserve_exact(needed)?;
+            }
+            drop(self.move_into(grown));
+        }
+        Ok(())
+    }
+
     /// Move the bytes into a new allocation of `new_capacity` and return the
     /// old one, wiped (length 0, capacity kept) so the caller frees only zeros.
     fn move_to_larger(&mut self, new_capacity: usize) -> Vec<u8> {
-        let mut grown = Vec::with_capacity(new_capacity);
+        self.move_into(Vec::with_capacity(new_capacity))
+    }
+
+    /// `move_to_larger` into `grown`, empty and already large enough.
+    fn move_into(&mut self, mut grown: Vec<u8>) -> Vec<u8> {
+        debug_assert!(grown.is_empty() && grown.capacity() >= self.buf.len());
         grown.extend_from_slice(&self.buf);
         let mut old = std::mem::replace(&mut self.buf, grown);
         old.zeroize();
@@ -76,6 +98,13 @@ impl WipingBuf {
     pub fn extend_from_slice(&mut self, bytes: &[u8]) {
         self.reserve(bytes.len());
         self.buf.extend_from_slice(bytes);
+    }
+
+    /// `extend_from_slice` that reports an allocation failure (`try_reserve`).
+    pub fn try_extend_from_slice(&mut self, bytes: &[u8]) -> Result<(), std::collections::TryReserveError> {
+        self.try_reserve(bytes.len())?;
+        self.buf.extend_from_slice(bytes);
+        Ok(())
     }
 
     /// The bytes, moved out (no copy): the caller wipes them from here on.
@@ -298,5 +327,27 @@ mod tests {
 ").unwrap()];
         assert!(b64.contains(".encode_slice(data, &mut self.0.buf[start..])"), "{b64}");
         assert!(!b64.contains(".encode(") && !b64.contains("encode_string"), "{b64}");
+    }
+
+    /// An allocation that cannot be made is an error, the buffer unchanged;
+    /// a growth that fits wipes the old allocation like `reserve`.
+    #[test]
+    fn try_reserve_reports_failure_and_grows_like_reserve() {
+        let mut b = WipingBuf::with_capacity(8);
+        b.extend_from_slice(b"12345678");
+        assert!(b.try_reserve(usize::MAX).is_err());
+        assert!(b.try_reserve(isize::MAX as usize - 4).is_err());
+        assert!(b.try_extend_from_slice(&[0u8; 0]).is_ok());
+        assert_eq!((b.as_bytes(), b.capacity()), (&b"12345678"[..], 8));
+        b.try_extend_from_slice(b"9").unwrap();
+        assert_eq!((b.as_bytes(), b.capacity()), (&b"123456789"[..], 64));
+        b.try_reserve(1000).unwrap();
+        assert_eq!(b.capacity(), 1009);
+        let src = crate::read_source("src/crypto/wiping.rs");
+        let tr = &src[src.find("    pub fn try_reserve(").unwrap()..];
+        let tr = &tr[..tr.find("\n    }\n").unwrap()];
+        assert!(tr.contains("drop(self.move_into(grown));"), "{tr}");
+        assert!(tr.contains("grown.try_reserve_exact(needed)?;"), "no retry at the exact need when doubling does not fit: {tr}");
+        assert!(!tr.contains("with_capacity") && !tr.contains("self.buf.reserve") && !tr.contains("self.buf.try_reserve"), "{tr}");
     }
 }

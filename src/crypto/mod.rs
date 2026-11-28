@@ -201,8 +201,16 @@ fn derive_keys(
         .map_err(|e| CryptoError::InvalidParameters(e.to_string()))?;
     // The Argon2 working memory (m_cost KiB) is derived from the password and
     // its last blocks make the keys: given by us so it is wiped before it is
-    // freed (`hash_password_into` frees its own memory unwiped).
-    let mut blocks: Zeroizing<Vec<argon2::Block>> = Zeroizing::new(vec![argon2::Block::new(); params.block_count()]);
+    // freed (`hash_password_into` frees its own memory unwiped). Reserved
+    // fallibly, like the crate does: m_cost comes from the file header, read
+    // before the HMAC, and a size that cannot be allocated is the crate's
+    // KdfFailed("out of memory"), never an abort.
+    let block_count = params.block_count();
+    let mut blocks: Zeroizing<Vec<argon2::Block>> = Zeroizing::new(Vec::new());
+    blocks
+        .try_reserve_exact(block_count)
+        .map_err(|_| CryptoError::KdfFailed(argon2::Error::OutOfMemory.to_string()))?;
+    blocks.resize(block_count, argon2::Block::new());
     let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
     argon2
         .hash_password_into_with_memory(password.as_bytes(), salt, key_material, &mut blocks[..])
@@ -752,7 +760,10 @@ mod tests {
     fn issue42_crypto_buffers_are_wiped_on_every_way_out() {
         let src = crate::read_source("src/crypto/mod.rs");
         let derive = issue42_fn_body(&src, "fn derive_keys(");
-        assert!(derive.contains("let mut blocks: Zeroizing<Vec<argon2::Block>> = Zeroizing::new(vec![argon2::Block::new(); params.block_count()]);"));
+        assert!(derive.contains("let mut blocks: Zeroizing<Vec<argon2::Block>> = Zeroizing::new(Vec::new());"));
+        assert!(derive.contains(".try_reserve_exact(block_count)\n        .map_err(|_| CryptoError::KdfFailed(argon2::Error::OutOfMemory.to_string()))?;"));
+        assert!(derive.contains("blocks.resize(block_count, argon2::Block::new());"));
+        assert!(!derive.contains("vec!["), "an allocation that aborts when it fails");
         assert!(derive.contains(".hash_password_into_with_memory(password.as_bytes(), salt, key_material, &mut blocks[..])"));
         assert!(!derive.contains(".hash_password_into("), "Argon2 memory allocated (and freed unwiped) by the crate");
 
@@ -800,5 +811,19 @@ mod tests {
             })
             .sum();
         assert_eq!(calls, 5);
+    }
+
+    /// Argon2 memory that cannot be allocated is an error, as it was when the
+    /// crate allocated it (KdfFailed("out of memory")), not a process abort:
+    /// m_cost is read from the file header before the HMAC is checked.
+    /// u32::MAX KiB (4 TiB) passes `Params::new` (its maximum) and cannot be
+    /// allocated.
+    #[test]
+    fn issue42_argon2_memory_that_cannot_be_allocated_is_an_error() {
+        match derive_keys("x", &[0u8; SALT_SIZE], u32::MAX, 1, 1) {
+            Err(CryptoError::KdfFailed(msg)) => assert_eq!(msg, "out of memory"),
+            Err(other) => panic!("{other:?}"),
+            Ok(_) => panic!("4 TiB allocated"),
+        }
     }
 }

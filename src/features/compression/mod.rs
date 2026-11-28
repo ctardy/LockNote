@@ -84,6 +84,24 @@ pub fn decompress(input: &str) -> String {
     inflate_bounded(input, MAX_DECOMPRESSED_SIZE)
 }
 
+/// First size of the inflated text: the ISIZE of the gzip trailer (the
+/// inflated size modulo 2^32, of the last member), so a normal text is
+/// inflated into one allocation, without growth. Not trusted: bounded by
+/// the cap and by what deflate can expand to (1032:1), so a forged trailer
+/// cannot make a small input reserve more than its stream could produce.
+fn inflated_size_hint(gzip: &[u8], max_size: u64) -> usize {
+    const GZIP_MIN_LEN: usize = 18; // header 10 + empty deflate 0 + trailer 8
+    if gzip.len() < GZIP_MIN_LEN {
+        return 0;
+    }
+    let t = gzip.len() - 4;
+    let isize_field = u32::from_le_bytes([gzip[t], gzip[t + 1], gzip[t + 2], gzip[t + 3]]) as u64;
+    let deflate_bound = (gzip.len() as u64).saturating_mul(1032);
+    // +1 like the Take: a text exactly at the cap still fits.
+    let hint = isize_field.min(deflate_bound).min(max_size.saturating_add(1));
+    usize::try_from(hint).unwrap_or(0)
+}
+
 /// `decompress` with the cap on the inflated size as a parameter (tests use
 /// a small one).
 fn inflate_bounded(input: &str, max_size: u64) -> String {
@@ -111,13 +129,23 @@ fn inflate_bounded(input: &str, max_size: u64) -> String {
     let mut bounded = GzDecoder::new(&compressed[..]).take(max_size + 1);
     // The text grows in a WipingBuf; the decoder writes into a heap chunk
     // wiped on drop (`read_to_string` would grow a String, and `io::copy`
-    // goes through an unwiped stack buffer).
-    let mut inflated = WipingBuf::with_capacity(compressed.len().saturating_mul(4));
-    let mut chunk: Zeroizing<Vec<u8>> = Zeroizing::new(vec![0u8; 32 * 1024]);
+    // goes through an unwiped stack buffer). Allocations are fallible: an
+    // allocation failure is an I/O error, as `read_to_string` reported it.
+    let mut inflated = WipingBuf::new();
+    let hint = inflated_size_hint(&compressed, max_size);
+    if inflated.try_reserve(hint).is_err() {
+        // Only a first size: the growth below reports a real shortage.
+        eprintln!("WARN compression: size hint not reserved bytes={}", hint);
+    }
+    let mut chunk: Zeroizing<Vec<u8>> = Zeroizing::new(vec![0u8; 64 * 1024]);
     let result = loop {
         match bounded.read(&mut chunk[..]) {
             Ok(0) => break Ok(()),
-            Ok(n) => inflated.extend_from_slice(&chunk[..n]),
+            Ok(n) => {
+                if let Err(e) = inflated.try_extend_from_slice(&chunk[..n]) {
+                    break Err(std::io::Error::new(std::io::ErrorKind::OutOfMemory, e));
+                }
+            }
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             Err(e) => break Err(e),
         }
@@ -481,14 +509,45 @@ mod tests {
         assert!(!compress.contains(".encode("), "a base64 String in between");
         let inflate = issue42_fn_body(&src, "fn inflate_bounded(");
         assert!(inflate.contains("let compressed: Zeroizing<Vec<u8>> = match base64::engine::general_purpose::STANDARD.decode(b64_data) {"));
-        assert!(inflate.contains("let mut inflated = WipingBuf::with_capacity(compressed.len().saturating_mul(4));"));
-        assert!(inflate.contains("let mut chunk: Zeroizing<Vec<u8>> = Zeroizing::new(vec![0u8; 32 * 1024]);"));
-        assert!(inflate.contains("Ok(n) => inflated.extend_from_slice(&chunk[..n]),"));
+        assert!(inflate.contains("let mut inflated = WipingBuf::new();"));
+        assert!(inflate.contains("let mut chunk: Zeroizing<Vec<u8>> = Zeroizing::new(vec![0u8; 64 * 1024]);"));
+        assert!(inflate.contains("if let Err(e) = inflated.try_extend_from_slice(&chunk[..n]) {"));
+        assert!(inflate.contains("break Err(std::io::Error::new(std::io::ErrorKind::OutOfMemory, e));"));
+        assert!(!inflate.contains("inflated.extend_from_slice(") && !inflate.contains("inflated.reserve("), "an allocation that aborts");
         assert!(inflate.contains("let mut text = match String::from_utf8(inflated.into_vec()) {"));
         assert!(inflate.contains("e.into_bytes().zeroize();"));
         assert!(inflate.contains("text.zeroize();\n        return String::new();"));
         let code: String = inflate.lines().filter(|l| !l.trim_start().starts_with("//")).collect();
         assert!(!code.contains("read_to_string") && !code.contains("io::copy"), "a growing String or a stack buffer");
         assert!(src.contains("pub fn decompress(input: &str) -> String {\n    inflate_bounded(input, MAX_DECOMPRESSED_SIZE)\n}"));
+    }
+
+    /// The ISIZE hint sizes a normal text exactly (one allocation, no growth),
+    /// and a forged or absent trailer only changes the first size, never the
+    /// result: bounded by the cap and by the deflate expansion limit.
+    #[test]
+    fn issue42_inflate_is_sized_by_the_gzip_trailer() {
+        let gz = |b: &[u8]| {
+            let mut e = GzEncoder::new(Vec::new(), Compression::default());
+            e.write_all(b).unwrap();
+            e.finish().unwrap()
+        };
+        let lngz = |g: &[u8]| format!("{}{}", PREFIX, base64::engine::general_purpose::STANDARD.encode(g));
+        let big = issue42_large_input();
+        let text = inflate_bounded(&compress(&big), MAX_DECOMPRESSED_SIZE);
+        assert_eq!((text.len(), text.capacity()), (big.len(), big.len()), "inflated without growth");
+
+        let g = gz(b"hello hint");
+        assert_eq!(inflated_size_hint(&g, MAX_DECOMPRESSED_SIZE), 10);
+        assert_eq!(inflated_size_hint(&g, 4), 5, "bounded by the cap + 1");
+        assert_eq!(inflated_size_hint(&g[..10], MAX_DECOMPRESSED_SIZE), 0, "too short for a trailer");
+        let mut forged = g.clone();
+        let t = forged.len() - 4;
+        forged[t..].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert_eq!(inflated_size_hint(&forged, MAX_DECOMPRESSED_SIZE), forged.len() * 1032, "bounded by deflate's expansion");
+        // A forged trailer fails the gzip check: passed through, as before.
+        assert_eq!(inflate_bounded(&lngz(&forged), MAX_DECOMPRESSED_SIZE), lngz(&forged));
+        let small = "x".repeat(3000);
+        assert_eq!(inflate_bounded(&lngz(&gz(small.as_bytes())), MAX_DECOMPRESSED_SIZE), small);
     }
 }
