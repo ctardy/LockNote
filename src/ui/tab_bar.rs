@@ -278,6 +278,24 @@ impl TabBar {
         self.tabs.borrow().clone()
     }
 
+    /// The tabs as a save or a backup writes them (name, text, color), built
+    /// from the tabs in place: one copy of each text, wiped by the caller
+    /// (issue #42: `all_tabs` cloned every tab, its saved text included, and
+    /// the clone was dropped unwiped). `saved_content` stays empty: neither
+    /// writes it.
+    pub fn note_tabs(&self) -> Vec<crate::features::tabs::NoteTab> {
+        self.tabs
+            .borrow()
+            .iter()
+            .map(|t| crate::features::tabs::NoteTab {
+                name: t.name.clone(),
+                content: t.content.clone(),
+                saved_content: String::new(),
+                color: t.color.clone(),
+            })
+            .collect()
+    }
+
     /// The tab names in order, without cloning any content (the command
     /// palette: no extra plaintext copy).
     pub fn names(&self) -> Vec<String> {
@@ -568,5 +586,27 @@ mod tests {
     fn get_tab_content_out_of_bounds() {
         let bar = TabBar::new();
         assert_eq!(bar.get_tab_content(99), "");
+    }
+
+    /// Issue #42: what a save writes, one copy of each text (the saved text
+    /// is not copied), in order, with names and colors.
+    #[test]
+    fn note_tabs_copy_name_text_and_color_only() {
+        let mut a = Tab::new("A");
+        a.content = "alpha".into();
+        a.saved_content = "old alpha".into();
+        let mut b = Tab::new("B");
+        b.content = "beta".into();
+        b.color = Some("blue".into());
+        let bar = TabBar::with_tabs(vec![a, b]);
+        let got: Vec<(String, String, String, Option<String>)> =
+            bar.note_tabs().into_iter().map(|t| (t.name, t.content, t.saved_content, t.color)).collect();
+        assert_eq!(
+            got,
+            vec![
+                ("A".into(), "alpha".into(), String::new(), None),
+                ("B".into(), "beta".into(), String::new(), Some("blue".into())),
+            ]
+        );
     }
 }

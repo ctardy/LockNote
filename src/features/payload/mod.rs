@@ -1838,4 +1838,27 @@ mod tests {
         assert_eq!(lock_ops.matches("self.load_payload(&note_text, self.locked_session_state.take());").count(), 2);
         assert_eq!(lock_ops.matches("self.editor.set_text(&note_text);").count(), 2);
     }
+
+    /// The save and the backup build the tabs they write with
+    /// `TabBar::note_tabs` (no clone of every tab), and the save wipes them
+    /// once composed. UI code: pinned in the source; `NoteTab: Zeroize`
+    /// checked by the compiler.
+    #[test]
+    fn issue42_the_save_wipes_its_tab_copies() {
+        fn wipeable<T: zeroize::Zeroize>() {}
+        wipeable::<Vec<NoteTab>>();
+        let read = |p: &str| crate::read_source(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(p));
+        let file_ops = read("src/ui/editor/file_ops.rs");
+        let save = &file_ops[file_ops.find("    pub(super) fn save_note(").unwrap()..];
+        let save = &save[..save.find("\n    }\n").unwrap()];
+        assert!(save.contains(
+            "let mut note_tabs: Zeroizing<Vec<crate::features::tabs::NoteTab>> = Zeroizing::new(tb.note_tabs());"
+        ));
+        assert!(!save.contains("all_tabs()") && !save.contains("with_content(&t."), "a clone of every tab");
+        let backup_ops = read("src/ui/editor/backup_ops.rs");
+        let build = &backup_ops[backup_ops.find("    pub(super) fn build_current_backup(").unwrap()..];
+        let build = &build[..build.find("\n    }\n").unwrap()];
+        assert!(build.contains("            tb.note_tabs()\n"));
+        assert!(!build.contains("all_tabs()"));
+    }
 }

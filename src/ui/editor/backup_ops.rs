@@ -152,10 +152,8 @@ impl EditorForm {
             let tb = self.tab_bar.borrow_mut();
             let active = tb.active_index();
             tb.set_tab_content(active, &current);
-            tb.all_tabs()
-                .iter()
-                .map(|t| crate::features::tabs::NoteTab::with_content(&t.name, &t.content, t.color.as_deref()))
-                .collect()
+            // One copy of each tab text, wiped with the backup (issue #42).
+            tb.note_tabs()
         };
         drop(current);
         Ok(crate::features::backup::Backup {

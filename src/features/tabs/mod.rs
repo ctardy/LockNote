@@ -11,8 +11,9 @@
 // A line of a tab's text that starts with a reserved marker of the payload
 // (any block, see `features::markers`) is written with a `\x00` prefix.
 
-/// A single note tab.
-#[derive(Debug, Clone)]
+/// A single note tab. `Zeroize` (not on drop): the copies built for a save
+/// are wiped by their `Zeroizing` wrapper (issue #42).
+#[derive(Debug, Clone, zeroize::Zeroize)]
 pub struct NoteTab {
     pub name: String,
     pub content: String,

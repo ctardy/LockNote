@@ -98,13 +98,10 @@ impl EditorForm {
             let tb = self.tab_bar.borrow_mut();
             let active = tb.active_index();
             tb.set_tab_content(active, &note_text);
-            let tabs = tb.all_tabs();
+            // One copy of each tab text, wiped once composed (issue #42).
+            let mut note_tabs: Zeroizing<Vec<crate::features::tabs::NoteTab>> = Zeroizing::new(tb.note_tabs());
             drop(tb);
 
-            // Convert UI tabs to NoteTab for serialization
-            let mut note_tabs: Vec<crate::features::tabs::NoteTab> = tabs.iter().map(|t| {
-                crate::features::tabs::NoteTab::with_content(&t.name, &t.content, t.color.as_deref())
-            }).collect();
             if note_tabs.is_empty() {
                 // The tab bar always holds one tab; without any, the editor
                 // text is saved as the default single tab (`compose` decides
@@ -116,6 +113,7 @@ impl EditorForm {
                 ));
             }
 
+            // Copies of entries that wipe themselves on drop (ZeroizeOnDrop).
             let prompts = self.prompts_panel.get_prompts();
             let secrets = self.vault_panel.get_secrets();
             let attachments = self.attachments.borrow();
