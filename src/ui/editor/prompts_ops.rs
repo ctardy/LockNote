@@ -333,7 +333,10 @@ mod tests {
         assert_eq!(insert.matches("replace_selection_utf16(").count(), 1);
         assert!(!insert.contains("set_text"));
         let ed = source("edit_ops.rs");
-        assert!(body(&ed, "pub(super) fn replace_selection_utf16(").contains("self.send_editor_message(0x00C2, 1,"));
+        assert!(body(&ed, "pub(super) fn replace_selection_utf16(").contains("replace_selection_on(hwnd, s)"));
+        let on = &ed[ed.find("pub(super) fn replace_selection_on(").expect("replace_selection_on")..];
+        let on = &on[..on.find("\n}\n").expect("end of replace_selection_on")];
+        assert!(on.contains("0x00C2, // EM_REPLACESEL") && on.contains("WPARAM(1)), // undoable"), "{on}");
     }
 
     /// `{date}`/`{time}`/`{datetime}` and Insert Timestamp (F5) read the

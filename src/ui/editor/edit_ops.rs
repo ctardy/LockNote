@@ -5,6 +5,32 @@
 use super::*;
 use crate::features::case_convert::CaseOp;
 
+/// Replace the selection of the RichEdit `hwnd` with `s` as one undoable
+/// edit, the caret after it: EM_REPLACESEL (wParam = 1). A text that is a
+/// lone form feed (what Trim or Shift+Tab leaves of " \f " or "\t\f\t") goes
+/// through TOM instead: EM_REPLACESEL (and EM_SETTEXTEX) turn it into a
+/// paragraph break (CRLF), ITextSelection::SetText keeps it, in one undo
+/// step too (live tests in line_ops.rs). Should TOM fail, the error is
+/// logged and EM_REPLACESEL still applies the edit: the line count shown is
+/// the same, only that break becomes a paragraph break.
+pub(super) fn replace_selection_on(hwnd: windows::Win32::Foundation::HWND, s: &str) {
+    if s == "\u{c}" {
+        match super::tom::replace_selection_text(hwnd, s) {
+            Ok(()) => return,
+            Err(e) => eprintln!("ERROR edit: lone form feed not inserted through TOM ({e}); EM_REPLACESEL makes it a paragraph break"),
+        }
+    }
+    let wide: Vec<u16> = s.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        windows::Win32::UI::WindowsAndMessaging::SendMessageW(
+            hwnd,
+            0x00C2, // EM_REPLACESEL
+            Some(windows::Win32::Foundation::WPARAM(1)), // undoable
+            Some(windows::Win32::Foundation::LPARAM(wide.as_ptr() as isize)),
+        );
+    }
+}
+
 impl EditorForm {
     // =====================================================================
     // View operations
@@ -287,12 +313,13 @@ impl EditorForm {
         }
     }
 
-    /// Insert a UTF-16 string at the current selection via EM_REPLACESEL.
+    /// Insert a UTF-16 string at the current selection (`replace_selection_on`).
     /// Going through the Windows message (instead of `editor.set_text`) keeps
     /// the undo history and avoids rebuilding the whole document.
     pub(super) fn replace_selection_utf16(&self, s: &str) {
-        let wide: Vec<u16> = s.encode_utf16().chain(std::iter::once(0)).collect();
-        self.send_editor_message(0x00C2, 1, wide.as_ptr() as isize); // EM_REPLACESEL, wParam=1 (undoable)
+        if let Some(hwnd) = super::tom::hwnd_of(self.editor.handle) {
+            replace_selection_on(hwnd, s);
+        }
     }
 
     /// Undo last edit. EM_UNDO = 0x00C7.

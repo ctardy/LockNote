@@ -539,7 +539,8 @@ mod tests {
         assert_eq!(split_print_lines("\n"), [""]);
         assert!(split_print_lines("").is_empty());
         // A form feed ends a line, as the editor shows it (V2).
-        assert_eq!(split_print_lines("a\u{c}b\r\nc\u{c}"), ["a", "b", "c"]);        assert_eq!(layout_pages("a\r\n\r\nb", 100, 5, &mono).unwrap(), vec![vec!["a", "", "b"]]);
+        assert_eq!(split_print_lines("a\u{c}b\r\nc\u{c}"), ["a", "b", "c"]);
+        assert_eq!(layout_pages("a\r\n\r\nb", 100, 5, &mono).unwrap(), vec![vec!["a", "", "b"]]);
     }
 
     #[test]

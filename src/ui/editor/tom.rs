@@ -85,6 +85,18 @@ pub(super) fn selection_ends(hwnd: HWND) -> Result<(u32, u32), String> {
     Ok(if flags & tomSelStartActive.0 != 0 { (end, start) } else { (start, end) })
 }
 
+/// Replace the selection with `text` as one undoable edit, caret after it as
+/// EM_REPLACESEL leaves it (ITextSelection::SetText, then Collapse to the
+/// end). Unlike EM_REPLACESEL, it keeps a lone form feed a form feed.
+pub(super) fn replace_selection_text(hwnd: HWND, text: &str) -> Result<(), String> {
+    use windows::core::BSTR;
+    use windows::Win32::UI::Controls::RichEdit::tomEnd;
+    let sel = unsafe { text_document(hwnd)?.GetSelection() }.map_err(|e| format!("GetSelection failed: {e}"))?;
+    unsafe { sel.SetText(&BSTR::from(text)) }.map_err(|e| format!("SetText failed: {e}"))?;
+    unsafe { sel.Collapse(tomEnd.0) }.map_err(|e| format!("Collapse failed: {e}"))?;
+    Ok(())
+}
+
 /// Tests: what Shift+Right does, move the active end one character right.
 #[cfg(test)]
 pub(super) fn extend_selection_right(hwnd: HWND) -> Result<(), String> {

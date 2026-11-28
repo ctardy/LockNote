@@ -136,8 +136,10 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   caret position and line count of the status bar, Tab on several lines,
   list continuation, Ctrl+., Go to Heading, Search All Tabs and Print also
   disagreed with the line numbers shown. They now all count lines as the
-  editor shows them, and the commands that reorder lines keep each form
-  feed in its place. The caret line saved with the note keeps its meaning.
+  editor shows them, and the commands that reorder, trim or outdent lines
+  keep each form feed in its place, even when nothing else is left around
+  it. A selection across a form feed is no longer highlighted as a word.
+  The caret line saved with the note keeps its meaning.
 - **Duplicate Line, Delete Line, Insert Timestamp and Go to Line with
   accents, emoji or several lines**: these commands counted positions in
   bytes, where the editor counts characters and a line break as one.

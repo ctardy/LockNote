@@ -426,6 +426,8 @@
     fn highlight_rules_unchanged() {
         assert_eq!(highlight_term("a"), None);
         assert_eq!(highlight_term("a\nb"), None);
+        // Two lines as the editor shows them (features::text_lines).
+        assert_eq!(highlight_term("a\u{c}b"), None);
         assert_eq!(highlight_term(" ab"), None);
         assert_eq!(highlight_term("ab "), None);
         assert_eq!(highlight_term("ab"), Some("ab"));

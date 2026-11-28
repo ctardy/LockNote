@@ -328,11 +328,11 @@ pub(in crate::ui) fn build_utf16_offset_map(text: &str) -> Vec<usize> {
 pub(super) const MAX_HIGHLIGHT_CHARS: usize = 256;
 
 /// The term to highlight for the current selection, if any: at least 2
-/// bytes, single line, no whitespace at the edges.
+/// bytes, single line as the editor shows it (no CR, LF nor form feed,
+/// features::text_lines), no whitespace at the edges.
 pub(super) fn highlight_term(selected: &str) -> Option<&str> {
     let ok = selected.len() >= 2
-        && !selected.contains('\n')
-        && !selected.contains('\r')
+        && !selected.contains(crate::features::text_lines::is_break)
         && selected == selected.trim()
         && selected.chars().count() <= MAX_HIGHLIGHT_CHARS;
     ok.then_some(selected)

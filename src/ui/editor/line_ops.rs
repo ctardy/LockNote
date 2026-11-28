@@ -124,8 +124,7 @@ pub(super) fn move_lines_edit(text: &str, sel: (u32, u32), up: bool) -> Option<L
     let start = position_of(text, lines[a].0);
     if order.iter().copied().eq((a..=b).map(line)) {
         // Identical lines swapped: the text stays as it is, only the
-        // selection moves. Replacing it could even change it: EM_REPLACESEL
-        // turns a lone "\f" (two empty lines) into a CRLF.
+        // selection moves; no undo step, the note not marked modified.
         return Some(LineEdit { start, end: start, text: String::new(), sel: new_sel });
     }
     let replacement = join_with_breaks(text, &lines, a, &order);
@@ -338,8 +337,9 @@ impl EditorForm {
         eprintln!("DEBUG lines: move up={} changed={}", up, changed);
         if changed {
             self.reset_occurrence_highlights();
-            self.send_editor_message(0x00B7, 0, 0); // EM_SCROLLCARET
         }
+        // A move of identical lines changes no text but moves the caret.
+        self.send_editor_message(0x00B7, 0, 0); // EM_SCROLLCARET
     }
 
     /// Ctrl+D (`duplicate_line_edit`) and Ctrl+Shift+K (`delete_line_edit`):
@@ -715,9 +715,10 @@ pub(super) mod tests {
             let (s, e) = *self.sel.borrow();
             let (lo, hi) = (s.min(e), s.max(e));
             let (b0, b1) = utf16_range_to_byte_range(&current, lo as usize, hi as usize);
-            // RichEdit stores a "\n" as a paragraph break, read back as "\r\n",
-            // and so a lone form feed (measured, see the live tests).
-            let inserted = if text == "\u{c}" { "\r\n".to_string() } else { text.replace('\n', "\r\n") };
+            // RichEdit stores a "\n" as a paragraph break, read back as "\r\n".
+            // A lone form feed stays one: replace_selection_on sends it
+            // through TOM (EM_REPLACESEL alone would make it a CRLF).
+            let inserted = text.replace('\n', "\r\n");
             *self.text.borrow_mut() = format!("{}{}{}", &current[..b0], inserted, &current[b1..]);
             // As EM_REPLACESEL: the caret ends after the inserted text.
             let caret = build_utf16_offset_map(&current)[b0] as u32 + utf16_len(&inserted) as u32;
@@ -865,13 +866,25 @@ pub(super) mod tests {
     #[test]
     fn sequence_move_of_identical_lines_around_a_form_feed_changes_nothing() {
         // Two empty lines split by a form feed: the swap gives the same
-        // text. EM_REPLACESEL would turn a lone "\f" into a CRLF (live test
-        // below), so the text is not replaced; only the caret moves.
+        // text, so the text is not replaced (no undo step, not modified);
+        // only the caret moves.
         let f = Fake::new("\u{c}", (0, 0));
         assert_eq!(run_line_edit(&f, |t, s| Ok::<_, ()>(move_lines_edit(t, s, false))), Ok(false));
         assert_eq!(*f.text.borrow(), "\u{c}");
         assert_eq!(*f.sel.borrow(), (1, 1));
         assert_eq!(*f.log.borrow(), vec!["select:1..1"]);
+    }
+
+    #[test]
+    fn sequence_trim_down_to_a_lone_form_feed_replaces_once() {
+        // " \f " trimmed is the lone form feed: one replacement, the result
+        // selected. That it stays a form feed in RichEdit is the job of
+        // replace_selection_on (live test below).
+        let f = Fake::new(" \u{c} ", (0, 0));
+        assert_eq!(run_line_edit(&f, |t, s| line_op_edit(t, s, LineOp::TrimTrailing, ci)), Ok(true));
+        assert_eq!(*f.text.borrow(), "\u{c}");
+        assert_eq!(*f.sel.borrow(), (0, 1));
+        assert_eq!(f.log.borrow().iter().filter(|c| c.starts_with("replace:")).count(), 1, "{:?}", f.log.borrow());
     }
 
     #[test]
@@ -1106,6 +1119,18 @@ pub(super) mod tests {
         assert!(guard < set);
     }
 
+    #[test]
+    fn a_move_scrolls_the_caret_into_view_even_without_a_text_change() {
+        // A move of identical lines (empty lines held down with Alt+Down)
+        // changes no text but moves the caret: it is scrolled into view too.
+        let code = src("line_ops.rs");
+        let code = &code[..code.find("#[cfg(test)]").expect("test module")];
+        let body = fn_body(code, "fn on_move_lines");
+        let after_if = &body[body.find("if changed {").expect("changed branch")..];
+        let after_if = &after_if[after_if.find("\n        }\n").expect("end of the changed branch")..];
+        assert!(after_if.contains("self.send_editor_message(0x00B7, 0, 0); // EM_SCROLLCARET"), "{body}");
+    }
+
     fn fn_body<'a>(code: &'a str, head: &str) -> &'a str {
         let body = &code[code.find(head).unwrap_or_else(|| panic!("{head}"))..];
         &body[..body.find("\n    }\n").unwrap_or_else(|| panic!("end of {head}"))]
@@ -1275,11 +1300,34 @@ pub(super) mod tests {
             fn stop_group_typing(&self) {
                 send(self.ed, 0x0458, 0, 0);
             }
+            /// The editor's own replacement (`EditorForm::replace_selection_utf16`).
             fn replace_selection(&self, text: &str) {
-                let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
-                send(self.ed, 0x00C2, 1, wide.as_ptr() as isize); // EM_REPLACESEL, undoable
+                crate::ui::editor::edit_ops::replace_selection_on(self.ed, text);
             }
             fn mark_modified(&self) {}
+        }
+
+        /// Tab / Shift+Tab on a live RichEdit, as `EditorIndentSteps`.
+        impl crate::ui::editor::indent::IndentSteps for Rich {
+            fn text(&self) -> String {
+                LineEditSteps::text(self)
+            }
+            fn selection(&self) -> (u32, u32) {
+                LineEditSteps::selection(self)
+            }
+            fn set_selection(&mut self, start: u32, end: u32) {
+                LineEditSteps::select(self, start, end);
+            }
+            fn replace_selection(&mut self, s: &str) {
+                LineEditSteps::replace_selection(self, s);
+            }
+            fn mark_modified(&mut self) {}
+        }
+
+        /// EM_REPLACESEL itself (undoable), without the editor's own rule.
+        fn em_replacesel(r: &Rich, text: &str) {
+            let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+            send(r.ed, 0x00C2, 1, wide.as_ptr() as isize);
         }
 
         /// EM_GETLINECOUNT and the EM_LINEINDEX of every line, word wrap
@@ -1323,15 +1371,72 @@ pub(super) mod tests {
 
         #[test]
         fn live_replace_selection_keeps_a_form_feed_unless_alone() {
-            // Why a move that changes nothing is not replaced: a lone "\f"
-            // becomes a CRLF, a longer string keeps it.
+            // Raw EM_REPLACESEL: a lone "\f" becomes a CRLF, a longer string
+            // keeps it. Hence replace_selection_on (next test).
             for (inserted, read) in [
                 ("\u{c}", "\r\n"), ("\u{c}\u{c}", "\u{c}\u{c}"), ("\u{c}b", "\u{c}b"), ("b\u{c}", "b\u{c}"), ("x\u{c}y\nz", "x\u{c}y\r\nz"),
             ] {
                 let r = make("");
-                r.replace_selection(inserted);
+                em_replacesel(&r, inserted);
                 assert_eq!(r.text(), read, "{inserted:?}");
             }
+            // Inside a text too, and EM_SETTEXTEX (ST_SELECTION | ST_KEEPUNDO)
+            // does the same.
+            let r = make("a \u{c} b");
+            r.select(1, 4);
+            em_replacesel(&r, "\u{c}");
+            assert_eq!(r.text(), "a\r\nb");
+            let r = make(" \u{c} ");
+            r.select(0, 3);
+            let wide: Vec<u16> = "\u{c}".encode_utf16().chain(std::iter::once(0)).collect();
+            let st: [u32; 2] = [1 | 2, 1200]; // ST_KEEPUNDO | ST_SELECTION, UTF-16
+            send(r.ed, 0x0461, st.as_ptr() as usize, wide.as_ptr() as isize); // EM_SETTEXTEX
+            assert_eq!(r.text(), "\r\n");
+        }
+
+        #[test]
+        fn live_editor_replacement_keeps_a_lone_form_feed_in_one_undo_step() {
+            // replace_selection_on: what every line command, Tab and list
+            // edit sends. A lone form feed stays a form feed, caret after it,
+            // and one Ctrl+Z puts the replaced text back.
+            for (text, sel, caret) in [(" \u{c} ", (0, 3), 1), ("a \u{c} b", (1, 4), 2), ("", (0, 0), 1)] {
+                let r = make(text);
+                r.select(sel.0, sel.1);
+                r.stop_group_typing();
+                r.replace_selection("\u{c}");
+                let after = text[..utf16_range_to_byte_range(text, 0, sel.0 as usize).1].to_string()
+                    + "\u{c}"
+                    + &text[utf16_range_to_byte_range(text, sel.1 as usize, sel.1 as usize).0..];
+                assert_eq!(r.text(), after, "{text:?}");
+                assert_eq!(r.selection(), (caret, caret), "{text:?}");
+                send(r.ed, 0x00C7, 0, 0); // EM_UNDO
+                assert_eq!(r.text(), text, "one undo step for {text:?}");
+            }
+        }
+
+        #[test]
+        fn live_trim_and_shift_tab_keep_a_form_feed_left_alone() {
+            // Trim on the whole tab " \f " leaves ["", ""]: the replacement is
+            // a lone form feed (refuter, V2 round 1).
+            let r = make(" \u{c} ");
+            r.select(0, 0);
+            assert_eq!(run_line_edit(&r, |t, s| line_op_edit(t, s, LineOp::TrimTrailing, ci)), Ok(true));
+            assert_eq!(r.text(), "\u{c}");
+            assert_eq!(r.selection(), (0, 1));
+            send(r.ed, 0x00C7, 0, 0); // EM_UNDO
+            assert_eq!(r.text(), " \u{c} ");
+            // " \f\r\n": the block [" ", ""] becomes ["", ""] (reviewer).
+            let r = make(" \u{c}\r\n");
+            r.select(0, 0);
+            assert_eq!(run_line_edit(&r, |t, s| line_op_edit(t, s, LineOp::TrimTrailing, ci)), Ok(true));
+            assert_eq!(r.text(), "\u{c}\r\n");
+            // Shift+Tab on "\t\f\t", everything selected.
+            let mut r = make("\t\u{c}\t");
+            r.select(0, 3);
+            assert!(crate::ui::editor::indent::run_indent(&mut r, crate::ui::editor::indent::IndentDir::Out));
+            assert_eq!(LineEditSteps::text(&r), "\u{c}");
+            send(r.ed, 0x00C7, 0, 0); // EM_UNDO
+            assert_eq!(LineEditSteps::text(&r), "\t\u{c}\t");
         }
 
         #[test]
