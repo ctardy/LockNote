@@ -905,7 +905,7 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "locknote"
-version = "2.1.1"
+version = "2.2.0"
 dependencies = [
  "aes 0.9.4",
  "argon2",

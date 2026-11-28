@@ -6,6 +6,8 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-28
+
 ### Added
 - **Command palette** (Ctrl+Shift+P, no menu item): a filter field above a
   list of every menu command (with its shortcut), one "Tab: <name>" row per
