@@ -266,8 +266,10 @@ pub(super) enum Utf16RangeError {
 
 impl Utf16RangeError {
     /// The cause in words, in `lang`: the one place that turns this error
-    /// into user text (the Debug form stays in the ERROR log). Positions
-    /// are shown counted from 1.
+    /// into user text (the Debug form stays in the ERROR log). An invalid
+    /// character's position is shown counted from 1; a selection past the
+    /// end shows no number (its bounds are a caret boundary in UTF-16
+    /// units, which the user cannot count).
     pub(super) fn user_message(&self, lang: crate::features::i18n::Language) -> String {
         use crate::features::i18n::get_for;
         match self {
@@ -276,9 +278,7 @@ impl Utf16RangeError {
             Utf16RangeError::MidSurrogate { pos } => {
                 get_for(lang, "range.error.mid_surrogate").replace("{pos}", &(pos + 1).to_string())
             }
-            Utf16RangeError::OutOfBounds { max, len_u16 } => get_for(lang, "range.error.out_of_bounds")
-                .replace("{pos}", &(max + 1).to_string())
-                .replace("{len}", &len_u16.to_string()),
+            Utf16RangeError::OutOfBounds { .. } => get_for(lang, "range.error.out_of_bounds").to_string(),
         }
     }
 }

@@ -335,7 +335,7 @@ fn build_en() -> Dict {
     m.insert("lines.error.sort", "The lines were not sorted: {msg}");
     m.insert("lines.error.mapping", "The selection could not be read ({msg}). The note was not changed. Place the caret again, then retry.");
     m.insert("range.error.mid_surrogate", "invalid character at position {pos}");
-    m.insert("range.error.out_of_bounds", "position {pos} is past the end of the text, {len} characters long");
+    m.insert("range.error.out_of_bounds", "it is past the end of the text");
     m.insert("range.error.negative", "negative position");
     m.insert("range.error.empty", "empty range");
     m.insert("menu.edit.selectall", "Select &All\tCtrl+A");
@@ -1081,7 +1081,7 @@ fn build_fr() -> Dict {
     m.insert("lines.error.sort", "Les lignes n'ont pas \u{00e9}t\u{00e9} tri\u{00e9}es : {msg}");
     m.insert("lines.error.mapping", "La s\u{00e9}lection n'a pas pu \u{00ea}tre lue ({msg}). La note n'a pas \u{00e9}t\u{00e9} modifi\u{00e9}e. Replacez le curseur puis r\u{00e9}essayez.");
     m.insert("range.error.mid_surrogate", "caract\u{00e8}re invalide \u{00e0} la position {pos}");
-    m.insert("range.error.out_of_bounds", "position {pos} au-del\u{00e0} de la fin du texte, qui compte {len} caract\u{00e8}res");
+    m.insert("range.error.out_of_bounds", "elle d\u{00e9}passe la fin du texte");
     m.insert("range.error.negative", "position n\u{00e9}gative");
     m.insert("range.error.empty", "plage vide");
     m.insert("menu.edit.selectall", "&Tout s\u{00e9}lectionner\tCtrl+A");
@@ -1804,7 +1804,7 @@ fn build_es() -> Dict {
     m.insert("lines.error.sort", "No se ordenaron las l\u{00ed}neas: {msg}");
     m.insert("lines.error.mapping", "No se pudo leer la selecci\u{00f3}n ({msg}). La nota no se modific\u{00f3}. Vuelva a colocar el cursor e int\u{00e9}ntelo de nuevo.");
     m.insert("range.error.mid_surrogate", "car\u{00e1}cter no v\u{00e1}lido en la posici\u{00f3}n {pos}");
-    m.insert("range.error.out_of_bounds", "la posici\u{00f3}n {pos} est\u{00e1} m\u{00e1}s all\u{00e1} del final del texto, que tiene {len} caracteres");
+    m.insert("range.error.out_of_bounds", "est\u{00e1} m\u{00e1}s all\u{00e1} del final del texto");
     m.insert("range.error.negative", "posici\u{00f3}n negativa");
     m.insert("range.error.empty", "intervalo vac\u{00ed}o");
     m.insert("menu.edit.selectall", "Seleccionar &todo\tCtrl+A");
@@ -2528,7 +2528,7 @@ fn build_de() -> Dict {
     m.insert("lines.error.sort", "Die Zeilen wurden nicht sortiert: {msg}");
     m.insert("lines.error.mapping", "Die Auswahl konnte nicht gelesen werden ({msg}). Die Notiz wurde nicht ge\u{00e4}ndert. Setzen Sie den Cursor neu und versuchen Sie es noch einmal.");
     m.insert("range.error.mid_surrogate", "ung\u{00fc}ltiges Zeichen an Position {pos}");
-    m.insert("range.error.out_of_bounds", "Position {pos} liegt hinter dem Textende, der Text hat {len} Zeichen");
+    m.insert("range.error.out_of_bounds", "sie liegt hinter dem Textende");
     m.insert("range.error.negative", "negative Position");
     m.insert("range.error.empty", "leerer Bereich");
     m.insert("menu.edit.selectall", "Alles aus&w\u{00e4}hlen\tStrg+A");

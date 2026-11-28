@@ -1918,9 +1918,20 @@
         use crate::features::i18n::Language;
         assert_eq!(
             range_error_text(Language::English, "case.error.mapping", &Utf16RangeError::OutOfBounds { max: 5, len_u16: 2 }),
-            "The selection could not be read (position 6 is past the end of the text, 2 characters long). \
+            "The selection could not be read (it is past the end of the text). \
              The case was not converted and the note was not changed. Select the text again, then retry."
         );
+    }
+
+    #[test]
+    fn out_of_bounds_message_shows_no_count_in_any_language() {
+        // The bounds are RichEdit UTF-16 units and a caret boundary, not
+        // characters the user can count: they stay in the ERROR log only.
+        use crate::features::i18n::Language;
+        for lang in [Language::English, Language::French, Language::Spanish, Language::German] {
+            let cause = Utf16RangeError::OutOfBounds { max: 5, len_u16: 2 }.user_message(lang);
+            assert!(!cause.chars().any(|c| c.is_ascii_digit()), "{lang:?}: {cause}");
+        }
     }
 
     #[test]
@@ -1937,9 +1948,6 @@
                     }
                     match e {
                         Utf16RangeError::MidSurrogate { .. } => assert!(text.contains(" 3"), "{lang:?} {key}: {text}"),
-                        Utf16RangeError::OutOfBounds { .. } => {
-                            assert!(text.contains(" 6") && text.contains(" 2"), "{lang:?} {key}: {text}")
-                        }
                         _ => {}
                     }
                 }
