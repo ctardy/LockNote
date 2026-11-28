@@ -208,6 +208,20 @@ impl std::fmt::Debug for Settings {
     }
 }
 
+/// The 2FA secret is wiped when a `Settings` is dropped (issue #42), so every
+/// copy wipes its own: a clone given to a dialog, the settings an unlock
+/// replaces while the wipe of the lock is deferred, a backup's settings, the
+/// settings read from another file. The TOTP entries wipe themselves
+/// (ZeroizeOnDrop). `zeroize_settings_secrets` stays for the live settings,
+/// wiped at lock while they are kept.
+impl Drop for Settings {
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.totp_2fa_secret);
+    }
+}
+
+impl zeroize::ZeroizeOnDrop for Settings {}
+
 fn parse_bool(s: &str) -> Option<bool> {
     match s.trim().to_lowercase().as_str() {
         "on" | "true" | "1" | "yes" => Some(true),
@@ -281,7 +295,10 @@ impl Settings {
     /// every build up to 1.2.27 fell back to. Kept so that existing files read
     /// back the same (issue 059, D9).
     fn parse_fallback() -> Self {
-        Settings { min_password_length: 4, ..Self::default() }
+        // Not `..Self::default()`: a type with `Drop` cannot be moved out of.
+        let mut settings = Self::default();
+        settings.min_password_length = 4;
+        settings
     }
 
     /// Parse settings from input text. Returns (settings, remaining_note_text).
@@ -1157,7 +1174,7 @@ mod tests {
         assert_eq!(s.passgen, Options::default());
 
         // Out-of-range lengths are clamped; unreadable values keep the default.
-        let parse = |body: &str| Settings::parse(&format!("[LOCKNOTE_SETTINGS]\n{body}\n[/LOCKNOTE_SETTINGS]\n")).0.passgen;
+        let parse = |body: &str| Settings::parse(&format!("[LOCKNOTE_SETTINGS]\n{body}\n[/LOCKNOTE_SETTINGS]\n")).0.passgen.clone();
         assert_eq!(parse("passgen_length=3").length, MIN_LENGTH);
         assert_eq!(parse("passgen_length=500").length, MAX_LENGTH);
         assert_eq!(parse("passgen_length=abc").length, Options::default().length);
@@ -1485,5 +1502,22 @@ mod tests {
         assert!(in_order(&migrate, "zeroize::Zeroize::zeroize(&mut settings.totp_2fa_secret);", "Ok(Backup {\n        settings: portable,"));
         let import = source_region("src/features/backup/mod.rs", "fn parse_v1(", "\n}\n");
         assert!(import.contains("let text = Zeroizing::new(text);\n            Settings::parse(&text).0"));
+    }
+
+    /// Issue #42: every `Settings` wipes its 2FA secret when dropped (a
+    /// marker the compiler checks; the wipe itself
+    /// happens in freed memory, so it is pinned in the source).
+    #[test]
+    fn issue42_settings_wipe_their_2fa_secret_on_drop() {
+        fn wipes_on_drop<T: zeroize::ZeroizeOnDrop>(_: &T) {}
+        wipes_on_drop(&Settings::default());
+        let drop_impl = source_region("src/settings/mod.rs", "impl Drop for Settings {", "\n}\n");
+        assert!(drop_impl.contains("    fn drop(&mut self) {\n        zeroize::Zeroize::zeroize(&mut self.totp_2fa_secret);\n    }"));
+        // The fallback keeps its values (written without struct update).
+        let f = Settings::parse_fallback();
+        assert_eq!(f.min_password_length, 4);
+        let mut d = Settings::default();
+        d.min_password_length = 4;
+        assert!(f == d);
     }
 }
