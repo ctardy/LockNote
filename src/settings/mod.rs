@@ -1463,7 +1463,8 @@ mod tests {
     #[test]
     fn the_save_wipes_the_payload_and_the_serialized_text() {
         let save = source_region("src/ui/editor/file_ops.rs", "    pub(super) fn save_note(", "\n    }\n");
-        assert!(save.contains("let note_text = Zeroizing::new(self.get_content());"));
+        // The editor is read strictly: the text is wrapped as soon as it is read.
+        assert!(save.contains("let note_text = match self.get_content() {\n            Ok(text) => Zeroizing::new(text),"));
         assert!(save.contains("Zeroizing::new(crate::features::payload::compose(&note_tabs, &prompts, &secrets, &attachments, &state))"));
         assert!(save.contains("let combined: Zeroizing<String> = Zeroizing::new(settings.serialize(&note_text));"));
         assert!(!save.contains(".clone())"), "a copy before a wrap");
