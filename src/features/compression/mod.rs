@@ -315,4 +315,88 @@ mod tests {
 
         assert_eq!(result, plaintext);
     }
+
+    // ---- Issue #42 characterisation (written and green before the change) ----
+
+    fn sha256_hex(b: &[u8]) -> String {
+        use sha2::Digest;
+        sha2::Sha256::digest(b).iter().map(|x| format!("{:02x}", x)).collect()
+    }
+
+    /// Text that compresses badly (a linear congruential sequence over
+    /// letters, digits and accented characters): its gzip is far larger than
+    /// the encoder's 32 KiB output chunks, so the output buffer grows many times.
+    fn issue42_large_input() -> String {
+        let alphabet: Vec<char> = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 \n\u{e9}\u{e8}\u{e0}\u{fc}\u{6f22}".chars().collect();
+        let mut x: u32 = 12345;
+        let mut s = String::new();
+        for _ in 0..300_000 {
+            x = x.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+            s.push(alphabet[(x >> 16) as usize % alphabet.len()]);
+        }
+        s
+    }
+
+    #[test]
+    fn issue42_compress_output_of_a_large_input_is_pinned() {
+        let input = issue42_large_input();
+        let out = compress(&input);
+        assert_eq!(out.len(), 327680);
+        assert_eq!(sha256_hex(out.as_bytes()), "75fe4c706f8a396cced15dd5741ca965cd8affd3fbeaf7a6d016ec5c452ba993");
+        assert_eq!(decompress(&out), input);
+    }
+
+    #[test]
+    fn issue42_compress_output_of_short_inputs_is_pinned() {
+        assert_eq!(compress(""), "");
+        let x = compress("x");
+        assert_eq!(x.len(), PAD_BLOCK);
+        assert_eq!(x.trim_end_matches('.'), "LNGZ:H4sIAAAAAAAA/6sAAIMW3IwBAAAA");
+        let crlf = compress("a\r\n\u{0}\u{1f512}");
+        assert_eq!(crlf.trim_end_matches('.'), "LNGZ:H4sIAAAAAAAA/0vk5WL4MH/KJAD2aSrCCAAAAA==");
+        // The padding added for sizes around a block boundary.
+        let mut pads = Vec::new();
+        for n in [3000usize, 3060, 3070, 3080, 6000] {
+            let s: String = issue42_large_input().chars().take(n).collect();
+            let out = compress(&s);
+            pads.push((out.len(), out.len() - out.trim_end_matches('.').len()));
+        }
+        assert_eq!(format!("{:?}", pads), "[(4096, 739), (4096, 675), (4096, 663), (4096, 655), (8192, 1555)]");
+    }
+
+    /// What `decompress` hands back for every kind of input: the legacy
+    /// pass-through, invalid base64, invalid gzip, a truncated stream, gzip
+    /// of bytes that are not UTF-8, a stream followed by garbage, the bare
+    /// prefix and the prefix with only padding.
+    #[test]
+    fn issue42_decompress_edge_cases_are_pinned() {
+        let gz = |b: &[u8]| {
+            let mut e = GzEncoder::new(Vec::new(), Compression::default());
+            e.write_all(b).unwrap();
+            e.finish().unwrap()
+        };
+        let lngz = |b: &[u8]| format!("{}{}", PREFIX, base64::engine::general_purpose::STANDARD.encode(b));
+
+        // Legacy text, with what looks like a prefix further on.
+        for legacy in ["plain note", "lngz:lower", " LNGZ:space first", "\u{e9}\r\nLNGZ:", "LNG"] {
+            assert_eq!(decompress(legacy), legacy);
+        }
+        let not_utf8 = lngz(&gz(&[0x66, 0xff, 0xfe, 0x67]));
+        assert_eq!(decompress(&not_utf8), not_utf8, "gzip of non-UTF-8 bytes passes through");
+        let full = gz("truncated stream text".as_bytes());
+        let truncated = lngz(&full[..full.len() - 6]);
+        assert_eq!(decompress(&truncated), truncated, "a truncated stream passes through");
+        let mut trailing = gz(b"with trailing bytes");
+        trailing.extend_from_slice(b"garbage");
+        assert_eq!(decompress(&lngz(&trailing)), "with trailing bytes");
+        assert_eq!(decompress("LNGZ:"), "LNGZ:");
+        assert_eq!(decompress("LNGZ:...."), "LNGZ:....");
+        let padded_in_middle = format!("{}..{}", PREFIX, base64::engine::general_purpose::STANDARD.encode(gz(b"m")));
+        assert_eq!(decompress(&padded_in_middle), padded_in_middle);
+        // Two gzip members back to back: only the first is read.
+        let mut two = gz(b"one");
+        two.extend_from_slice(&gz(b"two"));
+        assert_eq!(decompress(&lngz(&two)), "one");
+        assert_eq!(decompress(&lngz(&gz(b""))), "");
+    }
 }

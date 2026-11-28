@@ -620,4 +620,63 @@ mod tests {
         assert_eq!(DEFAULT_T_COST, 3);
         assert_eq!(DEFAULT_P_LANES, 4);
     }
+
+    // ---- Issue #42 characterisation (written and green before the change) ----
+
+    /// The wire bytes at the padding edges: empty plaintext (a whole block of
+    /// padding), one byte short of a block, exactly a block, and a
+    /// multi-block non-ASCII text.
+    #[test]
+    fn issue42_encrypted_bytes_at_block_bounds_are_pinned() {
+        let salt: [u8; SALT_SIZE] = core::array::from_fn(|i| 0x10 + i as u8);
+        let iv: [u8; IV_SIZE] = core::array::from_fn(|i| 0xa0 ^ i as u8);
+        let mut got = Vec::new();
+        for plain in ["", "0123456789abcde", "0123456789abcdef", "\u{e9}t\u{e9}\r\n\u{1f512} multi block \u{6f22}\u{5b57} text"] {
+            let out = encrypt_with(plain, "pw", 64, 1, 1, &salt, &iv).unwrap();
+            assert_eq!(decrypt(&out, "pw").unwrap().as_str(), plain);
+            got.push(hex(&out[SALT_SIZE + IV_SIZE + ARGON2_PARAMS_SIZE..]));
+        }
+        assert_eq!(format!("{:?}", got), "[\"754efcfb4785b93ece6d860ac60117c22f87ad1e9427b580fc288d51da5ea3d2fc7ec31a20466d8863fe72b3289b68df\", \"ca1341f65d863c627480884c472ebad5d494dfbfac8cdfc173e6fea049f01e33f0c65dbdad31779fe983a4d7376bb056\", \"fb3b38d048871cb7ebdb5c2e7fc00f44526ce24f5616401bcb0dbe26f9e5ad91c83f8ddfa7d89ca65b04bed65775bbd4fccf4e7ebd9b2d0899c85084e39cb33b\", \"3ed4e1cd971a6ab6bc5f8e8f9a2e2d74b720ee63bc6d51b88424269e02b61bb17404c2150c4148fa778ef2fe6ad5332077b28d840aa840c3c01572b6111a22402ade2acbbb5fad242f8077ef5e03066e\"]");
+    }
+
+    #[test]
+    fn issue42_round_trip_every_length_up_to_three_blocks() {
+        for n in 0..=49 {
+            let plain: String = "a\u{e9}\u{6f22}".chars().cycle().take(n).collect();
+            let out = encrypt(&plain, "pw", TEST_M, TEST_T, TEST_P).unwrap();
+            let ct_len = out.len() - SALT_SIZE - IV_SIZE - ARGON2_PARAMS_SIZE - HMAC_SIZE;
+            assert_eq!(ct_len, (plain.len() / 16 + 1) * 16, "{n}");
+            assert_eq!(decrypt(&out, "pw").unwrap().as_str(), plain, "{n}");
+        }
+    }
+
+    /// AES-CBC + HMAC over raw bytes, laid out like `encrypt_with`: lets a
+    /// test authenticate a plaintext `encrypt` cannot produce (not UTF-8).
+    fn issue42_encrypt_raw(plain: &[u8], password: &str) -> Vec<u8> {
+        let salt = [7u8; SALT_SIZE];
+        let iv = [9u8; IV_SIZE];
+        let (enc_key, mac_key) = derive_keys(password, &salt, 64, 1, 1).unwrap();
+        let mut buf = vec![0u8; (plain.len() / 16 + 1) * 16];
+        buf[..plain.len()].copy_from_slice(plain);
+        let ct = Aes256CbcEnc::new(&enc_key.into(), &iv.into())
+            .encrypt_padded::<cbc::cipher::block_padding::Pkcs7>(&mut buf, plain.len())
+            .unwrap()
+            .to_vec();
+        let mut params = [0u8; ARGON2_PARAMS_SIZE];
+        params[0..4].copy_from_slice(&64u32.to_le_bytes());
+        params[4..8].copy_from_slice(&1u32.to_le_bytes());
+        params[8..12].copy_from_slice(&1u32.to_le_bytes());
+        let mac = compute_hmac(&mac_key, &salt, &iv, &params, &ct).unwrap();
+        [&salt[..], &iv[..], &params[..], &mac[..], &ct[..]].concat()
+    }
+
+    #[test]
+    fn issue42_authenticated_non_utf8_plaintext_reads_as_hmac_mismatch() {
+        let ok = issue42_encrypt_raw("fine \u{e9}".as_bytes(), "pw");
+        assert_eq!(decrypt(&ok, "pw").unwrap().as_str(), "fine \u{e9}");
+        for bad in [&[0xffu8][..], &[0x61, 0xc3][..], &[0xed, 0xa0, 0x80][..], &[0x61; 40][..39].iter().copied().chain([0x80]).collect::<Vec<u8>>()[..]] {
+            let wire = issue42_encrypt_raw(bad, "pw");
+            assert!(matches!(decrypt(&wire, "pw"), Err(CryptoError::HmacMismatch)), "{:?}", bad);
+        }
+    }
 }

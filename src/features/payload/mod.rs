@@ -1591,4 +1591,101 @@ mod tests {
             assert_eq!(again, stored, "{lang:?}");
         }
     }
+
+    // ---- Issue #42 characterisation (written and green before the change) ----
+
+    /// A payload with every block: three tabs (a color, a CRLF, lines that
+    /// start with reserved markers and get escaped, a text ending with a line
+    /// break), prompts and vault values with escaped lines, an attachment
+    /// spread over several base64 lines and an empty one, and a session with
+    /// an agent key.
+    fn issue42_every_block() -> (Vec<NoteTab>, Vec<PromptEntry>, Vec<SecretEntry>, Vec<Attachment>, SessionState) {
+        let tabs = vec![
+            NoteTab::with_content("Note 1", "first line\r\n[LOCKNOTE_VAULT]\n  [TAB:x]\nlast \u{e9}", None),
+            NoteTab::with_content("Work", "", Some("blue")),
+            NoteTab::with_content("\u{dc}n:i", "ends with a break\n", Some("green")),
+        ];
+        let prompts = vec![
+            PromptEntry::new("R\u{e9}sum\u{e9}", "Summarize:\n[/PROMPT]\n\nend", "Writing"),
+            PromptEntry::new("Fix", "x\r\n", "Code"),
+        ];
+        let secrets = vec![
+            SecretEntry::in_category("gmail", "p@ss\n[SECRET:x:y]\n[/SECRET]", "Email"),
+            SecretEntry::in_category("empty", "", "General"),
+            SecretEntry::in_category("multi", "a\n\nb\n", "Custom"),
+        ];
+        let atts = vec![
+            Attachment::new("a.bin", (0..=200u8).collect()),
+            Attachment::new("e.txt", Vec::new()),
+        ];
+        let state = SessionState { active_tab: 2, cursor_line: 7, agent_keys: vec!["ssh-ed25519 AAAAC3 me@host".into()] };
+        (tabs, prompts, secrets, atts, state)
+    }
+
+    #[test]
+    fn issue42_compose_bytes_with_every_block_are_pinned() {
+        let (tabs, prompts, secrets, atts, state) = issue42_every_block();
+        assert_eq!(compose(&tabs, &prompts, &secrets, &atts, &state), "[LOCKNOTE_TABS]\n[TAB:Note 1]\nfirst line\r\n\0[LOCKNOTE_VAULT]\n\0  [TAB:x]\nlast é\n[TAB:Work:blue]\n[TAB:Ün:i:green]\nends with a break\n\n[/LOCKNOTE_TABS]\n[LOCKNOTE_PROMPTS]\n[PROMPT:Résumé:Writing]\nSummarize:\n\0[/PROMPT]\n\nend\n[/PROMPT]\n[PROMPT:Fix:Code]\nx\r\n\n[/PROMPT]\n[/LOCKNOTE_PROMPTS]\n[LOCKNOTE_VAULT]\n[SECRET:gmail:Email]\np@ss\n\0[SECRET:x:y]\n\0[/SECRET]\n[/SECRET]\n[SECRET:empty:General]\n[/SECRET]\n[SECRET:multi:Custom]\na\n\nb\n\n[/SECRET]\n[/LOCKNOTE_VAULT]\n[LOCKNOTE_ATTACHMENTS]\n[FILE:a.bin|size:201|sha256:747db6ff08731ff7908224c50f71f51fef1283e65341e2dbcdc664f0f41bf8c5]\nAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4\nOTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3Bx\ncnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmq\nq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfI\n[/FILE]\n[FILE:e.txt|size:0|sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]\n[/FILE]\n[/LOCKNOTE_ATTACHMENTS]\n[LOCKNOTE_STATE]\nactive=2\nline=7\nagent_key=ssh-ed25519 AAAAC3 me@host\n[/LOCKNOTE_STATE]");
+        let single = [NoteTab::with_content("Note 1", "plain\r\ntext \u{e9}", None)];
+        assert_eq!(compose(&single, &prompts, &secrets, &atts, &state), "plain\r\ntext é\n[LOCKNOTE_PROMPTS]\n[PROMPT:Résumé:Writing]\nSummarize:\n\0[/PROMPT]\n\nend\n[/PROMPT]\n[PROMPT:Fix:Code]\nx\r\n\n[/PROMPT]\n[/LOCKNOTE_PROMPTS]\n[LOCKNOTE_VAULT]\n[SECRET:gmail:Email]\np@ss\n\0[SECRET:x:y]\n\0[/SECRET]\n[/SECRET]\n[SECRET:empty:General]\n[/SECRET]\n[SECRET:multi:Custom]\na\n\nb\n\n[/SECRET]\n[/LOCKNOTE_VAULT]\n[LOCKNOTE_ATTACHMENTS]\n[FILE:a.bin|size:201|sha256:747db6ff08731ff7908224c50f71f51fef1283e65341e2dbcdc664f0f41bf8c5]\nAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4\nOTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3Bx\ncnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmq\nq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfI\n[/FILE]\n[FILE:e.txt|size:0|sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]\n[/FILE]\n[/LOCKNOTE_ATTACHMENTS]\n[LOCKNOTE_STATE]\nactive=2\nline=7\nagent_key=ssh-ed25519 AAAAC3 me@host\n[/LOCKNOTE_STATE]");
+        assert_eq!(compose(&tabs[1..2], &[], &[], &[], &SessionState::default()), "[LOCKNOTE_TABS]\n[TAB:Work:blue]\n[/LOCKNOTE_TABS]");
+        assert_eq!(compose(&[], &prompts[1..], &[], &[], &state), "[LOCKNOTE_PROMPTS]\n[PROMPT:Fix:Code]\nx\r\n\n[/PROMPT]\n[/LOCKNOTE_PROMPTS]\n[LOCKNOTE_STATE]\nactive=2\nline=7\nagent_key=ssh-ed25519 AAAAC3 me@host\n[/LOCKNOTE_STATE]");
+        let empty_default = [NoteTab::with_content("Note 1", "", None)];
+        assert_eq!(compose(&empty_default, &[], &secrets[1..2], &[], &SessionState::default()), "[LOCKNOTE_VAULT]\n[SECRET:empty:General]\n[/SECRET]\n[/LOCKNOTE_VAULT]");
+        assert_eq!(compose(&empty_default, &[], &[], &atts[1..], &SessionState::default()), "[LOCKNOTE_ATTACHMENTS]\n[FILE:e.txt|size:0|sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]\n[/FILE]\n[/LOCKNOTE_ATTACHMENTS]");
+        assert_eq!(compose(&[], &[], &[], &[], &state), "[LOCKNOTE_STATE]\nactive=2\nline=7\nagent_key=ssh-ed25519 AAAAC3 me@host\n[/LOCKNOTE_STATE]");
+    }
+
+    /// The same payload through the block serializers: `compose` is them,
+    /// joined by one line break.
+    #[test]
+    fn issue42_compose_is_the_block_serializers_joined() {
+        let (tabs, prompts, secrets, atts, state) = issue42_every_block();
+        let joined = [
+            crate::features::tabs::serialize(&tabs),
+            crate::features::prompts::serialize(&prompts),
+            crate::features::vault::serialize(&secrets),
+            crate::features::attachments::serialize(&atts),
+            crate::features::session_state::serialize(&state),
+        ]
+        .join("\n");
+        assert_eq!(compose(&tabs, &prompts, &secrets, &atts, &state), joined);
+    }
+
+    #[test]
+    fn issue42_every_block_payload_reads_back() {
+        let (tabs, prompts, secrets, atts, state) = issue42_every_block();
+        let cats = vec!["Email".to_string(), "General".to_string(), "Custom".to_string()];
+        let p = parse_payload(&compose(&tabs, &prompts, &secrets, &atts, &state), &cats);
+        assert_eq!(format!("{:?}", tab_view(&p.tabs)), "[(\"Note 1\", \"first line\\r\\n[LOCKNOTE_VAULT]\\n  [TAB:x]\\nlast é\", None), (\"Work\", \"\", Some(\"blue\")), (\"Ün:i\", \"ends with a break\", Some(\"green\"))]");
+        assert_eq!(format!("{:?}", p.prompts), "[PromptEntry { name: \"Résumé\", text: \"Summarize:\\n[/PROMPT]\\n\\nend\", category: \"Writing\" }, PromptEntry { name: \"Fix\", text: \"x\\r\\n\", category: \"Code\" }]");
+        assert_eq!(format!("{:?}", p.secrets), "[SecretEntry { name: \"gmail\", value: \"p@ss\\n[SECRET:x:y]\\n[/SECRET]\", category: \"Email\" }, SecretEntry { name: \"empty\", value: \"\", category: \"General\" }, SecretEntry { name: \"multi\", value: \"a\\n\\nb\", category: \"Custom\" }]");
+        assert_eq!(p.attachments, atts);
+        assert_eq!(p.session, Some(state));
+        assert!(p.snapshots.is_empty());
+    }
+
+    /// How the block readers take apart text no current writer produces:
+    /// blank lines opening a tab or a value, CRLF, escaped lines, an unknown
+    /// color or category, an attachment with a wrong hash, unclosed entries.
+    #[test]
+    fn issue42_block_readers_are_pinned() {
+        let cats = vec!["Email".to_string(), "General".to_string()];
+        let text = "[LOCKNOTE_TABS]\n[TAB:A]\n\n\nfirst\r\n\n\x00[TAB:esc]\nlast\n\n[TAB:B:mauve]\nb\n[TAB:C:pink]\n[/LOCKNOTE_TABS]\n\
+                    [LOCKNOTE_PROMPTS]\n[PROMPT:p:c]\n\x00[/PROMPT]\r\nline\r\n[/PROMPT]\n[PROMPT:open]\nno end\n[/LOCKNOTE_PROMPTS]\n\
+                    [LOCKNOTE_VAULT]\n[SECRET:s1:Email]\n\n\nv\n\x00[/SECRET]\n\n[/SECRET]\n[SECRET:s2:Nope]\nx\n[/SECRET]\n[SECRET:s3]\nunclosed\n[/LOCKNOTE_VAULT]\n\
+                    [LOCKNOTE_ATTACHMENTS]\n[FILE:ok|size:3|sha256:039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81]\nAQ\nID\n[/FILE]\n\
+                    [FILE:bad|size:3|sha256:00]\nAQID\n[/FILE]\n[FILE:open|size:1|sha256:6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d]\nAA==\n[/LOCKNOTE_ATTACHMENTS]";
+        let p = parse_payload(text, &cats);
+        assert_eq!(format!("{:?}", tab_view(&p.tabs)), "[(\"A\", \"first\\r\\n\\n[TAB:esc]\\nlast\", None), (\"B:mauve\", \"b\", None), (\"C\", \"\", Some(\"pink\"))]");
+        assert_eq!(format!("{:?}", p.prompts), "[PromptEntry { name: \"p\", text: \"[/PROMPT]\\r\\nline\\r\", category: \"c\" }, PromptEntry { name: \"open\", text: \"no end\", category: \"General\" }]");
+        assert_eq!(format!("{:?}", p.secrets), "[SecretEntry { name: \"s1\", value: \"v\\n[/SECRET]\", category: \"Email\" }, SecretEntry { name: \"s2:Nope\", value: \"x\", category: \"General\" }, SecretEntry { name: \"s3\", value: \"unclosed\", category: \"General\" }]");
+        let atts: Vec<(String, Vec<u8>)> = p.attachments.iter().map(|a| (a.name.clone(), a.data.clone())).collect();
+        assert_eq!(format!("{:?}", atts), "[(\"ok\", [1, 2, 3]), (\"open\", [0])]");
+        // A legacy plain note, and text with a leading blank line before the tabs header.
+        let p = parse_payload("\n\nplain\r\nnote\n", &cats);
+        assert_eq!(format!("{:?}", tab_view(&p.tabs)), "[(\"Note 1\", \"\\n\\nplain\\r\\nnote\\n\", None)]");
+        let p = parse_payload("  [LOCKNOTE_TABS]\n[TAB:x]\ny\n[/LOCKNOTE_TABS]", &cats);
+        assert_eq!(format!("{:?}", tab_view(&p.tabs)), "[(\"x\", \"y\", None)]");
+    }
 }

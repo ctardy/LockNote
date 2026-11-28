@@ -1585,4 +1585,57 @@ mod tests {
             assert_eq!(again.settings.totp_entries, b.settings.totp_entries);
         }
     }
+
+    // ---- Issue #42 characterisation (written and green before the change) ----
+
+    fn issue42_sha(b: &[u8]) -> String {
+        use sha2::Digest;
+        sha2::Sha256::digest(b).iter().map(|x| format!("{:02x}", x)).collect()
+    }
+
+    /// The exact JSON an export writes: the sample, and a backup whose texts
+    /// are mostly control characters (six bytes each once escaped, far over
+    /// the size estimate) with a large attachment.
+    #[test]
+    fn issue42_export_json_bytes_are_pinned() {
+        let mut b = sample();
+        b.settings.totp_entries = vec![crate::settings::TotpEntry { name: "gh".into(), secret: "GEZDGNBVGY3TQOJQ".into() }];
+        let json = to_json(&b, FORMAT);
+        assert_eq!((json.len(), issue42_sha(json.as_bytes())), (1216, "825f5bac97c8521e70f911e0eab9237d9850c0a7ae5dae2af1a375f6016244f0".to_string()));
+        let mut hostile = sample();
+        hostile.tabs[0].content = "\u{1}\u{2}\u{1f}\"\\".repeat(20_000);
+        hostile.secrets = vec![SecretEntry::in_category("n\u{3}", &"\u{4}".repeat(30_000), "Email")];
+        hostile.attachments = vec![Attachment::new("big.bin", (0..=255u8).cycle().take(300_000).collect())];
+        let json = to_json(&hostile, FORMAT);
+        assert_eq!((json.len(), issue42_sha(json.as_bytes())), (1021161, "3cb4d1d249dd5321ab4a6771e389bd48b132d3f697d37be7fa2fd3ce4dcf4be1".to_string()));
+        let back = decode(&seal(&json, FORMAT, PW, FAST).unwrap(), PW).unwrap();
+        assert_eq!(tab_view(&back.tabs), tab_view(&hostile.tabs));
+        assert_eq!(back.secrets, hostile.secrets);
+        assert_eq!(back.attachments, hostile.attachments);
+    }
+
+    /// The import's verdict on each structural fault, message included, and
+    /// which fault wins when there are several (the first block read).
+    #[test]
+    fn issue42_import_errors_are_pinned() {
+        let mut got = Vec::new();
+        for json in [
+            r#"{"format":1,"tabs":[{"name":"a","content":"x"},{"name":"b"}]}"#,
+            r#"{"format":1,"tabs":[{"name":"a","content":"x"},7]}"#,
+            r#"{"format":1,"tabs":[{"name":"a"}],"vault":[{"name":"n"}]}"#,
+            r#"{"format":1,"vault":[{"name":"n","value":"v"},{"value":"w"}],"attachments":[{"name":"f","data_b64":"!"}]}"#,
+            r#"{"format":1,"attachments":[{"name":"f","data_b64":"AAEC"},{"name":"g","data_b64":"%%"}]}"#,
+            r#"{"format":1,"settings":7}"#,
+            r#"{"format":1,"settings":"[LOCKNOTE_SETTINGS]\ntotp_2fa_secret=ABC\n[/LOCKNOTE_SETTINGS]\n","tabs":[{"name":1,"content":"x"}]}"#,
+            r#"{"format":1,"created_unix":-1}"#,
+            r#"{"format":1,"snapshots":[{"timestamp":1}]}"#,
+            r#"{"format":1,"prompts":[{"name":"n","text":"t","category":"c"},{"name":"a\nb","text":"t","category":"c"}]}"#,
+        ] {
+            got.push(format!("{:?}", decode(&seal_json(json, 1), PW).map(|_| ())));
+        }
+        assert_eq!(format!("{:#?}", got), "[\n    \"Err(Corrupt(\\\"missing or invalid \\\\\\\"content\\\\\\\"\\\"))\",\n    \"Err(Corrupt(\\\"invalid tab entry\\\"))\",\n    \"Err(Corrupt(\\\"missing or invalid \\\\\\\"content\\\\\\\"\\\"))\",\n    \"Err(Corrupt(\\\"missing or invalid \\\\\\\"name\\\\\\\"\\\"))\",\n    \"Err(Corrupt(\\\"attachment \\\\\\\"g\\\\\\\" is not valid base64\\\"))\",\n    \"Err(Corrupt(\\\"invalid \\\\\\\"settings\\\\\\\"\\\"))\",\n    \"Err(Corrupt(\\\"missing or invalid \\\\\\\"name\\\\\\\"\\\"))\",\n    \"Err(Corrupt(\\\"invalid \\\\\\\"created_unix\\\\\\\"\\\"))\",\n    \"Err(Corrupt(\\\"missing or invalid \\\\\\\"content\\\\\\\"\\\"))\",\n    \"Err(Corrupt(\\\"prompt 2: forbidden character '\\\\\\\\n' in a prompt name\\\"))\",\n]");
+        let ok = decode(&seal_json(r#"{"format":1,"settings":"[LOCKNOTE_SETTINGS]\ntotp_2fa=on\ntotp_2fa_secret=ABC\n[/LOCKNOTE_SETTINGS]\n","tabs":[{"name":"a","content":"x","extra":{"deep":["s",{"t":"u"}]}}]}"#, 1), PW).unwrap();
+        assert_eq!(ok.settings.totp_2fa_secret, "ABC");
+        assert_eq!(tab_view(&ok.tabs), vec![("a".into(), "x".into(), None)]);
+    }
 }
