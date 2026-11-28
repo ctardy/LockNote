@@ -1908,7 +1908,7 @@
         use crate::features::i18n::Language;
         assert_eq!(
             range_error_text(Language::French, "lines.error.mapping", &Utf16RangeError::MidSurrogate { pos: 2 }),
-            "La s\u{00e9}lection n'a pas pu \u{00ea}tre lue (caract\u{00e8}re invalide \u{00e0} la position 3). \
+            "La s\u{00e9}lection n'a pas pu \u{00ea}tre lue (la position 3 est au milieu d'un emoji ou d'un symbole). \
              La note n'a pas \u{00e9}t\u{00e9} modifi\u{00e9}e. Replacez le curseur puis r\u{00e9}essayez."
         );
     }

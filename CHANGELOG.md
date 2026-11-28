@@ -144,7 +144,7 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   Delete Line, Convert Case): the information box showed a technical
   code such as "MidSurrogate { pos: 2 }". It now says, in the interface
   language, that the selection could not be read and why (for example
-  "invalid character at position 3"), that the note was not changed,
+  "position 3 is inside an emoji or symbol"), that the note was not changed,
   and to place the caret or select the text again.
 - **Duplicate Line, Delete Line, Insert Timestamp and Go to Line with
   accents, emoji or several lines**: these commands counted positions in
