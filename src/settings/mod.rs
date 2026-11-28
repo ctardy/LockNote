@@ -1500,7 +1500,7 @@ mod tests {
         let migrate = source_region("src/features/backup/mod.rs", "pub fn decode_exe_payload(", "\n}\n");
         assert!(in_order(&migrate, "let portable = portable_settings(&settings);", "zeroize::Zeroize::zeroize(&mut settings.totp_2fa_secret);"));
         assert!(in_order(&migrate, "zeroize::Zeroize::zeroize(&mut settings.totp_2fa_secret);", "Ok(Backup {\n        settings: portable,"));
-        let import = source_region("src/features/backup/mod.rs", "fn parse_v1(", "\n}\n");
+        let import = source_region("src/features/backup/mod.rs", "fn read_v1(", "\n}\n");
         assert!(import.contains("let text = Zeroizing::new(text);\n            Settings::parse(&text).0"));
     }
 

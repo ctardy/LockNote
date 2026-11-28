@@ -36,10 +36,11 @@ use crate::features::prompts::PromptEntry;
 use crate::features::snapshots::Snapshot;
 use crate::features::tabs::NoteTab;
 use crate::features::vault::SecretEntry;
+use crate::crypto::wiping::WipingString;
 use crate::settings::Settings;
 use base64::Engine;
 use serde_json::{Map, Value};
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 /// Clear magic at the start of every backup file.
 pub const MAGIC: &[u8; 8] = b"LNBACKUP";
@@ -190,7 +191,7 @@ fn portable_settings(settings: &Settings) -> Settings {
 
 /// Append `s` as a JSON string literal. Hand-written so secrets go straight
 /// into the caller's wiped buffer instead of through temporary `String`s.
-fn push_json_str(out: &mut String, s: &str) {
+fn push_json_str(out: &mut WipingString, s: &str) {
     out.push('"');
     for c in s.chars() {
         match c {
@@ -199,15 +200,23 @@ fn push_json_str(out: &mut String, s: &str) {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c if (c as u32) < 0x20 => {
+                out.push_str("\\u00");
+                out.push(char::from(HEX[(c as usize) >> 4]));
+                out.push(char::from(HEX[(c as usize) & 0xf]));
+            }
             c => out.push(c),
         }
     }
     out.push('"');
 }
 
-/// Rough size of the JSON, so the wiped buffer is allocated once: a growing
-/// `String` would leave an unwiped copy of the secrets at every reallocation.
+/// Lowercase hex digits of the `\u00XX` escape.
+const HEX: &[u8; 16] = b"0123456789abcdef";
+
+/// Rough size of the JSON, the first size of its buffer. A `WipingString`
+/// wipes what it leaves behind when an escaped text outgrows it (issue #42:
+/// a `String` left an unwiped copy of the note at every reallocation).
 fn estimate_json_len(backup: &Backup) -> usize {
     let text: usize = backup.tabs.iter().map(|t| t.name.len() + t.content.len() + 40).sum::<usize>()
         + backup.snapshots.iter().map(|s| s.name.len() + s.content.len() + 60).sum::<usize>()
@@ -219,7 +228,7 @@ fn estimate_json_len(backup: &Backup) -> usize {
 }
 
 fn to_json(backup: &Backup, format: u16) -> Zeroizing<String> {
-    let mut o: Zeroizing<String> = Zeroizing::new(String::with_capacity(estimate_json_len(backup)));
+    let mut o = WipingString::with_capacity(estimate_json_len(backup));
     o.push_str(&format!("{{\"format\":{},\"kind\":\"{}\",\"created_unix\":{},\"app_version\":", format, KIND, backup.created_unix));
     push_json_str(&mut o, &backup.app_version);
 
@@ -295,11 +304,11 @@ fn to_json(backup: &Backup, format: u16) -> Zeroizing<String> {
         o.push_str("{\"name\":");
         push_json_str(&mut o, &a.name);
         o.push_str(",\"data_b64\":\"");
-        base64::engine::general_purpose::STANDARD.encode_string(&a.data, &mut o);
+        o.push_base64(&a.data);
         o.push_str("\"}");
     }
     o.push_str("]}");
-    o
+    Zeroizing::new(o.into_string())
 }
 
 /// Wrap `json` in the container with `format` in the clear header.
@@ -359,11 +368,12 @@ pub fn decode(bytes: &[u8], password: &str) -> Result<Backup, BackupError> {
             other => BackupError::Corrupt(other.to_string()),
         })?;
     let json: Zeroizing<String> = Zeroizing::new(crate::features::compression::decompress(&compressed));
-    let root: Value = serde_json::from_str(&json)
-        .map_err(|_| BackupError::Corrupt("content is not valid JSON".into()))?;
+    let mut tree = WipedJson(
+        serde_json::from_str(&json).map_err(|_| BackupError::Corrupt("content is not valid JSON".into()))?,
+    );
     drop(json);
 
-    let Value::Object(mut root) = root else {
+    let Value::Object(root) = &mut tree.0 else {
         return Err(BackupError::Corrupt("content is not a JSON object".into()));
     };
     let inner = root.get("format").and_then(Value::as_u64);
@@ -372,7 +382,7 @@ pub fn decode(bytes: &[u8], password: &str) -> Result<Backup, BackupError> {
     }
 
     match format {
-        1 => parse_v1(&mut root),
+        1 => parse_v1(root),
         // peek_format only lets 1..=FORMAT through, so a new FORMAT must add
         // its parser here; failing loudly beats silently reading it as v1.
         other => Err(BackupError::Corrupt(format!("no reader for format {}", other))),
@@ -417,30 +427,52 @@ pub fn decode_exe_payload(raw_payload: &[u8], password: &str) -> Result<Backup, 
     })
 }
 
+/// The JSON tree of a backup being read: its strings hold the note. Wiped
+/// when dropped, on every way out of `decode` (issue #42); `parse_v1`
+/// moves the strings it keeps out of it, leaving empty ones.
+struct WipedJson(Value);
+
+impl Drop for WipedJson {
+    fn drop(&mut self) {
+        wipe_json(&mut self.0);
+    }
+}
+
+fn wipe_json(v: &mut Value) {
+    match v {
+        Value::String(s) => s.zeroize(),
+        Value::Array(a) => a.iter_mut().for_each(wipe_json),
+        Value::Object(m) => m.values_mut().for_each(wipe_json),
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
+}
+
+/// The string at `key`, moved out of the tree (an empty one stays there).
 fn take_string(m: &mut Map<String, Value>, key: &str) -> Result<String, BackupError> {
-    match m.remove(key) {
-        Some(Value::String(s)) => Ok(s),
+    match m.get_mut(key) {
+        Some(Value::String(s)) => Ok(std::mem::take(s)),
         _ => Err(BackupError::Corrupt(format!("missing or invalid \"{}\"", key))),
     }
 }
 
 fn take_opt_string(m: &mut Map<String, Value>, key: &str) -> Result<Option<String>, BackupError> {
-    match m.remove(key) {
+    match m.get_mut(key) {
         None | Some(Value::Null) => Ok(None),
-        Some(Value::String(s)) => Ok(Some(s)),
+        Some(Value::String(s)) => Ok(Some(std::mem::take(s))),
         Some(_) => Err(BackupError::Corrupt(format!("invalid \"{}\"", key))),
     }
 }
 
-fn take_array(m: &mut Map<String, Value>, key: &str) -> Result<Vec<Value>, BackupError> {
-    match m.remove(key) {
-        None | Some(Value::Null) => Ok(Vec::new()),
-        Some(Value::Array(a)) => Ok(a),
+/// The entries of the array at `key`, left in the tree (wiped with it).
+fn array_mut<'a>(m: &'a mut Map<String, Value>, key: &str) -> Result<&'a mut [Value], BackupError> {
+    match m.get_mut(key) {
+        None | Some(Value::Null) => Ok(&mut []),
+        Some(Value::Array(a)) => Ok(a.as_mut_slice()),
         Some(_) => Err(BackupError::Corrupt(format!("invalid \"{}\"", key))),
     }
 }
 
-fn into_object(v: Value, what: &str) -> Result<Map<String, Value>, BackupError> {
+fn object_mut<'a>(v: &'a mut Value, what: &str) -> Result<&'a mut Map<String, Value>, BackupError> {
     match v {
         Value::Object(m) => Ok(m),
         _ => Err(BackupError::Corrupt(format!("invalid {} entry", what))),
@@ -448,9 +480,31 @@ fn into_object(v: Value, what: &str) -> Result<Map<String, Value>, BackupError> 
 }
 
 /// Format 1. Unknown fields are ignored (forward compatibility); optional
-/// blocks that are absent are empty.
+/// blocks that are absent are empty. What was read before a fault is wiped
+/// (issue #42).
 fn parse_v1(root: &mut Map<String, Value>) -> Result<Backup, BackupError> {
-    let settings = match take_opt_string(root, "settings")? {
+    let mut b = Backup {
+        settings: Settings::default(),
+        tabs: Vec::new(),
+        snapshots: Vec::new(),
+        prompts: Vec::new(),
+        secrets: Vec::new(),
+        attachments: Vec::new(),
+        created_unix: 0,
+        app_version: String::new(),
+    };
+    match read_v1(root, &mut b) {
+        Ok(()) => Ok(b),
+        Err(e) => {
+            b.wipe();
+            Err(e)
+        }
+    }
+}
+
+/// The reading of `parse_v1`, into `b`.
+fn read_v1(root: &mut Map<String, Value>, b: &mut Backup) -> Result<(), BackupError> {
+    b.settings = match take_opt_string(root, "settings")? {
         Some(text) => {
             // The settings text holds the secrets: wiped once read (issue #41).
             let text = Zeroizing::new(text);
@@ -459,82 +513,71 @@ fn parse_v1(root: &mut Map<String, Value>) -> Result<Backup, BackupError> {
         None => Settings::default(),
     };
 
-    let mut tabs = Vec::new();
-    for v in take_array(root, "tabs")? {
-        let mut m = into_object(v, "tab")?;
-        let name = take_string(&mut m, "name")?;
-        let content = take_string(&mut m, "content")?;
-        let color = take_opt_string(&mut m, "color")?;
-        tabs.push(NoteTab::with_content(&name, &content, color.as_deref()));
+    for v in array_mut(root, "tabs")? {
+        let m = object_mut(v, "tab")?;
+        let name = take_string(m, "name")?;
+        let content = Zeroizing::new(take_string(m, "content")?);
+        let color = take_opt_string(m, "color")?;
+        b.tabs.push(NoteTab::with_content(&name, &content, color.as_deref()));
     }
-    if tabs.is_empty() {
+    if b.tabs.is_empty() {
         // Same contract as `tabs::parse`: there is always at least one tab.
-        tabs.push(NoteTab::with_content("Note 1", "", None));
+        b.tabs.push(NoteTab::with_content("Note 1", "", None));
     }
 
-    let mut snapshots = Vec::new();
-    for v in take_array(root, "snapshots")? {
-        let mut m = into_object(v, "snapshot")?;
+    for v in array_mut(root, "snapshots")? {
+        let m = object_mut(v, "snapshot")?;
         let timestamp = m
-            .remove("timestamp")
-            .and_then(|t| t.as_u64())
+            .get("timestamp")
+            .and_then(Value::as_u64)
             .ok_or_else(|| BackupError::Corrupt("missing or invalid \"timestamp\"".into()))?;
-        let name = take_opt_string(&mut m, "name")?.unwrap_or_default();
-        let content = take_string(&mut m, "content")?;
-        snapshots.push(Snapshot { timestamp, name, content });
+        let name = take_opt_string(m, "name")?.unwrap_or_default();
+        let content = take_string(m, "content")?;
+        b.snapshots.push(Snapshot { timestamp, name, content });
     }
 
     // Added inside format 1 (issue 058): absent from older files, no prompt.
     // A prompt the note could not hold (see `prompts::check_entry`) is
-    // refused, not changed.
-    let mut prompts = Vec::new();
-    for v in take_array(root, "prompts")? {
-        let mut m = into_object(v, "prompt")?;
-        let name = take_string(&mut m, "name")?;
-        let text = take_string(&mut m, "text")?;
-        let category = take_string(&mut m, "category")?;
-        crate::features::prompts::check_entry(&name, &text, &category)
-            .map_err(|e| BackupError::Corrupt(format!("prompt {}: {}", prompts.len() + 1, e)))?;
-        prompts.push(PromptEntry { name, text, category });
+    // refused, not changed (the entry wipes its text when dropped).
+    for v in array_mut(root, "prompts")? {
+        let m = object_mut(v, "prompt")?;
+        let name = take_string(m, "name")?;
+        let text = take_string(m, "text")?;
+        let category = take_string(m, "category")?;
+        let entry = PromptEntry { name, text, category };
+        crate::features::prompts::check_entry(&entry.name, &entry.text, &entry.category)
+            .map_err(|e| BackupError::Corrupt(format!("prompt {}: {}", b.prompts.len() + 1, e)))?;
+        b.prompts.push(entry);
     }
 
-    let mut secrets = Vec::new();
-    for v in take_array(root, "vault")? {
-        let mut m = into_object(v, "vault")?;
-        let name = take_string(&mut m, "name")?;
-        let value = take_string(&mut m, "value")?;
-        let category = take_opt_string(&mut m, "category")?.unwrap_or_else(|| "General".to_string());
+    for v in array_mut(root, "vault")? {
+        let m = object_mut(v, "vault")?;
+        let name = take_string(m, "name")?;
+        let value = Zeroizing::new(take_string(m, "value")?);
+        let category = take_opt_string(m, "category")?.unwrap_or_else(|| "General".to_string());
         // `in_category`, not `new`: the backup's categories were valid in the note
         // it came from, and custom ones (issue 052) must not fall back to General.
-        secrets.push(SecretEntry::in_category(&name, &value, &category));
+        b.secrets.push(SecretEntry::in_category(&name, &value, &category));
     }
 
-    let mut attachments = Vec::new();
-    for v in take_array(root, "attachments")? {
-        let mut m = into_object(v, "attachment")?;
-        let name = take_string(&mut m, "name")?;
-        let b64 = take_string(&mut m, "data_b64")?;
+    for v in array_mut(root, "attachments")? {
+        let m = object_mut(v, "attachment")?;
+        let name = take_string(m, "name")?;
+        let b64 = Zeroizing::new(take_string(m, "data_b64")?);
         let data = base64::engine::general_purpose::STANDARD
             .decode(b64.as_bytes())
             .map_err(|_| BackupError::Corrupt(format!("attachment \"{}\" is not valid base64", name)))?;
-        attachments.push(Attachment::new(&name, data));
+        b.attachments.push(Attachment::new(&name, data));
     }
 
-    Ok(Backup {
-        settings,
-        tabs,
-        snapshots,
-        prompts,
-        secrets,
-        attachments,
-        created_unix: match root.remove("created_unix") {
-            None | Some(Value::Null) => 0,
-            Some(v) => v
-                .as_u64()
-                .ok_or_else(|| BackupError::Corrupt("invalid \"created_unix\"".into()))?,
-        },
-        app_version: take_opt_string(root, "app_version")?.unwrap_or_default(),
-    })
+    b.created_unix = match root.get("created_unix") {
+        None | Some(Value::Null) => 0,
+        Some(v) => v
+            .as_u64()
+            .ok_or_else(|| BackupError::Corrupt("invalid \"created_unix\"".into()))?,
+    };
+    b.app_version = take_opt_string(root, "app_version")?.unwrap_or_default();
+    Ok(())
 }
 
 #[cfg(test)]
@@ -958,8 +1001,9 @@ mod tests {
         b.prompts = vec![PromptEntry::new("k", &text, "Cat"), PromptEntry::new("after", "kept", "Cat")];
 
         let json = to_json(&b, FORMAT);
-        let mut as_json = String::new();
+        let mut as_json = WipingString::new();
         push_json_str(&mut as_json, &text);
+        let as_json = as_json.into_string();
         assert_eq!(json.matches(&format!("\"content\":{}", as_json)).count(), 3, "two tabs and one snapshot");
         assert_eq!(json.matches(&format!("\"value\":{}", as_json)).count(), 1);
         assert_eq!(json.matches(&format!("\"text\":{}", as_json)).count(), 1);
@@ -1220,9 +1264,9 @@ mod tests {
     fn json_escaping_matches_serde() {
         // The hand-written writer must agree with a real JSON parser.
         for s in ["", "plain", "q\"b\\s\n\r\t", "\u{0}\u{1f}", "é漢😀", "[TAB:x]"] {
-            let mut out = String::new();
+            let mut out = WipingString::new();
             push_json_str(&mut out, s);
-            let parsed: String = serde_json::from_str(&out).unwrap();
+            let parsed: String = serde_json::from_str(out.as_str()).unwrap();
             assert_eq!(parsed, s);
         }
     }
@@ -1635,5 +1679,86 @@ mod tests {
         let ok = decode(&seal_json(r#"{"format":1,"settings":"[LOCKNOTE_SETTINGS]\ntotp_2fa=on\ntotp_2fa_secret=ABC\n[/LOCKNOTE_SETTINGS]\n","tabs":[{"name":"a","content":"x","extra":{"deep":["s",{"t":"u"}]}}]}"#, 1), PW).unwrap();
         assert_eq!(ok.settings.totp_2fa_secret, "ABC");
         assert_eq!(tab_view(&ok.tabs), vec![("a".into(), "x".into(), None)]);
+    }
+
+    // ---- Issue #42 ----
+
+    /// The JSON tree of an import is wiped on every way out: every string
+    /// left in it (unknown fields, the entries after a fault) is zeroed.
+    #[test]
+    fn issue42_wipe_json_zeroes_every_string_of_the_tree() {
+        let mut tree: Value = serde_json::from_str(
+            r#"{"a":"secret one","b":[1,"two",{"c":"three","d":[null,true,"four"]}],"e":{"f":"five"}}"#,
+        )
+        .unwrap();
+        let mut ptrs = Vec::new();
+        fn collect(v: &Value, out: &mut Vec<(*const u8, usize)>) {
+            match v {
+                Value::String(s) => out.push((s.as_ptr(), s.capacity())),
+                Value::Array(a) => a.iter().for_each(|x| collect(x, out)),
+                Value::Object(m) => m.values().for_each(|x| collect(x, out)),
+                _ => {}
+            }
+        }
+        collect(&tree, &mut ptrs);
+        assert_eq!(ptrs.len(), 5);
+        wipe_json(&mut tree);
+        assert_eq!(tree, serde_json::json!({"a":"","b":[1,"",{"c":"","d":[null,true,""]}],"e":{"f":""}}));
+        for (p, cap) in ptrs {
+            // SAFETY: the strings are still alive in `tree` (emptied, same
+            // allocations), and zeroize wrote their whole capacity.
+            let bytes = unsafe { std::slice::from_raw_parts(p, cap) };
+            assert!(bytes.iter().all(|&x| x == 0));
+        }
+    }
+
+    /// What the import keeps is moved out of the tree, the rest stays in it.
+    #[test]
+    fn issue42_take_moves_strings_out_of_the_tree() {
+        let mut m: Map<String, Value> = serde_json::from_str(r#"{"k":"value","n":null,"x":7}"#).unwrap();
+        let ptr = match &m["k"] { Value::String(s) => s.as_ptr(), _ => unreachable!() };
+        let got = take_string(&mut m, "k").unwrap();
+        assert_eq!((got.as_str(), got.as_ptr()), ("value", ptr));
+        assert_eq!(m["k"], Value::String(String::new()));
+        assert_eq!(take_opt_string(&mut m, "n").unwrap(), None);
+        assert!(take_string(&mut m, "x").is_err());
+        assert_eq!(m.len(), 3, "nothing removed from the tree");
+    }
+
+    /// The parts tests cannot watch, pinned in the source.
+    #[test]
+    fn issue42_backup_wipes_its_json() {
+        let read = |p: &str| crate::read_source(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(p));
+        let src = read("src/features/backup/mod.rs");
+        let region = |start: &str| -> String {
+            let at = src.find(start).unwrap_or_else(|| panic!("{start}"));
+            let len = src[at..].find("\n}\n").unwrap();
+            src[at..at + len].to_string()
+        };
+        let decode = region("pub fn decode(");
+        assert!(decode.contains("let mut tree = WipedJson(\n        serde_json::from_str(&json)"));
+        assert!(decode.contains("let Value::Object(root) = &mut tree.0 else {"));
+        assert!(!decode.contains("let root: Value"), "a tree outside its guard");
+        assert!(region("impl Drop for WipedJson {").contains("wipe_json(&mut self.0);"));
+        let parse = region("fn parse_v1(");
+        assert!(parse.contains("        Err(e) => {\n            b.wipe();\n            Err(e)\n        }"));
+        let read_v1 = region("fn read_v1(");
+        assert!(!read_v1.contains(".remove("), "a value taken out of the tree's guard");
+        for wrapped in ["let content = Zeroizing::new(take_string(m, \"content\")?);", "let value = Zeroizing::new(take_string(m, \"value\")?);",
+                        "let b64 = Zeroizing::new(take_string(m, \"data_b64\")?);", "let entry = PromptEntry { name, text, category };"] {
+            assert!(read_v1.contains(wrapped), "{wrapped}");
+        }
+        assert_eq!(read_v1.matches("check_entry(").count(), 1);
+        assert!(read_v1.contains("check_entry(&entry.name, &entry.text, &entry.category)"), "a refused prompt checked before its entry wipes it");
+        for helper in ["fn take_string(", "fn take_opt_string(", "fn array_mut<'a>(", "fn object_mut<'a>("] {
+            let h = region(helper);
+            assert!(!h.contains(".remove("), "{helper}");
+        }
+        let to_json = region("fn to_json(");
+        assert!(to_json.contains("let mut o = WipingString::with_capacity(estimate_json_len(backup));"));
+        assert!(to_json.contains("o.push_base64(&a.data);"));
+        assert!(to_json.contains("Zeroizing::new(o.into_string())"));
+        assert!(!to_json.contains("encode_string"));
+        assert!(!region("fn push_json_str(").contains("format!"));
     }
 }
