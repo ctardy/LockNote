@@ -12,6 +12,7 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 
 use crate::features::prompts::PromptEntry;
+use crate::ui::vault_panel::VaultTreeError;
 
 /// The prompts of the note, the panel visibility, and which prompt each row
 /// of the list shows.
@@ -120,9 +121,18 @@ impl PromptsPanel {
     }
 }
 
-/// Why the list could not be built (the system comparison failed).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PromptsListError(pub String);
+/// Why the list could not be built (the system comparison failed): the
+/// vault's locale error, logged in its Debug form, shown in words.
+#[derive(Debug, PartialEq, Eq)]
+pub struct PromptsListError(pub VaultTreeError);
+
+impl PromptsListError {
+    /// The status line of the panel, in `lang`: `prompts.list.error` with
+    /// the cause in words (`VaultTreeError::user_message`).
+    pub fn status_text(&self, lang: crate::features::i18n::Language) -> String {
+        crate::features::i18n::get_for(lang, "prompts.list.error").replace("{msg}", &self.0.user_message(lang))
+    }
+}
 
 /// True when `query` is empty (spaces only) or found in the name or the text
 /// of `entry` by `contains(haystack, needle)`.
@@ -374,16 +384,13 @@ pub fn from_crlf(text: &str) -> String {
 /// `needle` found in `haystack` for the user's locale, ignoring case and
 /// accents (the vault search, `vault_panel::contains_name_user_locale`).
 pub fn contains_user_locale(haystack: &str, needle: &str) -> Result<bool, PromptsListError> {
-    crate::ui::vault_panel::contains_name_user_locale(haystack, needle).map_err(|e| match e {
-        crate::ui::vault_panel::VaultTreeError::Compare(msg) => PromptsListError(msg),
-        other => PromptsListError(format!("{:?}", other)),
-    })
+    crate::ui::vault_panel::contains_name_user_locale(haystack, needle).map_err(PromptsListError)
 }
 
 /// Names compared for the user's locale, ignoring case and accents (the
 /// vault's comparison).
 pub fn compare_user_locale(a: &str, b: &str) -> Result<Ordering, PromptsListError> {
-    crate::ui::vault_panel::compare_names_user_locale(a, b).map_err(|e| PromptsListError(format!("{:?}", e)))
+    crate::ui::vault_panel::compare_names_user_locale(a, b).map_err(PromptsListError)
 }
 
 /// Same category name for the user's locale, ignoring case and accents.
@@ -495,15 +502,43 @@ mod tests {
         assert!(names("Écriture").is_empty());
     }
 
+    fn compare_failed(detail: &str) -> PromptsListError {
+        PromptsListError(VaultTreeError::Compare(detail.into()))
+    }
+
     #[test]
     fn a_failing_comparison_is_an_error_not_an_empty_list() {
-        let fail = |_: &str, _: &str| -> Result<bool, PromptsListError> { Err(PromptsListError("boom".into())) };
+        let fail = |_: &str, _: &str| -> Result<bool, PromptsListError> { Err(compare_failed("boom")) };
         assert_eq!(
             visible_rows(&sample(), "x", &fail, &compare_user_locale),
-            Err(PromptsListError("boom".into()))
+            Err(compare_failed("boom"))
         );
-        let bad_cmp = |_: &str, _: &str| -> Result<Ordering, PromptsListError> { Err(PromptsListError("cmp".into())) };
+        let bad_cmp = |_: &str, _: &str| -> Result<Ordering, PromptsListError> { Err(compare_failed("cmp")) };
         assert!(visible_rows(&sample(), "", &contains_user_locale, &bad_cmp).is_err());
+    }
+
+    #[test]
+    fn list_error_status_is_readable_in_every_language() {
+        use crate::features::i18n::Language;
+        let e = compare_failed("CompareStringEx failed: Error { code: HRESULT(0x80070057), message: \"Param\u{e8}tre incorrect.\" }");
+        let mut seen = std::collections::HashSet::new();
+        for lang in [Language::English, Language::French, Language::Spanish, Language::German] {
+            let text = e.status_text(lang);
+            for raw in ["Compare", "HRESULT", "0x", "{", "}", "["] {
+                assert!(!text.contains(raw), "{lang:?} shows {raw:?}: {text}");
+            }
+            assert!(text.contains(&e.0.user_message(lang)), "{lang:?}: {text}");
+            assert!(seen.insert(text.clone()), "{lang:?} has its own text: {text}");
+        }
+    }
+
+    #[test]
+    fn list_errors_are_logged_in_detail_and_shown_in_words() {
+        let ops = crate::read_source(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui/editor/prompts_ops.rs"));
+        assert!(!ops.contains("&e.0)"), "the cause is never shown as stored");
+        assert_eq!(ops.matches("self.prompts_status.set_text(&e.status_text(crate::features::i18n::current_language()));").count(), 2);
+        assert!(ops.contains("eprintln!(\"WARN prompts: list not built count={} err={:?}\", prompts.len(), e.0);"));
+        assert!(ops.contains("eprintln!(\"WARN prompts: categories not listed err={:?}\", e.0);"));
     }
 
     #[test]

@@ -408,7 +408,13 @@ impl EditorForm {
     }
 
     pub(super) fn show_vault_category_error(&self, e: &crate::features::vault::categories::CategoryError) {
-        eprintln!("vault: category refused err={:?}", e);
+        // A failed locale comparison is a system error: its detail (the
+        // Windows call and code) is only here, the box shows words.
+        let level = match e {
+            crate::features::vault::categories::CategoryError::Compare(_) => "ERROR",
+            _ => "INFO",
+        };
+        eprintln!("{} vault: category refused err={:?}", level, e);
         self.inform(&t("vault.cat.error.title"),
             &crate::ui::vault_panel::category_error_message(e),
         );

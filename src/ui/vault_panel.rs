@@ -177,6 +177,24 @@ pub enum VaultTreeError {
     Compare(String),
 }
 
+impl VaultTreeError {
+    /// The cause in words, in `lang`: the one place that turns this error
+    /// into user text. The Windows call and its error code (`Compare`), the
+    /// raw lParam (`BadParam`) stay in the log, in the Debug form.
+    pub fn user_message(&self, lang: crate::features::i18n::Language) -> String {
+        use crate::features::i18n::get_for;
+        match self {
+            VaultTreeError::Compare(_) => get_for(lang, "vault.tree.err.compare").to_string(),
+            VaultTreeError::UnknownCategory { category, .. } => {
+                get_for(lang, "vault.tree.err.unknown_category").replace("{name}", category)
+            }
+            VaultTreeError::BadParam(_) | VaultTreeError::MissingParam => {
+                get_for(lang, "vault.tree.err.selection").to_string()
+            }
+        }
+    }
+}
+
 /// What is selected in the tree.
 #[derive(Debug, PartialEq, Eq)]
 pub enum TreeSel {
@@ -416,7 +434,9 @@ pub fn category_error_message(e: &crate::features::vault::categories::CategoryEr
         E::TooMany => get("vault.cat.err.toomany").replace("{max}", &MAX_CATEGORIES.to_string()),
         E::GeneralIsFixed => get("vault.cat.err.general").to_string(),
         E::NotFound(name) => get("vault.cat.err.notfound").replace("{name}", name),
-        E::Compare(msg) => get("vault.cat.err.compare").replace("{msg}", msg),
+        // The Windows call and its error code are logged by the caller
+        // (show_vault_category_error), never shown.
+        E::Compare(_) => get("vault.cat.err.compare").to_string(),
     }
 }
 
@@ -771,6 +791,63 @@ mod tests {
         assert_eq!(s[0].value, "v");
         assert_eq!(move_secret(&mut s, 0, "Cloud"), Ok(false)); // same category: no-op
         assert_eq!(move_secret(&mut s, 5, "Cloud"), Err(VaultTreeError::BadParam(5)));
+    }
+
+    // ── Errors shown to the user: words, never the Debug form ──
+
+    const LANGS: [crate::features::i18n::Language; 4] = [
+        crate::features::i18n::Language::English,
+        crate::features::i18n::Language::French,
+        crate::features::i18n::Language::Spanish,
+        crate::features::i18n::Language::German,
+    ];
+
+    /// What a failed LCMapStringEx call puts in Compare.
+    const SYSTEM_DETAIL: &str = "LCMapStringEx failed: Error { code: HRESULT(0x80070057), message: \"Param\u{e8}tre incorrect.\" }";
+
+    fn all_tree_errors() -> [VaultTreeError; 4] {
+        [
+            VaultTreeError::Compare(SYSTEM_DETAIL.into()),
+            VaultTreeError::UnknownCategory { index: 3, category: "Banque".into() },
+            VaultTreeError::BadParam(-8),
+            VaultTreeError::MissingParam,
+        ]
+    }
+
+    #[test]
+    fn vault_tree_errors_read_in_every_language() {
+        for lang in LANGS {
+            for e in all_tree_errors() {
+                let m = e.user_message(lang);
+                assert!(!m.trim().is_empty(), "{lang:?} {e:?}");
+                assert!(!m.contains(&format!("{:?}", e)), "{lang:?} shows the Debug form: {m}");
+                for raw in ["Compare", "UnknownCategory", "BadParam", "MissingParam", "LCMapStringEx", "HRESULT", "0x", "-8", "{", "}", "["] {
+                    assert!(!m.contains(raw), "{lang:?} {e:?} shows {raw:?}: {m}");
+                }
+            }
+            let unknown = VaultTreeError::UnknownCategory { index: 3, category: "Banque".into() }.user_message(lang);
+            assert!(unknown.contains("Banque"), "{lang:?}: the category is named: {unknown}");
+        }
+        // One wording per language: a missing key would fall back to English.
+        let compare = VaultTreeError::Compare(SYSTEM_DETAIL.into());
+        let texts: std::collections::HashSet<String> = LANGS.iter().map(|&l| compare.user_message(l)).collect();
+        assert_eq!(texts.len(), LANGS.len(), "{texts:?}");
+    }
+
+    #[test]
+    fn category_compare_error_hides_the_system_detail() {
+        use crate::features::vault::categories::CategoryError as E;
+        let _g = crate::features::i18n::test_support::lang_guard();
+        let detail = format!("{:?}", VaultTreeError::Compare(SYSTEM_DETAIL.into()));
+        let mut seen = std::collections::HashSet::new();
+        for lang in LANGS {
+            crate::features::i18n::set_language(lang);
+            let m = category_error_message(&E::Compare(detail.clone()));
+            for raw in ["Compare", "LCMapStringEx", "HRESULT", "0x", "{", "}", "["] {
+                assert!(!m.contains(raw), "{lang:?} shows {raw:?}: {m}");
+            }
+            assert!(seen.insert(m.clone()), "{lang:?} has its own text: {m}");
+        }
     }
 
     #[test]

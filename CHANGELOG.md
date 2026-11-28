@@ -107,6 +107,13 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
 - **Note in memory**: building, compressing, encrypting, decrypting and reading back the note, a backup and the 2FA secret leave no plaintext copies behind (#42).
 
 ### Fixed
+- **Edit > Lines, vault categories and the prompts list showed a raw
+  error**: when Windows could not compare the text in the order of your
+  language, Sort Lines and Remove Duplicate Lines showed a technical
+  error such as `Compare("LCMapStringEx failed: ...")`, and so did a new or
+  renamed vault category and the status line of the prompts panel. The
+  message now says it in words, in English, French, Spanish or German,
+  and that nothing was changed; the technical detail stays in the log.
 - **A note holding half of an emoji was saved as "Decoding error"**: the
   editor can hold an invalid character, half of an emoji or symbol (an
   unpaired surrogate). It can get there when another program types or

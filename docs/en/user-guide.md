@@ -445,7 +445,8 @@ while the message is open, it closes and is shown again after unlocking.
   - **Sort Lines Ascending / Sort Lines Descending**: Windows user locale,
     case and accents ignored (as in the vault tree); equal lines keep their
     order; empty lines come first in ascending order. If the system comparison
-    fails, the text is left unchanged and a message gives the reason.
+    fails, the text is left unchanged and a message explains why in plain
+    words.
   - **Remove Duplicate Lines**: exact match (case and spaces count), the first
     occurrence is kept.
   - **Join Lines**: one line, one space between the joined lines, their leading

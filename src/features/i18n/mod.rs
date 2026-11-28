@@ -332,7 +332,7 @@ fn build_en() -> Dict {
     m.insert("menu.edit.lines.join", "&Join Lines");
     m.insert("menu.edit.lines.trim", "&Trim Trailing Whitespace");
     m.insert("lines.error.title", "Lines");
-    m.insert("lines.error.sort", "The lines were not sorted: {msg}");
+    m.insert("lines.error.sort", "The lines were not changed: {msg}.");
     m.insert("lines.error.mapping", "The selection could not be read ({msg}). The note was not changed. Place the caret again, then retry.");
     m.insert("range.error.mid_surrogate", "position {pos} is inside an emoji or symbol");
     m.insert("range.error.out_of_bounds", "it is past the end of the text");
@@ -645,6 +645,9 @@ fn build_en() -> Dict {
     m.insert("vault.copy.failed", "Copy failed");
     m.insert("vault.btn.reveal", "Reveal");
     m.insert("vault.tree.error", "Vault could not be displayed");
+    m.insert("vault.tree.err.compare", "the text could not be compared in the order of your Windows language");
+    m.insert("vault.tree.err.unknown_category", "the category \u{201C}{name}\u{201D} is not in the category list");
+    m.insert("vault.tree.err.selection", "the selected item could not be read");
     m.insert("vault.search", "Search a name");
     m.insert("vault.category.none", "Choose a category");
     m.insert("vault.cat.menu.new", "New category\u{2026}");
@@ -663,7 +666,7 @@ fn build_en() -> Dict {
     m.insert("vault.cat.err.toomany", "Too many categories ({max} max).");
     m.insert("vault.cat.err.general", "The General category cannot be renamed or deleted.");
     m.insert("vault.cat.err.notfound", "Category not found: {name}");
-    m.insert("vault.cat.err.compare", "Name comparison failed: {msg}");
+    m.insert("vault.cat.err.compare", "The names could not be compared in the order of your Windows language. Nothing was changed.");
 
     // Menu bar toggle buttons
     m.insert("menu.toggle.vault", "Vault");
@@ -1084,7 +1087,7 @@ fn build_fr() -> Dict {
     m.insert("menu.edit.lines.join", "&Joindre les lignes");
     m.insert("menu.edit.lines.trim", "Supprimer les &espaces de fin");
     m.insert("lines.error.title", "Lignes");
-    m.insert("lines.error.sort", "Les lignes n'ont pas \u{00e9}t\u{00e9} tri\u{00e9}es : {msg}");
+    m.insert("lines.error.sort", "Les lignes n'ont pas \u{00e9}t\u{00e9} modifi\u{00e9}es : {msg}.");
     m.insert("lines.error.mapping", "La s\u{00e9}lection n'a pas pu \u{00ea}tre lue ({msg}). La note n'a pas \u{00e9}t\u{00e9} modifi\u{00e9}e. Replacez le curseur puis r\u{00e9}essayez.");
     m.insert("range.error.mid_surrogate", "la position {pos} est au milieu d'un emoji ou d'un symbole");
     m.insert("range.error.out_of_bounds", "elle d\u{00e9}passe la fin du texte");
@@ -1381,6 +1384,9 @@ fn build_fr() -> Dict {
     m.insert("vault.copy.failed", "\u{00c9}chec de la copie");
     m.insert("vault.btn.reveal", "Voir");
     m.insert("vault.tree.error", "Impossible d'afficher le coffre");
+    m.insert("vault.tree.err.compare", "le texte n'a pas pu \u{00ea}tre compar\u{00e9} selon l'ordre de la langue de Windows");
+    m.insert("vault.tree.err.unknown_category", "la cat\u{00e9}gorie \u{00AB} {name} \u{00BB} n'est pas dans la liste des cat\u{00e9}gories");
+    m.insert("vault.tree.err.selection", "l'\u{00e9}l\u{00e9}ment s\u{00e9}lectionn\u{00e9} n'a pas pu \u{00ea}tre lu");
     m.insert("vault.search", "Rechercher un nom");
     m.insert("vault.category.none", "Choisissez une cat\u{00e9}gorie");
     m.insert("vault.cat.menu.new", "Nouvelle cat\u{00e9}gorie\u{2026}");
@@ -1399,7 +1405,7 @@ fn build_fr() -> Dict {
     m.insert("vault.cat.err.toomany", "Trop de cat\u{00e9}gories ({max} maximum).");
     m.insert("vault.cat.err.general", "La cat\u{00e9}gorie General ne peut \u{00ea}tre ni renomm\u{00e9}e ni supprim\u{00e9}e.");
     m.insert("vault.cat.err.notfound", "Cat\u{00e9}gorie introuvable : {name}");
-    m.insert("vault.cat.err.compare", "La comparaison des noms a \u{00e9}chou\u{00e9} : {msg}");
+    m.insert("vault.cat.err.compare", "Les noms n'ont pas pu \u{00ea}tre compar\u{00e9}s selon l'ordre de la langue de Windows. Rien n'a \u{00e9}t\u{00e9} modifi\u{00e9}.");
 
     // Menu bar toggle buttons
     m.insert("menu.toggle.vault", "Coffre");
@@ -1813,7 +1819,7 @@ fn build_es() -> Dict {
     m.insert("menu.edit.lines.join", "&Unir l\u{00ed}neas");
     m.insert("menu.edit.lines.trim", "Quitar espacios &finales");
     m.insert("lines.error.title", "L\u{00ed}neas");
-    m.insert("lines.error.sort", "No se ordenaron las l\u{00ed}neas: {msg}");
+    m.insert("lines.error.sort", "Las l\u{00ed}neas no se modificaron: {msg}.");
     m.insert("lines.error.mapping", "No se pudo leer la selecci\u{00f3}n ({msg}). La nota no se modific\u{00f3}. Vuelva a colocar el cursor e int\u{00e9}ntelo de nuevo.");
     m.insert("range.error.mid_surrogate", "la posici\u{00f3}n {pos} est\u{00e1} dentro de un emoji o s\u{00ed}mbolo");
     m.insert("range.error.out_of_bounds", "est\u{00e1} m\u{00e1}s all\u{00e1} del final del texto");
@@ -2110,6 +2116,9 @@ fn build_es() -> Dict {
     m.insert("vault.copy.failed", "Error al copiar");
     m.insert("vault.btn.reveal", "Ver");
     m.insert("vault.tree.error", "No se puede mostrar la bóveda");
+    m.insert("vault.tree.err.compare", "no se pudo comparar el texto seg\u{00fa}n el orden del idioma de Windows");
+    m.insert("vault.tree.err.unknown_category", "la categor\u{00ed}a \u{00AB}{name}\u{00BB} no est\u{00e1} en la lista de categor\u{00ed}as");
+    m.insert("vault.tree.err.selection", "no se pudo leer el elemento seleccionado");
     m.insert("vault.search", "Buscar un nombre");
     m.insert("vault.category.none", "Elija una categor\u{00ed}a");
     m.insert("vault.cat.menu.new", "Nueva categor\u{00ed}a\u{2026}");
@@ -2128,7 +2137,7 @@ fn build_es() -> Dict {
     m.insert("vault.cat.err.toomany", "Demasiadas categor\u{00ed}as ({max} m\u{00e1}x.).");
     m.insert("vault.cat.err.general", "La categor\u{00ed}a General no se puede renombrar ni eliminar.");
     m.insert("vault.cat.err.notfound", "Categor\u{00ed}a no encontrada: {name}");
-    m.insert("vault.cat.err.compare", "Fall\u{00f3} la comparaci\u{00f3}n de nombres: {msg}");
+    m.insert("vault.cat.err.compare", "No se pudieron comparar los nombres seg\u{00fa}n el orden del idioma de Windows. No se cambi\u{00f3} nada.");
 
     // Menu bar toggle buttons
     m.insert("menu.toggle.vault", "B\u{00f3}veda");
@@ -2543,7 +2552,7 @@ fn build_de() -> Dict {
     m.insert("menu.edit.lines.join", "Zeilen &verbinden");
     m.insert("menu.edit.lines.trim", "&Leerzeichen am Zeilenende entfernen");
     m.insert("lines.error.title", "Zeilen");
-    m.insert("lines.error.sort", "Die Zeilen wurden nicht sortiert: {msg}");
+    m.insert("lines.error.sort", "Die Zeilen wurden nicht ge\u{00e4}ndert: {msg}.");
     m.insert("lines.error.mapping", "Die Auswahl konnte nicht gelesen werden ({msg}). Die Notiz wurde nicht ge\u{00e4}ndert. Setzen Sie den Cursor neu und versuchen Sie es noch einmal.");
     m.insert("range.error.mid_surrogate", "Position {pos} liegt mitten in einem Emoji oder Symbol");
     m.insert("range.error.out_of_bounds", "sie liegt hinter dem Textende");
@@ -2840,6 +2849,9 @@ fn build_de() -> Dict {
     m.insert("vault.copy.failed", "Kopieren fehlgeschlagen");
     m.insert("vault.btn.reveal", "Zeigen");
     m.insert("vault.tree.error", "Tresor kann nicht angezeigt werden");
+    m.insert("vault.tree.err.compare", "der Text konnte nicht in der Sortierung der Windows-Sprache verglichen werden");
+    m.insert("vault.tree.err.unknown_category", "die Kategorie \u{201E}{name}\u{201C} steht nicht in der Kategorienliste");
+    m.insert("vault.tree.err.selection", "das ausgew\u{00e4}hlte Element konnte nicht gelesen werden");
     m.insert("vault.search", "Namen suchen");
     m.insert("vault.category.none", "Kategorie w\u{00e4}hlen");
     m.insert("vault.cat.menu.new", "Neue Kategorie\u{2026}");
@@ -2858,7 +2870,7 @@ fn build_de() -> Dict {
     m.insert("vault.cat.err.toomany", "Zu viele Kategorien (max. {max}).");
     m.insert("vault.cat.err.general", "Die Kategorie General kann weder umbenannt noch gel\u{00f6}scht werden.");
     m.insert("vault.cat.err.notfound", "Kategorie nicht gefunden: {name}");
-    m.insert("vault.cat.err.compare", "Namensvergleich fehlgeschlagen: {msg}");
+    m.insert("vault.cat.err.compare", "Die Namen konnten nicht in der Sortierung der Windows-Sprache verglichen werden. Es wurde nichts ge\u{00e4}ndert.");
 
     // Menu bar toggle buttons
     m.insert("menu.toggle.vault", "Tresor");
@@ -3393,6 +3405,23 @@ mod tests {
             let msg = d.get("lines.error.mapping").unwrap_or_else(|| panic!("lines.error.mapping of {lang:?}"));
             assert!(msg.contains("{msg}"), "lines.error.mapping of {lang:?} shows the cause");
             assert!(d.contains_key("lines.error.title"), "lines.error.title of {lang:?}");
+        }
+    }
+
+    // A failed locale comparison (Edit > Lines, prompts list, vault
+    // categories) is shown in words of every language, never as Debug.
+    #[test]
+    fn locale_comparison_errors_are_translated_everywhere() {
+        for lang in [Language::English, Language::French, Language::Spanish, Language::German] {
+            let d = dict_for(lang);
+            for key in ["vault.tree.err.compare", "vault.tree.err.unknown_category", "vault.tree.err.selection", "vault.cat.err.compare"] {
+                assert!(!d.get(key).unwrap_or_else(|| panic!("{key} of {lang:?}")).is_empty(), "{key} of {lang:?}");
+            }
+            assert!(d["vault.tree.err.unknown_category"].contains("{name}"), "{lang:?} names the category");
+            assert!(!d["vault.cat.err.compare"].contains("{msg}"), "{lang:?}: the system detail stays in the log");
+            for key in ["lines.error.sort", "prompts.list.error"] {
+                assert!(d[key].contains("{msg}"), "{key} of {lang:?} shows the cause");
+            }
         }
     }
 

@@ -494,7 +494,8 @@ que le message est affiché, il se ferme et revient après le déverrouillage.
     régionaux de Windows, sans tenir compte de la casse ni des accents (comme
     l'arborescence du coffre) ; les lignes égales gardent leur ordre ; les
     lignes vides viennent en premier dans l'ordre croissant. Si la comparaison
-    du système échoue, le texte reste inchangé et un message donne la raison.
+    du système échoue, le texte reste inchangé et un message en explique la
+    raison en clair.
   - **Supprimer les lignes en double** : égalité exacte (la casse et les
     espaces comptent), la première occurrence est gardée.
   - **Joindre les lignes** : une seule ligne, un espace entre les lignes

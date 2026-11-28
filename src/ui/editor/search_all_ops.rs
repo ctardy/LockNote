@@ -207,7 +207,7 @@ impl EditorForm {
                     Ok(query) => match sa::prompt_search_hides(entry, &query, &crate::ui::prompts_panel::contains_user_locale) {
                         Ok(true) => self.prompts_search.set_text(""),
                         Ok(false) => {}
-                        Err(e) => eprintln!("WARN search_all: prompts search check failed err={}", e.0),
+                        Err(e) => eprintln!("WARN search_all: prompts search check failed err={:?}", e.0),
                     },
                     Err(e) => eprintln!("WARN search_all: prompts search field unreadable err={:?}", e),
                 }

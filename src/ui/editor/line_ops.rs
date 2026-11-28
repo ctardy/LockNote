@@ -180,6 +180,13 @@ pub(super) fn user_locale_line_op_edit(
     line_op_edit(text, sel, op, crate::ui::vault_panel::sort_key_user_locale)
 }
 
+/// The text of the information box when Edit > Lines failed: the template
+/// `lines.error.sort` of `lang` with the cause in words in place of its
+/// `{msg}` (the Debug form stays in the ERROR log).
+pub(super) fn line_op_error_text(lang: crate::features::i18n::Language, e: &crate::ui::vault_panel::VaultTreeError) -> String {
+    crate::features::i18n::get_for(lang, "lines.error.sort").replace("{msg}", &e.user_message(lang))
+}
+
 /// Index of the line holding the start of the RichEdit selection `sel`
 /// (either direction), as Ctrl+D and Ctrl+Shift+K have always picked it.
 /// The start must fall on a character of `text`, except one position past
@@ -389,7 +396,7 @@ impl EditorForm {
             Err(LineEditError::Unreadable(e)) => self.tell_unreadable("line_op", &e),
             Err(LineEditError::Compute(e)) => {
                 eprintln!("ERROR lines: op={:?} failed: {:?}", op, e);
-                self.inform(&t("lines.error.title"), &t("lines.error.sort").replace("{msg}", &format!("{:?}", e)));
+                self.inform(&t("lines.error.title"), &line_op_error_text(crate::features::i18n::current_language(), &e));
             }
         }
     }
@@ -1134,6 +1141,39 @@ pub(super) mod tests {
     fn fn_body<'a>(code: &'a str, head: &str) -> &'a str {
         let body = &code[code.find(head).unwrap_or_else(|| panic!("{head}"))..];
         &body[..body.find("\n    }\n").unwrap_or_else(|| panic!("end of {head}"))]
+    }
+
+    // ── Edit > Lines failure shown to the user ──
+
+    #[test]
+    fn line_op_failure_is_readable_in_every_language() {
+        use crate::features::i18n::Language;
+        use crate::ui::vault_panel::VaultTreeError;
+        let e = VaultTreeError::Compare(
+            "LCMapStringEx failed: Error { code: HRESULT(0x80070057), message: \"Param\u{e8}tre incorrect.\" }".into(),
+        );
+        let mut seen = std::collections::HashSet::new();
+        for lang in [Language::English, Language::French, Language::Spanish, Language::German] {
+            let text = line_op_error_text(lang, &e);
+            assert!(!text.contains(&format!("{:?}", e)), "{lang:?}: {text}");
+            for raw in ["Compare", "LCMapStringEx", "HRESULT", "0x", "{", "}", "["] {
+                assert!(!text.contains(raw), "{lang:?} shows {raw:?}: {text}");
+            }
+            // The cause comes from the one wording place of the error type.
+            assert!(text.contains(&e.user_message(lang)), "{lang:?}: {text}");
+            assert!(seen.insert(text.clone()), "{lang:?} has its own text: {text}");
+        }
+    }
+
+    #[test]
+    fn line_op_failure_is_logged_in_detail_and_shown_in_words() {
+        let lo = src("line_ops.rs");
+        let lo = &lo[..lo.find("#[cfg(test)]").expect("test module")];
+        let h = fn_body(lo, "fn on_line_op(");
+        let arm = &h[h.find("Err(LineEditError::Compute(e)) => {").expect("compute arm")..];
+        assert!(arm.contains("eprintln!(\"ERROR lines: op={:?} failed: {:?}\", op, e);"), "{arm}");
+        assert!(arm.contains("self.inform(&t(\"lines.error.title\"), &line_op_error_text(crate::features::i18n::current_language(), &e));"), "{arm}");
+        assert!(!arm.contains("format!(\"{:?}\", e)"), "{arm}");
     }
 
     #[test]

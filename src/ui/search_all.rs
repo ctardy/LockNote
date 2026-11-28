@@ -557,7 +557,7 @@ mod tests {
         assert!(!prompt_search_hides(&review, "bugs", &contains).unwrap());
         assert!(!prompt_search_hides(&review, "  ", &contains).unwrap());
         assert!(prompt_search_hides(&review, "zzz", &contains).unwrap());
-        let failing = |_: &str, _: &str| -> Result<bool, PromptsListError> { Err(PromptsListError("cmp".into())) };
+        let failing = |_: &str, _: &str| -> Result<bool, PromptsListError> { Err(PromptsListError(crate::ui::vault_panel::VaultTreeError::Compare("cmp".into()))) };
         assert!(prompt_search_hides(&review, "rev", &failing).is_err());
     }
 
