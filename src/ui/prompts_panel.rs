@@ -537,8 +537,8 @@ mod tests {
         let ops = crate::read_source(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui/editor/prompts_ops.rs"));
         assert!(!ops.contains("&e.0)"), "the cause is never shown as stored");
         assert_eq!(ops.matches("self.prompts_status.set_text(&e.status_text(crate::features::i18n::current_language()));").count(), 2);
-        assert!(ops.contains("eprintln!(\"WARN prompts: list not built count={} err={:?}\", prompts.len(), e.0);"));
-        assert!(ops.contains("eprintln!(\"WARN prompts: categories not listed err={:?}\", e.0);"));
+        assert!(ops.contains("eprintln!(\"ERROR prompts: list not built count={} err={:?}\", prompts.len(), e.0);"));
+        assert!(ops.contains("eprintln!(\"ERROR prompts: categories not listed err={:?}\", e.0);"));
     }
 
     #[test]

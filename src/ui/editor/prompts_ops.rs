@@ -101,7 +101,7 @@ impl EditorForm {
                 self.prompts_status.set_text(&status);
             }
             Err(e) => {
-                eprintln!("WARN prompts: list not built count={} err={:?}", prompts.len(), e.0);
+                eprintln!("ERROR prompts: list not built count={} err={:?}", prompts.len(), e.0);
                 self.prompts_list.set_collection(Vec::new());
                 self.prompts_panel.set_rows(Vec::new());
                 self.prompts_status.set_text(&e.status_text(crate::features::i18n::current_language()));
@@ -133,7 +133,7 @@ impl EditorForm {
         match panel::category_choices(&self.prompts_panel.get_prompts(), &default, &panel::same_user_locale, &panel::compare_user_locale) {
             Ok(list) => Some(list),
             Err(e) => {
-                eprintln!("WARN prompts: categories not listed err={:?}", e.0);
+                eprintln!("ERROR prompts: categories not listed err={:?}", e.0);
                 self.prompts_status.set_text(&e.status_text(crate::features::i18n::current_language()));
                 None
             }

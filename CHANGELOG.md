@@ -109,7 +109,7 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
 ### Fixed
 - **Edit > Lines, vault categories and the prompts list showed a raw
   error**: when Windows could not compare the text in the order of your
-  language, Sort Lines and Remove Duplicate Lines showed a technical
+  language, Sort Lines (ascending or descending) showed a technical
   error such as `Compare("LCMapStringEx failed: ...")`, and so did a new or
   renamed vault category and the status line of the prompts panel. The
   message now says it in words, in English, French, Spanish or German,
