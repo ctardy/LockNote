@@ -64,15 +64,24 @@ pub const TAB_COLORS: &[(&str, (u8, u8, u8))] = &[
     ("gray",   (158, 158, 158)),
 ];
 
-use crate::features::markers::{escape_content, unescape_content, TABS_FOOTER, TABS_HEADER, TAB_PREFIX};
+use crate::crypto::wiping::WipingString;
+use crate::features::markers::{unescape_content, write_escaped, TABS_FOOTER, TABS_HEADER, TAB_PREFIX};
+use zeroize::Zeroizing;
 
 /// Serialize tabs into the stored format.
 pub fn serialize(tabs: &[NoteTab]) -> String {
+    let mut out = WipingString::new();
+    write_block(&mut out, tabs);
+    out.into_string()
+}
+
+/// The tabs block, appended to `out` (nothing for no tab). `out` grows
+/// without leaving copies of the texts (issue #42).
+pub fn write_block(out: &mut WipingString, tabs: &[NoteTab]) {
     if tabs.is_empty() {
-        return String::new();
+        return;
     }
 
-    let mut out = String::new();
     out.push_str(TABS_HEADER);
     out.push('\n');
 
@@ -84,14 +93,13 @@ pub fn serialize(tabs: &[NoteTab]) -> String {
             out.push_str(color);
         }
         out.push_str("]\n");
-        out.push_str(&escape_content(&tab.content));
+        write_escaped(out, &tab.content);
         if !tab.content.is_empty() && !tab.content.ends_with('\n') {
             out.push('\n');
         }
     }
 
     out.push_str(TABS_FOOTER);
-    out
 }
 
 /// True when `parse` reads `input` as a tabs block: the header starts the
@@ -124,7 +132,9 @@ pub fn parse(input: &str) -> Vec<NoteTab> {
     let mut tabs: Vec<NoteTab> = Vec::new();
     let mut current_name: Option<String> = None;
     let mut current_color: Option<String> = None;
-    let mut current_content = String::new();
+    // Grows without leaving copies; the text read is wiped once in its tab
+    // (issue #42).
+    let mut current_content = WipingString::new();
     for line in block.split('\n') {
         // Check for real (unescaped) footer
         let trimmed_line = line.trim_start();
@@ -139,8 +149,8 @@ pub fn parse(input: &str) -> Vec<NoteTab> {
 
                 // Save previous tab
                 if let Some(name) = current_name.take() {
-                    let content = strip_trailing_newline(&current_content);
-                    tabs.push(NoteTab::with_content(&name, &unescape_content(&content), current_color.take().as_deref()));
+                    let content = Zeroizing::new(unescape_content(strip_trailing_newline(current_content.as_str())));
+                    tabs.push(NoteTab::with_content(&name, &content, current_color.take().as_deref()));
                     current_content.clear();
                 }
 
@@ -173,8 +183,8 @@ pub fn parse(input: &str) -> Vec<NoteTab> {
 
     // Save last tab
     if let Some(name) = current_name.take() {
-        let content = strip_trailing_newline(&current_content);
-        tabs.push(NoteTab::with_content(&name, &unescape_content(&content), current_color.take().as_deref()));
+        let content = Zeroizing::new(unescape_content(strip_trailing_newline(current_content.as_str())));
+        tabs.push(NoteTab::with_content(&name, &content, current_color.take().as_deref()));
     }
 
     if tabs.is_empty() {
@@ -184,15 +194,13 @@ pub fn parse(input: &str) -> Vec<NoteTab> {
     }
 }
 
-fn strip_trailing_newline(s: &str) -> String {
-    let mut result = s.to_string();
-    if result.ends_with('\n') {
-        result.pop();
-        if result.ends_with('\r') {
-            result.pop();
-        }
+/// `s` without one trailing `\n` (and the `\r` before it): a slice, not a
+/// copy of the text (issue #42).
+fn strip_trailing_newline(s: &str) -> &str {
+    match s.strip_suffix('\n') {
+        Some(rest) => rest.strip_suffix('\r').unwrap_or(rest),
+        None => s,
     }
-    result
 }
 
 /// Default name of the `n`-th tab created in `lang` ("Note 3", "Notiz 3"),

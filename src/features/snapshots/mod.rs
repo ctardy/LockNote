@@ -24,7 +24,9 @@ const MAX_SNAPSHOT_CONTENT: usize = 16 * 1024 * 1024; // 16 MiB per snapshot
 
 #[cfg(test)]
 use crate::features::markers::escape_content;
+use crate::crypto::wiping::WipingString;
 use crate::features::markers::{find_loose_marker_line, find_marker_line, unescape_content, HISTORY_FOOTER, HISTORY_HEADER, SNAP_END, SNAP_PREFIX};
+use zeroize::Zeroizing;
 
 /// A single snapshot of the note content at a point in time.
 #[derive(Debug, Clone, PartialEq)]
@@ -64,15 +66,13 @@ impl Snapshot {
     }
 }
 
-fn strip_trailing_newline(s: &str) -> String {
-    let mut result = s.to_string();
-    if result.ends_with('\n') {
-        result.pop();
-        if result.ends_with('\r') {
-            result.pop();
-        }
+/// `s` without one trailing `\n` (and the `\r` before it): a slice, not a
+/// copy of the text (issue #42).
+fn strip_trailing_newline(s: &str) -> &str {
+    match s.strip_suffix('\n') {
+        Some(rest) => rest.strip_suffix('\r').unwrap_or(rest),
+        None => s,
     }
-    result
 }
 
 /// Where the parser sees the history block start in `input`: the first line
@@ -112,7 +112,9 @@ pub fn parse(input: &str) -> (Vec<Snapshot>, String) {
     let mut snapshots: Vec<Snapshot> = Vec::new();
     let mut current_ts: Option<u64> = None;
     let mut current_name = String::new();
-    let mut current_content = String::new();
+    // Grows without leaving copies; the text read is wiped once in its
+    // snapshot (issue #42).
+    let mut current_content = WipingString::new();
 
     for line in block.split('\n') {
         let trimmed = line.trim_start();
@@ -129,8 +131,8 @@ pub fn parse(input: &str) -> (Vec<Snapshot>, String) {
 
                 // Save previous snapshot
                 if let Some(ts) = current_ts.take() {
-                    let content = strip_trailing_newline(&current_content);
-                    snapshots.push(Snapshot::with_name(ts, &current_name, &unescape_content(&content)));
+                    let content = Zeroizing::new(unescape_content(strip_trailing_newline(current_content.as_str())));
+                    snapshots.push(Snapshot::with_name(ts, &current_name, &content));
                     current_content.clear();
                     current_name.clear();
                 }
@@ -151,8 +153,8 @@ pub fn parse(input: &str) -> (Vec<Snapshot>, String) {
         // Check for [/SNAP]
         if trimmed == SNAP_END && !line.starts_with('\x00') {
             if let Some(ts) = current_ts.take() {
-                let content = strip_trailing_newline(&current_content);
-                snapshots.push(Snapshot::with_name(ts, &current_name, &unescape_content(&content)));
+                let content = Zeroizing::new(unescape_content(strip_trailing_newline(current_content.as_str())));
+                snapshots.push(Snapshot::with_name(ts, &current_name, &content));
                 current_content.clear();
                 current_name.clear();
             }
@@ -179,8 +181,8 @@ pub fn parse(input: &str) -> (Vec<Snapshot>, String) {
 
     // Save any unclosed snapshot
     if let Some(ts) = current_ts.take() {
-        let content = strip_trailing_newline(&current_content);
-        snapshots.push(Snapshot::with_name(ts, &current_name, &unescape_content(&content)));
+        let content = Zeroizing::new(unescape_content(strip_trailing_newline(current_content.as_str())));
+        snapshots.push(Snapshot::with_name(ts, &current_name, &content));
     }
 
     (snapshots, before.to_string())

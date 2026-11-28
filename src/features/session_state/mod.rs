@@ -22,6 +22,7 @@ pub struct SessionState {
     pub agent_keys: Vec<String>,
 }
 
+use crate::crypto::wiping::WipingString;
 use crate::features::markers::{find_marker_line, rfind_loose_marker_line, rfind_marker_line, STATE_FOOTER, STATE_HEADER};
 
 /// One line per SSH key loaded into ssh-agent and not removed yet (issue 054).
@@ -29,11 +30,24 @@ const AGENT_KEY: &str = "agent_key=";
 
 /// Serialize the session state. Returns an empty string when the state is
 /// fully default — no point writing `active=0\nline=0` for a fresh file.
+/// (`payload::compose` writes the block with `write_block`.)
+#[cfg(test)]
 pub fn serialize(state: &SessionState) -> String {
-    if state.active_tab == 0 && state.cursor_line == 0 && state.agent_keys.is_empty() {
-        return String::new();
+    let mut out = WipingString::new();
+    write_block(&mut out, state);
+    out.into_string()
+}
+
+/// True when the state is written at all (not fully default).
+pub fn is_written(state: &SessionState) -> bool {
+    !(state.active_tab == 0 && state.cursor_line == 0 && state.agent_keys.is_empty())
+}
+
+/// The session block, appended to `out` (nothing for a default state).
+pub fn write_block(out: &mut WipingString, state: &SessionState) {
+    if !is_written(state) {
+        return;
     }
-    let mut out = String::new();
     out.push_str(STATE_HEADER);
     out.push('\n');
     out.push_str("active=");
@@ -48,7 +62,6 @@ pub fn serialize(state: &SessionState) -> String {
         out.push('\n');
     }
     out.push_str(STATE_FOOTER);
-    out
 }
 
 /// Where the parser sees a session block in `input`: byte positions of its
@@ -122,7 +135,10 @@ pub fn parse(input: &str) -> (Option<SessionState>, String) {
     (Some(state), before.to_string())
 }
 
-/// Append `state` as a `[LOCKNOTE_STATE]` block to `data`.
+/// Append `state` as a `[LOCKNOTE_STATE]` block to `data` (what
+/// `payload::compose` writes, for the tests that build a payload block by
+/// block).
+#[cfg(test)]
 pub fn combine(data: &str, state: &SessionState) -> String {
     let block = serialize(state);
     if block.is_empty() {

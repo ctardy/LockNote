@@ -40,9 +40,11 @@ pub const CATEGORIES: &[&str] = &[
     "Crypto",
 ];
 
+use crate::crypto::wiping::WipingString;
 use crate::features::markers::{
-    escape_content, find_loose_marker_line, find_marker_line, unescape_content, SECRET_END, SECRET_PREFIX, VAULT_FOOTER, VAULT_HEADER,
+    find_loose_marker_line, find_marker_line, unescape_content, write_escaped, SECRET_END, SECRET_PREFIX, VAULT_FOOTER, VAULT_HEADER,
 };
+use zeroize::Zeroizing;
 
 /// Ceiling on a single secret's value accumulator. Defensive bound for a
 /// malformed `[SECRET:…]` block without its `[/SECRET]` terminator.
@@ -127,7 +129,9 @@ fn parse_inner(input: &str, is_known: &dyn Fn(&str) -> bool) -> (Vec<SecretEntry
     let mut secrets: Vec<SecretEntry> = Vec::new();
     let mut current_name: Option<String> = None;
     let mut current_category = String::new();
-    let mut current_value = String::new();
+    // Grows without leaving copies; the value read is wiped once in its
+    // entry (issue #42).
+    let mut current_value = WipingString::new();
 
     for line in block.split('\n') {
         let trimmed = line.trim_start();
@@ -144,8 +148,8 @@ fn parse_inner(input: &str, is_known: &dyn Fn(&str) -> bool) -> (Vec<SecretEntry
 
                 // Save previous secret
                 if let Some(name) = current_name.take() {
-                    let value = strip_trailing_newline(&current_value);
-                    secrets.push(SecretEntry::in_category(&name, &unescape_content(&value), &current_category));
+                    let value = Zeroizing::new(unescape_content(strip_trailing_newline(current_value.as_str())));
+                    secrets.push(SecretEntry::in_category(&name, &value, &current_category));
                     current_value.clear();
                 }
 
@@ -173,8 +177,8 @@ fn parse_inner(input: &str, is_known: &dyn Fn(&str) -> bool) -> (Vec<SecretEntry
                 Some(n) => n,
                 None => continue,
             };
-            let value = strip_trailing_newline(&current_value);
-            secrets.push(SecretEntry::in_category(&name, &unescape_content(&value), &current_category));
+            let value = Zeroizing::new(unescape_content(strip_trailing_newline(current_value.as_str())));
+            secrets.push(SecretEntry::in_category(&name, &value, &current_category));
             current_value.clear();
             current_category.clear();
             continue;
@@ -197,31 +201,38 @@ fn parse_inner(input: &str, is_known: &dyn Fn(&str) -> bool) -> (Vec<SecretEntry
 
     // Save any unclosed secret
     if let Some(name) = current_name.take() {
-        let value = strip_trailing_newline(&current_value);
-        secrets.push(SecretEntry::in_category(&name, &unescape_content(&value), &current_category));
+        let value = Zeroizing::new(unescape_content(strip_trailing_newline(current_value.as_str())));
+        secrets.push(SecretEntry::in_category(&name, &value, &current_category));
     }
 
     (secrets, tab_data.to_string())
 }
 
-fn strip_trailing_newline(s: &str) -> String {
-    let mut result = s.to_string();
-    if result.ends_with('\n') {
-        result.pop();
-        if result.ends_with('\r') {
-            result.pop();
-        }
+/// `s` without one trailing `\n` (and the `\r` before it): a slice, not a
+/// copy of the text (issue #42).
+fn strip_trailing_newline(s: &str) -> &str {
+    match s.strip_suffix('\n') {
+        Some(rest) => rest.strip_suffix('\r').unwrap_or(rest),
+        None => s,
     }
-    result
 }
 
 /// Serialize secrets into the vault format.
+/// (`payload::compose` writes the block with `write_block`.)
+#[cfg(test)]
 pub fn serialize(secrets: &[SecretEntry]) -> String {
+    let mut out = WipingString::new();
+    write_block(&mut out, secrets);
+    out.into_string()
+}
+
+/// The vault block, appended to `out` (nothing for no secret). `out` grows
+/// without leaving copies of the values (issue #42).
+pub fn write_block(out: &mut WipingString, secrets: &[SecretEntry]) {
     if secrets.is_empty() {
-        return String::new();
+        return;
     }
 
-    let mut out = String::new();
     out.push_str(VAULT_HEADER);
     out.push('\n');
 
@@ -231,7 +242,7 @@ pub fn serialize(secrets: &[SecretEntry]) -> String {
         out.push(':');
         out.push_str(&secret.category);
         out.push_str("]\n");
-        out.push_str(&escape_content(&secret.value));
+        write_escaped(out, &secret.value);
         if !secret.value.is_empty() && !secret.value.ends_with('\n') {
             out.push('\n');
         }
@@ -240,10 +251,12 @@ pub fn serialize(secrets: &[SecretEntry]) -> String {
     }
 
     out.push_str(VAULT_FOOTER);
-    out
 }
 
-/// Combine tab data and secrets into a single string.
+/// Combine tab data and secrets into a single string (what
+/// `payload::compose` writes, for the tests that build a payload block by
+/// block).
+#[cfg(test)]
 pub fn combine(tab_data: &str, secrets: &[SecretEntry]) -> String {
     let vault_block = serialize(secrets);
     if vault_block.is_empty() {

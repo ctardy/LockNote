@@ -16,6 +16,8 @@
 // A line is what `\n` separates; a `\r` before the `\n` (text coming from the
 // editor) belongs to the line and is ignored when comparing with a marker.
 
+use crate::crypto::wiping::WipingString;
+
 pub const TABS_HEADER: &str = "[LOCKNOTE_TABS]";
 pub const TABS_FOOTER: &str = "[/LOCKNOTE_TABS]";
 pub const TAB_PREFIX: &str = "[TAB:";
@@ -78,25 +80,38 @@ fn starts_with_reserved(line: &str) -> bool {
 
 /// Escape user text before it is written inside a block: every line starting
 /// with a reserved marker gets a `\x00` prefix.
+#[cfg(test)]
 pub fn escape_content(content: &str) -> String {
-    let mut out = String::with_capacity(content.len());
-    for line in content.split('\n') {
+    let mut out = WipingString::with_capacity(content.len() + 1);
+    write_escaped(&mut out, content);
+    out.into_string()
+}
+
+/// `escape_content` written straight into the block being built (issue
+/// #42: no copy of the text in between). The lines are joined by `\n`, and
+/// a text ending with `\n` gets one more (its last, empty, line is followed
+/// by one too).
+pub fn write_escaped(out: &mut WipingString, content: &str) {
+    for (i, line) in content.split('\n').enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
         if starts_with_reserved(line) {
             out.push('\x00');
         }
         out.push_str(line);
+    }
+    if content.ends_with('\n') {
         out.push('\n');
     }
-    // Remove trailing newline we added
-    if out.ends_with('\n') && !content.ends_with('\n') {
-        out.pop();
-    }
-    out
 }
 
 /// Undo `escape_content`: remove the `\x00` prefix of the lines that have one.
+/// The result is at most one byte longer than `content` (the line break
+/// added, then removed, after its last line): allocated for that, it never
+/// reallocates, so no copy of the text is left behind (issue #42).
 pub fn unescape_content(content: &str) -> String {
-    let mut out = String::with_capacity(content.len());
+    let mut out = String::with_capacity(content.len() + 1);
     for line in content.split('\n') {
         if let Some(rest) = line.strip_prefix('\x00') {
             out.push_str(rest);

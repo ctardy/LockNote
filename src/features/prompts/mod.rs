@@ -34,8 +34,9 @@
 
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+use crate::crypto::wiping::WipingString;
 use crate::features::markers::{
-    escape_content, find_marker_line, rfind_loose_marker_line, rfind_marker_line, unescape_content, PROMPTS_FOOTER,
+    find_marker_line, rfind_loose_marker_line, rfind_marker_line, unescape_content, write_escaped, PROMPTS_FOOTER,
     PROMPTS_HEADER, PROMPT_END, PROMPT_PREFIX,
 };
 
@@ -197,9 +198,17 @@ pub fn parse(input: &str) -> (Vec<PromptEntry>, String) {
             // `[/PROMPT]`: the text is the lines in between, as they are.
             // Unescaped one line at a time: on a whole text ending with a
             // line break, `unescape_content` adds one (historical behaviour
-            // the other blocks rely on).
-            let text: Vec<String> = lines.iter().map(|l| unescape_content(l)).collect();
-            prompts.push(PromptEntry { name, text: text.join("\n"), category });
+            // the other blocks rely on). The lines are joined in a buffer
+            // that grows without leaving copies, each unescaped line wiped
+            // (issue #42).
+            let mut text = WipingString::new();
+            for (i, l) in lines.iter().enumerate() {
+                if i > 0 {
+                    text.push('\n');
+                }
+                text.push_str(&zeroize::Zeroizing::new(unescape_content(l)));
+            }
+            prompts.push(PromptEntry { name, text: text.into_string(), category });
         }
         lines.clear();
     };
@@ -248,11 +257,20 @@ pub fn parse(input: &str) -> (Vec<PromptEntry>, String) {
 }
 
 /// Serialize prompts into the block (empty string for no prompt).
+/// (`payload::compose` writes the block with `write_block`.)
+#[cfg(test)]
 pub fn serialize(prompts: &[PromptEntry]) -> String {
+    let mut out = WipingString::new();
+    write_block(&mut out, prompts);
+    out.into_string()
+}
+
+/// The prompts block, appended to `out` (nothing for no prompt). `out`
+/// grows without leaving copies of the texts (issue #42).
+pub fn write_block(out: &mut WipingString, prompts: &[PromptEntry]) {
     if prompts.is_empty() {
-        return String::new();
+        return;
     }
-    let mut out = String::new();
     out.push_str(PROMPTS_HEADER);
     out.push('\n');
     for prompt in prompts {
@@ -263,7 +281,7 @@ pub fn serialize(prompts: &[PromptEntry]) -> String {
         out.push_str("]\n");
         // `escape_content` already ends a text ending with `\n` with one
         // more: every text is then followed by exactly one line break.
-        out.push_str(&escape_content(&prompt.text));
+        write_escaped(out, &prompt.text);
         if !prompt.text.ends_with('\n') {
             out.push('\n');
         }
@@ -271,10 +289,11 @@ pub fn serialize(prompts: &[PromptEntry]) -> String {
         out.push('\n');
     }
     out.push_str(PROMPTS_FOOTER);
-    out
 }
 
-/// Append the prompts block to `tab_data`.
+/// Append the prompts block to `tab_data` (what `payload::compose` writes,
+/// for the tests that build a payload block by block).
+#[cfg(test)]
 pub fn combine(tab_data: &str, prompts: &[PromptEntry]) -> String {
     let block = serialize(prompts);
     if block.is_empty() {

@@ -27,12 +27,14 @@
 // User text (tab, prompt, vault value) is escaped against every reserved marker and
 // a block header is only recognized on a line of its own: see `features::markers`.
 
+use crate::crypto::wiping::WipingString;
 use crate::features::attachments::Attachment;
 use crate::features::prompts::PromptEntry;
 use crate::features::session_state::SessionState;
 use crate::features::snapshots::Snapshot;
 use crate::features::tabs::NoteTab;
 use crate::features::vault::SecretEntry;
+use zeroize::Zeroizing;
 
 /// Every block of a decrypted payload, split apart.
 pub struct ParsedPayload {
@@ -105,7 +107,11 @@ fn plain_text_may_be_misread(text: &str) -> bool {
 /// exception is a text the reading chain could take for a block
 /// (`plain_text_may_be_misread`, issue 050): it goes to the tabs block like
 /// any other tab, where it is escaped. Empty `tabs` writes no tab text at
-/// all.
+/// all. Each block follows what precedes it after one line break, a block
+/// with nothing before it starts the payload, an empty block is not written.
+///
+/// Issue #42: everything is written into one buffer that grows without
+/// leaving copies (no intermediate text per block, no `format!`).
 pub fn compose(
     tabs: &[NoteTab],
     prompts: &[PromptEntry],
@@ -113,29 +119,58 @@ pub fn compose(
     attachments: &[Attachment],
     state: &SessionState,
 ) -> String {
-    let text = if is_default_single_tab(tabs) && !plain_text_may_be_misread(&tabs[0].content) {
-        tabs[0].content.clone()
+    let mut out = WipingString::new();
+    if is_default_single_tab(tabs) && !plain_text_may_be_misread(&tabs[0].content) {
+        out.push_str(&tabs[0].content);
     } else {
-        crate::features::tabs::serialize(tabs)
-    };
-    let text = crate::features::prompts::combine(&text, prompts);
-    let text = crate::features::vault::combine(&text, secrets);
-    let text = crate::features::attachments::combine(&text, attachments);
-    crate::features::session_state::combine(&text, state)
+        crate::features::tabs::write_block(&mut out, tabs);
+    }
+    if !prompts.is_empty() {
+        start_block(&mut out);
+        crate::features::prompts::write_block(&mut out, prompts);
+    }
+    if !secrets.is_empty() {
+        start_block(&mut out);
+        crate::features::vault::write_block(&mut out, secrets);
+    }
+    if !attachments.is_empty() {
+        start_block(&mut out);
+        crate::features::attachments::write_block(&mut out, attachments);
+    }
+    if crate::features::session_state::is_written(state) {
+        start_block(&mut out);
+        crate::features::session_state::write_block(&mut out, state);
+    }
+    out.into_string()
+}
+
+/// The line break between a block and what precedes it, when something does.
+fn start_block(out: &mut WipingString) {
+    if !out.is_empty() {
+        out.push('\n');
+    }
 }
 
 /// Split the payload (after decompression and `Settings::parse`) into its
 /// blocks. Each sub-result is moved out, never cloned.
 /// `categories` is the user's vault category list (issue 052).
+///
+/// Each reader hands back a copy of the text before its block: wrapped,
+/// wiped when the function returns (issue #42).
 pub fn parse_payload(note_text: &str, categories: &[String]) -> ParsedPayload {
     let (session, rest) = crate::features::session_state::parse(note_text);
+    let rest = Zeroizing::new(rest);
     let (attachments, rest) = crate::features::attachments::parse(&rest);
+    let rest = Zeroizing::new(rest);
     // Vault before snapshots: write order is snapshots → vault, so the
     // vault block sits after the history block.
     let (secrets, rest) = crate::features::vault::parse_with_categories(&rest, categories);
+    let rest = Zeroizing::new(rest);
     // History before prompts: see the header of this module.
     let (snapshots, rest) = crate::features::snapshots::parse(&rest);
+    let rest = Zeroizing::new(rest);
     let (prompts, rest) = crate::features::prompts::parse(&rest);
+    let rest = Zeroizing::new(rest);
     let tabs = crate::features::tabs::parse(&rest);
     ParsedPayload { session, attachments, secrets, prompts, snapshots, tabs }
 }
@@ -1687,5 +1722,96 @@ mod tests {
         assert_eq!(format!("{:?}", tab_view(&p.tabs)), "[(\"Note 1\", \"\\n\\nplain\\r\\nnote\\n\", None)]");
         let p = parse_payload("  [LOCKNOTE_TABS]\n[TAB:x]\ny\n[/LOCKNOTE_TABS]", &cats);
         assert_eq!(format!("{:?}", tab_view(&p.tabs)), "[(\"x\", \"y\", None)]");
+    }
+
+    // ---- Issue #42 ----
+
+    /// `unescape_content` is allocated for its longest result (one byte more
+    /// than its input): it never reallocates, so leaves no copy behind.
+    #[test]
+    fn issue42_unescape_is_allocated_once() {
+        for text in ["", "a", "plain text", "two\nlines", "\x00[TAB:x]\nb", "ends\n", "\r\n\r\n"] {
+            let out = crate::features::markers::unescape_content(text);
+            assert_eq!(out.capacity(), text.len() + 1, "{text:?}");
+        }
+    }
+
+    /// The parts of the block writers and readers that tests cannot watch
+    /// (freed memory), pinned in the source: one growing buffer for the whole
+    /// payload, no intermediate text per block, every copy a reader makes
+    /// wrapped or wiped.
+    #[test]
+    fn issue42_payload_blocks_leave_no_copies() {
+        let read = |p: &str| crate::read_source(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(p));
+        let region = |src: &str, start: &str| -> String {
+            let at = src.find(start).unwrap_or_else(|| panic!("{start}"));
+            let len = src[at..].find("\n}\n").unwrap();
+            src[at..at + len].to_string()
+        };
+        let payload = read("src/features/payload/mod.rs");
+        let compose = region(&payload, "pub fn compose(");
+        assert!(compose.contains("let mut out = WipingString::new();"));
+        for w in ["tabs::write_block(&mut out, tabs);", "prompts::write_block(&mut out, prompts);", "vault::write_block(&mut out, secrets);",
+                  "attachments::write_block(&mut out, attachments);", "session_state::write_block(&mut out, state);"] {
+            assert!(compose.contains(w), "{w}");
+        }
+        assert!(compose.contains("out.push_str(&tabs[0].content);"));
+        for banned in ["combine(", "serialize(", "format!", ".clone()", ".to_string()"] {
+            assert!(!compose.contains(banned), "an intermediate copy in compose: {banned}");
+        }
+        let parse = region(&payload, "pub fn parse_payload(");
+        assert_eq!(parse.matches("::parse").count(), 6);
+        assert_eq!(parse.matches("\n    let rest = Zeroizing::new(rest);\n").count(), 5, "a rest dropped unwiped");
+
+        for (file, block) in [
+            ("src/features/tabs/mod.rs", "pub fn write_block(out: &mut WipingString, tabs: &[NoteTab]) {"),
+            ("src/features/prompts/mod.rs", "pub fn write_block(out: &mut WipingString, prompts: &[PromptEntry]) {"),
+            ("src/features/vault/mod.rs", "pub fn write_block(out: &mut WipingString, secrets: &[SecretEntry]) {"),
+            ("src/features/attachments/mod.rs", "pub fn write_block(out: &mut WipingString, attachments: &[Attachment]) {"),
+            ("src/features/session_state/mod.rs", "pub fn write_block(out: &mut WipingString, state: &SessionState) {"),
+        ] {
+            let src = read(file);
+            let body = region(&src, block);
+            assert!(!body.contains("escape_content(") && !body.contains("format!"), "{file}: a copy of the text");
+            let ser = region(&src, "pub fn serialize(");
+            assert!(ser.contains("let mut out = WipingString::new();") && ser.contains("write_block(&mut out, "), "{file}");
+        }
+        for file in ["src/features/tabs/mod.rs", "src/features/prompts/mod.rs", "src/features/vault/mod.rs"] {
+            assert!(read(file).contains("write_escaped(out, &"), "{file}");
+        }
+        let atts = read("src/features/attachments/mod.rs");
+        let block = region(&atts, "pub fn write_block(");
+        assert!(block.contains("let mut encoded = WipingString::with_capacity(base64::encoded_len(att.data.len(), true).unwrap_or(0));"));
+        assert!(block.contains("encoded.push_base64(&att.data);"));
+        assert!(block.contains("let mut b64_escaped = WipingString::with_capacity(encoded.len() + 1);"));
+
+        // Readers: the accumulators grow without copies, the texts read are wiped.
+        for (file, acc, wrapped, n) in [
+            ("src/features/tabs/mod.rs", "let mut current_content = WipingString::new();",
+             "Zeroizing::new(unescape_content(strip_trailing_newline(current_content.as_str())))", 2),
+            ("src/features/vault/mod.rs", "let mut current_value = WipingString::new();",
+             "Zeroizing::new(unescape_content(strip_trailing_newline(current_value.as_str())))", 3),
+            ("src/features/snapshots/mod.rs", "let mut current_content = WipingString::new();",
+             "Zeroizing::new(unescape_content(strip_trailing_newline(current_content.as_str())))", 3),
+            ("src/features/attachments/mod.rs", "let mut current_b64 = WipingString::new();",
+             "Zeroizing::new(unescape_content(current_b64.as_str()))", 3),
+        ] {
+            let src = read(file);
+            assert!(src.contains(acc), "{file}");
+            assert_eq!(src.matches(wrapped).count(), n, "{file}");
+            assert_eq!(src.matches("unescape_content(").count(), n, "{file}: an unwrapped unescaped copy");
+            if file != "src/features/attachments/mod.rs" {
+                assert!(src.contains("fn strip_trailing_newline(s: &str) -> &str {"), "{file}: strip copies the text");
+            }
+        }
+        let decode = region(&atts, "fn decode_attachment(");
+        assert!(decode.contains("let mut clean: Zeroizing<String> = Zeroizing::new(String::with_capacity(b64.len()));"));
+        assert_eq!(decode.matches("data.zeroize();\n        return None;").count(), 2, "refused data freed unwiped");
+        let prompts = read("src/features/prompts/mod.rs");
+        let parse = region(&prompts, "pub fn parse(");
+        assert!(parse.contains("let mut text = WipingString::new();"));
+        assert!(parse.contains("text.push_str(&zeroize::Zeroizing::new(unescape_content(l)));"));
+        assert!(parse.contains("prompts.push(PromptEntry { name, text: text.into_string(), category });"));
+        assert!(!parse.contains(".join("));
     }
 }

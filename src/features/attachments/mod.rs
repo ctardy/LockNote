@@ -29,9 +29,11 @@ pub const DEFAULT_MAX_TOTAL_SIZE: u64 = 50 * 1024 * 1024;
 /// that exceeds this is discarded and parsing stops.
 const MAX_ATTACH_B64_ACCUM: usize = 80 * 1024 * 1024; // 80 MiB of base64 text
 
+use crate::crypto::wiping::WipingString;
 use crate::features::markers::{
-    escape_content, find_loose_marker_line, find_marker_line, unescape_content, ATTACH_FOOTER, ATTACH_HEADER, FILE_END, FILE_PREFIX,
+    find_loose_marker_line, find_marker_line, unescape_content, write_escaped, ATTACH_FOOTER, ATTACH_HEADER, FILE_END, FILE_PREFIX,
 };
+use zeroize::{Zeroize, Zeroizing};
 
 /// A single file attachment.
 #[derive(Debug, Clone, PartialEq)]
@@ -144,7 +146,8 @@ pub fn parse(input: &str) -> (Vec<Attachment>, String) {
     let mut current_name: Option<String> = None;
     let mut current_size: u64 = 0;
     let mut current_sha256 = String::new();
-    let mut current_b64 = String::new();
+    // Grows without leaving copies of the encoded data (issue #42).
+    let mut current_b64 = WipingString::new();
 
     for line in block.split('\n') {
         let trimmed = line.trim_start();
@@ -161,7 +164,7 @@ pub fn parse(input: &str) -> (Vec<Attachment>, String) {
 
                 // Save previous attachment
                 if let Some(name) = current_name.take() {
-                    let b64_clean = unescape_content(&current_b64);
+                    let b64_clean = Zeroizing::new(unescape_content(current_b64.as_str()));
                     if let Some(att) = decode_attachment(&name, current_size, &current_sha256, &b64_clean) {
                         attachments.push(att);
                     }
@@ -181,7 +184,7 @@ pub fn parse(input: &str) -> (Vec<Attachment>, String) {
         // File end marker
         if trimmed == FILE_END && !line.starts_with('\x00') {
             if let Some(name) = current_name.take() {
-                let b64_clean = unescape_content(&current_b64);
+                let b64_clean = Zeroizing::new(unescape_content(current_b64.as_str()));
                 if let Some(att) = decode_attachment(&name, current_size, &current_sha256, &b64_clean) {
                     attachments.push(att);
                 }
@@ -216,7 +219,7 @@ pub fn parse(input: &str) -> (Vec<Attachment>, String) {
 
     // Handle unclosed file block
     if let Some(name) = current_name.take() {
-        let b64_clean = unescape_content(&current_b64);
+        let b64_clean = Zeroizing::new(unescape_content(current_b64.as_str()));
         if let Some(att) = decode_attachment(&name, current_size, &current_sha256, &b64_clean) {
             attachments.push(att);
         }
@@ -245,12 +248,16 @@ fn parse_file_header(inner: &str) -> Option<(String, u64, String)> {
 
 /// Decode base64 content and build an Attachment, verifying SHA-256.
 fn decode_attachment(name: &str, expected_size: u64, expected_sha256: &str, b64: &str) -> Option<Attachment> {
-    // Strip whitespace from base64 (line breaks within the encoded data)
-    let clean: String = b64.chars().filter(|c| !c.is_whitespace()).collect();
-    let data = BASE64.decode(&clean).ok()?;
+    // Strip whitespace from base64 (line breaks within the encoded data),
+    // into a buffer sized up front (never more bytes than `b64`) and wiped;
+    // decoded data that is refused is wiped too (issue #42).
+    let mut clean: Zeroizing<String> = Zeroizing::new(String::with_capacity(b64.len()));
+    clean.extend(b64.chars().filter(|c| !c.is_whitespace()));
+    let mut data = BASE64.decode(clean.as_bytes()).ok()?;
 
     // Verify size
     if data.len() as u64 != expected_size {
+        data.zeroize();
         return None;
     }
 
@@ -258,6 +265,7 @@ fn decode_attachment(name: &str, expected_size: u64, expected_sha256: &str, b64:
 
     // Verify hash
     if sha256 != expected_sha256 {
+        data.zeroize();
         return None;
     }
 
@@ -269,12 +277,22 @@ fn decode_attachment(name: &str, expected_size: u64, expected_sha256: &str, b64:
 }
 
 /// Serialize attachments into the attachments block format.
+/// (`payload::compose` writes the block with `write_block`.)
+#[cfg(test)]
 pub fn serialize(attachments: &[Attachment]) -> String {
+    let mut out = WipingString::new();
+    write_block(&mut out, attachments);
+    out.into_string()
+}
+
+/// The attachments block, appended to `out` (nothing for no attachment).
+/// `out` grows without leaving copies of the data; the base64 is encoded
+/// into a wiped buffer sized up front (issue #42).
+pub fn write_block(out: &mut WipingString, attachments: &[Attachment]) {
     if attachments.is_empty() {
-        return String::new();
+        return;
     }
 
-    let mut out = String::new();
     out.push_str(ATTACH_HEADER);
     out.push('\n');
 
@@ -282,13 +300,18 @@ pub fn serialize(attachments: &[Attachment]) -> String {
         // File header
         out.push_str(FILE_PREFIX);
         out.push_str(&att.name);
-        out.push_str(&format!("|size:{}|sha256:{}", att.data.len(), att.sha256));
+        out.push_str("|size:");
+        out.push_str(&att.data.len().to_string());
+        out.push_str("|sha256:");
+        out.push_str(&att.sha256);
         out.push_str("]\n");
 
         // Base64 content, split into 76-char lines for readability
-        let encoded = BASE64.encode(&att.data);
-        let b64_escaped = escape_content(&encoded);
-        for chunk in b64_escaped.as_bytes().chunks(76) {
+        let mut encoded = WipingString::with_capacity(base64::encoded_len(att.data.len(), true).unwrap_or(0));
+        encoded.push_base64(&att.data);
+        let mut b64_escaped = WipingString::with_capacity(encoded.len() + 1);
+        write_escaped(&mut b64_escaped, encoded.as_str());
+        for chunk in b64_escaped.as_str().as_bytes().chunks(76) {
             out.push_str(&String::from_utf8_lossy(chunk));
             out.push('\n');
         }
@@ -298,11 +321,13 @@ pub fn serialize(attachments: &[Attachment]) -> String {
     }
 
     out.push_str(ATTACH_FOOTER);
-    out
 }
 
-/// Combine data and attachments into a single string.
-/// `data` is the tabs+vault+history portion; attachments block is appended after it.
+/// Combine data and attachments into a single string (what
+/// `payload::compose` writes, for the tests that build a payload block by
+/// block). `data` is the tabs+vault+history portion; attachments block is
+/// appended after it.
+#[cfg(test)]
 pub fn combine(data: &str, attachments: &[Attachment]) -> String {
     let attach_block = serialize(attachments);
     if attach_block.is_empty() {
