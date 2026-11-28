@@ -13,6 +13,8 @@
 // keyed HMAC state (hmac 0.13 does not wipe it; MAC key material only), and
 // stack copies made by moves of the key arrays and inside the crates.
 
+pub mod wiping;
+
 use aes::Aes256;
 use argon2::Argon2;
 use cbc::cipher::{BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};

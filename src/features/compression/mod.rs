@@ -1,13 +1,22 @@
 // Compression module — GZip compression with Base64 encoding
 //
 // Format: "LNGZ:" + Base64(GZip(plaintext_utf8))
+//
+// Plaintext copies (issue #42): the gzip output and the inflated text grow
+// in a `WipingBuf` (each growth wipes the old allocation), the inflater
+// reads into a wiped heap chunk, and the compressed text is encoded straight
+// into a result allocated at its exact size. Out of reach: the state of
+// flate2 itself (the deflate window and the inflate dictionary hold up to
+// 32 KiB of plaintext, its internal output buffer some compressed bytes),
+// freed unwiped by the crate.
 
 use base64::Engine;
+use crate::crypto::wiping::{WipingBuf, WipingString};
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use std::io::{Read, Write};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 const PREFIX: &str = "LNGZ:";
 
@@ -34,14 +43,10 @@ pub fn compress(input: &str) -> String {
         return String::new();
     }
 
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    // The gzip output grows in a WipingBuf, wiped on drop.
+    let mut encoder = GzEncoder::new(WipingBuf::with_capacity(input.len() / 2 + 64), Compression::default());
     encoder.write_all(input.as_bytes()).expect("GZip compression failed");
-    let mut compressed = encoder.finish().expect("GZip finish failed");
-
-    let encoded = base64::engine::general_purpose::STANDARD.encode(&compressed);
-
-    // Zeroize the intermediate compressed buffer
-    compressed.zeroize();
+    let compressed = encoder.finish().expect("GZip finish failed");
 
     // "LNGZ:" + base64(gzip(input)) + padding
     //
@@ -54,22 +59,34 @@ pub fn compress(input: &str) -> String {
     // quantising the length signal to 4 KiB steps. Reserve one byte for
     // a separator ('.') so the base64 and the pad can never accidentally
     // concatenate into something the decoder tolerates.
-    let header_len = PREFIX.len() + encoded.len();
+    let encoded_len = base64::encoded_len(compressed.len(), true).expect("GZip output too large for base64");
+    let header_len = PREFIX.len() + encoded_len;
     let target = header_len.saturating_add(PAD_BLOCK - 1) / PAD_BLOCK * PAD_BLOCK;
     let pad = target.saturating_sub(header_len);
 
-    let mut out = String::with_capacity(header_len + pad);
+    // Allocated at its exact final size, the base64 encoded straight into it.
+    let mut out = WipingString::with_capacity(header_len + pad);
     out.push_str(PREFIX);
-    out.push_str(&encoded);
+    out.push_base64(compressed.as_bytes());
     for _ in 0..pad {
         out.push(PAD_BYTE as char);
     }
-    out
+    debug_assert_eq!(out.len(), out.capacity(), "the compressed text outgrew its buffer");
+    out.into_string()
 }
 
 /// Decompress input: if "LNGZ:" prefix, strip -> Base64 decode -> GZip inflate -> UTF-8.
 /// Otherwise, pass through unchanged (legacy uncompressed data).
+///
+/// Every text returned holds the plaintext: the caller wraps it. A
+/// pass-through is a copy of `input` made at its exact size.
 pub fn decompress(input: &str) -> String {
+    inflate_bounded(input, MAX_DECOMPRESSED_SIZE)
+}
+
+/// `decompress` with the cap on the inflated size as a parameter (tests use
+/// a small one).
+fn inflate_bounded(input: &str, max_size: u64) -> String {
     if input.is_empty() {
         return String::new();
     }
@@ -83,35 +100,51 @@ pub fn decompress(input: &str) -> String {
     // Older data without padding is still accepted because trim_end_matches
     // is a no-op when there's nothing to strip.
     let b64_data = input[PREFIX.len()..].trim_end_matches(PAD_BYTE as char);
-    let mut compressed = match base64::engine::general_purpose::STANDARD.decode(b64_data) {
-        Ok(data) => data,
+    let compressed: Zeroizing<Vec<u8>> = match base64::engine::general_purpose::STANDARD.decode(b64_data) {
+        Ok(data) => Zeroizing::new(data),
         Err(_) => return input.to_string(), // Invalid base64, pass through
     };
 
-    // Wrap the decoder in a Take so we stop at MAX_DECOMPRESSED_SIZE no
-    // matter how long the compressed stream promises to expand. +1 lets us
-    // detect "exactly reached the cap" and treat it as overflow.
-    let decoder = GzDecoder::new(&compressed[..]);
-    let mut bounded = decoder.take(MAX_DECOMPRESSED_SIZE + 1);
-    let mut decompressed = String::new();
-    let result = bounded.read_to_string(&mut decompressed);
-
-    // Zeroize intermediate buffer
-    compressed.zeroize();
-
-    match result {
-        Ok(_) if (decompressed.len() as u64) > MAX_DECOMPRESSED_SIZE => {
-            // Hit the cap — decoder would have produced more. Refuse
-            // rather than return a silently-truncated note. Passing the
-            // input through would surface raw compressed garbage to the
-            // UI, so we hand back an empty string and let the caller
-            // treat it as "no content".
-            decompressed.zeroize();
-            String::new()
+    // Wrap the decoder in a Take so we stop at max_size no matter how long
+    // the compressed stream promises to expand. +1 lets us detect "exactly
+    // reached the cap" and treat it as overflow.
+    let mut bounded = GzDecoder::new(&compressed[..]).take(max_size + 1);
+    // The text grows in a WipingBuf; the decoder writes into a heap chunk
+    // wiped on drop (`read_to_string` would grow a String, and `io::copy`
+    // goes through an unwiped stack buffer).
+    let mut inflated = WipingBuf::with_capacity(compressed.len().saturating_mul(4));
+    let mut chunk: Zeroizing<Vec<u8>> = Zeroizing::new(vec![0u8; 32 * 1024]);
+    let result = loop {
+        match bounded.read(&mut chunk[..]) {
+            Ok(0) => break Ok(()),
+            Ok(n) => inflated.extend_from_slice(&chunk[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => break Err(e),
         }
-        Ok(_) => decompressed,
-        Err(_) => input.to_string(), // Decompression failed, pass through
+    };
+    if result.is_err() {
+        return input.to_string(); // Decompression failed, pass through
     }
+
+    // Same order as `read_to_string`: a text that is not UTF-8 passes
+    // through, then the cap.
+    let mut text = match String::from_utf8(inflated.into_vec()) {
+        Ok(text) => text,
+        Err(e) => {
+            e.into_bytes().zeroize();
+            return input.to_string();
+        }
+    };
+    if (text.len() as u64) > max_size {
+        // Hit the cap — decoder would have produced more. Refuse
+        // rather than return a silently-truncated note. Passing the
+        // input through would surface raw compressed garbage to the
+        // UI, so we hand back an empty string and let the caller
+        // treat it as "no content".
+        text.zeroize();
+        return String::new();
+    }
+    text
 }
 
 #[cfg(test)]
@@ -398,5 +431,64 @@ mod tests {
         two.extend_from_slice(&gz(b"two"));
         assert_eq!(decompress(&lngz(&two)), "one");
         assert_eq!(decompress(&lngz(&gz(b""))), "");
+    }
+
+    // ---- Issue #42 ----
+
+    #[test]
+    fn issue42_compressed_text_is_allocated_at_its_exact_size() {
+        let large = issue42_large_input();
+        for input in ["x", "a\r\n\u{0}\u{1f512}", large.as_str(), &large[..3070], &large[..6000]] {
+            let out = compress(input);
+            assert_eq!(out.capacity(), out.len(), "{}", input.len());
+        }
+    }
+
+    /// The cap on the inflated size, with a small one: at the cap the text
+    /// is kept, over it nothing is, and a text that is not UTF-8 passes
+    /// through first (the order of `read_to_string`).
+    #[test]
+    fn issue42_inflate_cap_and_order() {
+        let gz = |b: &[u8]| {
+            let mut e = GzEncoder::new(Vec::new(), Compression::default());
+            e.write_all(b).unwrap();
+            e.finish().unwrap()
+        };
+        let lngz = |b: &[u8]| format!("{}{}", PREFIX, base64::engine::general_purpose::STANDARD.encode(gz(b)));
+        assert_eq!(inflate_bounded(&lngz(b"abcdef"), 6), "abcdef");
+        assert_eq!(inflate_bounded(&lngz(b"abcdef"), 5), "");
+        let not_utf8 = lngz(&[0xffu8; 10]);
+        assert_eq!(inflate_bounded(&not_utf8, 5), not_utf8);
+        // Larger than a read chunk and than the first capacity guess.
+        let big = "z\u{e9}".repeat(100_000);
+        assert_eq!(inflate_bounded(&compress(&big), MAX_DECOMPRESSED_SIZE), big);
+    }
+
+    fn issue42_fn_body(src: &str, start: &str) -> String {
+        let at = src.find(start).unwrap_or_else(|| panic!("{start}"));
+        let len = src[at..].find("\n}\n").unwrap();
+        src[at..at + len].to_string()
+    }
+
+    /// The wiping tests cannot watch (freed memory), pinned in the source.
+    #[test]
+    fn issue42_compression_buffers_wipe_themselves() {
+        let src = crate::read_source("src/features/compression/mod.rs");
+        let compress = issue42_fn_body(&src, "pub fn compress(");
+        assert!(compress.contains("let mut encoder = GzEncoder::new(WipingBuf::with_capacity(input.len() / 2 + 64), Compression::default());"));
+        assert!(compress.contains("let mut out = WipingString::with_capacity(header_len + pad);"));
+        assert!(compress.contains("out.push_base64(compressed.as_bytes());"));
+        assert!(!compress.contains(".encode("), "a base64 String in between");
+        let inflate = issue42_fn_body(&src, "fn inflate_bounded(");
+        assert!(inflate.contains("let compressed: Zeroizing<Vec<u8>> = match base64::engine::general_purpose::STANDARD.decode(b64_data) {"));
+        assert!(inflate.contains("let mut inflated = WipingBuf::with_capacity(compressed.len().saturating_mul(4));"));
+        assert!(inflate.contains("let mut chunk: Zeroizing<Vec<u8>> = Zeroizing::new(vec![0u8; 32 * 1024]);"));
+        assert!(inflate.contains("Ok(n) => inflated.extend_from_slice(&chunk[..n]),"));
+        assert!(inflate.contains("let mut text = match String::from_utf8(inflated.into_vec()) {"));
+        assert!(inflate.contains("e.into_bytes().zeroize();"));
+        assert!(inflate.contains("text.zeroize();\n        return String::new();"));
+        let code: String = inflate.lines().filter(|l| !l.trim_start().starts_with("//")).collect();
+        assert!(!code.contains("read_to_string") && !code.contains("io::copy"), "a growing String or a stack buffer");
+        assert!(src.contains("pub fn decompress(input: &str) -> String {\n    inflate_bounded(input, MAX_DECOMPRESSED_SIZE)\n}"));
     }
 }
