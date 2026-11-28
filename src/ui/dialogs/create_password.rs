@@ -359,7 +359,7 @@ impl CreatePasswordDialog {
                         // Between the two WM_CHAR of an emoji the field holds
                         // half of it: the meter keeps its last score until
                         // the text is whole again (nothing is refused here).
-                        let Ok(pw) = crate::ui::field_text::read(txt_password.handle) else {
+                        let Some(pw) = crate::ui::field_text::read_typing(txt_password.handle, "createpwd.password") else {
                             return;
                         };
                         let score = password_score(&pw);

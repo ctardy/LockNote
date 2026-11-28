@@ -214,7 +214,7 @@ impl SshKeygenDialog {
                 nwg::Event::OnTextInput if handle == txt_pass.handle => {
                     // Half of a typed emoji: keep the last label until the
                     // text is whole again (Generate refuses it, not this).
-                    let Ok(pw) = crate::ui::field_text::read(txt_pass.handle) else {
+                    let Some(pw) = crate::ui::field_text::read_typing(txt_pass.handle, "ssh.gen.passphrase") else {
                         return;
                     };
                     lbl_strength.set_text(&if pw.is_empty() {

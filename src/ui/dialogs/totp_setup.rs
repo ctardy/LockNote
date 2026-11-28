@@ -295,7 +295,7 @@ impl TotpSetupDialog {
                     // Half of a typed emoji (or any invalid text) is not a
                     // valid secret: no link, as for any other invalid input.
                     // Verify and Add tell why.
-                    let Ok(typed) = crate::ui::field_text::read(txt_secret.handle) else {
+                    let Some(typed) = crate::ui::field_text::read_typing(txt_secret.handle, "totp.secret") else {
                         txt_uri.set_text("");
                         lbl_status.set_text("");
                         return;

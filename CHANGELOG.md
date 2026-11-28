@@ -149,9 +149,12 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   field the character is selected, so Delete removes it. The hidden value
   of a vault secret is never emptied (it may exist nowhere else): Copy
   and OK are refused, and Show reveals the value with the character
-  selected. The dialog layout pass no longer copies the text of input
-  fields, such as a pre-filled vault secret, into memory. The message
-  never shows the content nor where the character is. Search and filter
+  selected; that button now keeps its translated label (Afficher /
+  Masquer, Mostrar / Ocultar, Anzeigen / Ausblenden) after a click,
+  instead of switching to English. The dialog layout pass no longer
+  copies the text of input fields, such as a pre-filled vault secret,
+  into memory. The message never shows the content nor where the
+  character is. Search and filter
   fields (Search All, the vault and prompts searches, the command
   palette, Go to Heading, the live Find count) show such a character as
   U+FFFD and keep working; they store nothing. If a note, an SSH key, a

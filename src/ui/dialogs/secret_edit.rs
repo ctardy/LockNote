@@ -123,7 +123,7 @@ fn toggle_view(
     *visible = !*visible;
     txt_value.set_visible(!*visible);
     txt_multi.set_visible(*visible);
-    btn_toggle.set_text(if *visible { "Hide" } else { "Show" });
+    btn_toggle.set_text(&t(if *visible { "vault.hide" } else { "vault.show" }));
     if *visible {
         // After the switch, so the selection is in the field now shown.
         select_invalid(txt_multi.handle, |m| lbl_error.set_text(m));
@@ -590,6 +590,26 @@ mod tests {
         toggle_view(&mut visible, &f.value, &f.multi, &toggle, &f.error);
         assert!(!visible);
         assert_eq!(read_value(visible, &f.value, &f.multi, &f.error).expect("valid").as_str(), "Xk9#");
+    }
+
+    #[test]
+    fn the_show_hide_button_keeps_the_user_language_after_each_toggle() {
+        use crate::features::i18n::{set_language, Language};
+        let _lang = crate::features::i18n::test_support::lang_guard();
+        for lang in [Language::English, Language::French, Language::Spanish, Language::German] {
+            set_language(lang);
+            let f = fields("Xk9#");
+            let toggle = button(&f);
+            let mut visible = false;
+            toggle_view(&mut visible, &f.value, &f.multi, &toggle, &f.error);
+            assert!(visible);
+            assert_eq!(toggle.text(), t("vault.hide"), "{lang:?}: Hide");
+            assert!(!toggle.text().starts_with('['), "{lang:?}: vault.hide is missing");
+            toggle_view(&mut visible, &f.value, &f.multi, &toggle, &f.error);
+            assert!(!visible);
+            assert_eq!(toggle.text(), t("vault.show"), "{lang:?}: Show");
+        }
+        set_language(Language::English);
     }
 
     #[test]

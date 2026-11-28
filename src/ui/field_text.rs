@@ -175,6 +175,22 @@ fn focus(h: HWND) {
     }
 }
 
+/// Read a field as it is typed (strength meter, live link): `None` until
+/// the text is whole. Between the two WM_CHAR of an emoji the field holds
+/// half of it, so an invalid character is waited out quietly; nothing is
+/// cleared nor told (the action buttons refuse it loudly). A missing window
+/// or a failed read is logged at WARN (no content), never dropped silently.
+pub fn read_typing(handle: nwg::ControlHandle, field: &str) -> Option<Zeroizing<String>> {
+    match read(handle) {
+        Ok(s) => Some(s),
+        Err(FieldTextError::InvalidUtf16 { .. }) => None,
+        Err(e) => {
+            eprintln!("WARN field: typed field unreadable field={} reason={}", field, e.kind());
+            None
+        }
+    }
+}
+
 /// Read a masked field strictly. On a refusal: log it (no content), empty
 /// the field (the user cannot see the bad character), focus it, pass the
 /// message to `tell`, return `None`: the caller stops there and saves,
@@ -605,7 +621,70 @@ mod tests {
         check("editor/helpers.rs", "pub(super) fn stego_password_dialog(", &["read_masked(txt_pw.handle", "read_masked(txt_confirm.handle", "*pw != *confirm"]);
         check("dialogs/confirm_password.rs", "if handle == btn_ok.handle {", &["read_masked(txt_password.handle", "constant_time_eq("]);
         check("dialogs/totp_verify.rs", "if handle == btn_verify.handle {", &["read_visible(txt_code.handle", "totp::verify(", "*att += 1"]);
+        check(
+            "dialogs/backup_password.rs",
+            "if handle == btn_ok.handle {",
+            &["read_masked(txt_password.handle", "pw.is_empty()", "*result_clone.borrow_mut() = Some(pw)"],
+        );
+        check(
+            "dialogs/ssh_keygen.rs",
+            "nwg::Event::OnButtonClick if handle == btn_load.handle => {",
+            &["read_masked(txt_pass.handle", "*result_c.borrow_mut() = Some((i, pass))"],
+        );
+        check(
+            "dialogs/password_generator.rs",
+            "} else if handle == form.btn_copy.handle {",
+            &["read_masked(form.txt_password.handle", "value.is_empty()", "clipboard_win::set_clipboard("],
+        );
+        check(
+            "dialogs/password_generator.rs",
+            "} else if for_field && handle == btn_use.handle {",
+            &["read_masked(form.txt_password.handle", "value.is_empty()", "*used_h.borrow_mut() = Some(value)"],
+        );
+        check(
+            "dialogs/totp_setup.rs",
+            "} else if handle == btn_verify.handle {",
+            &["read_visible(txt_code.handle", "read_visible(txt_secret.handle", "totp::verify("],
+        );
+        check(
+            "dialogs/totp_setup.rs",
+            "} else if handle == btn_confirm.handle && add {",
+            &["read_visible(txt_secret.handle", "*result_clone.borrow_mut() = Some(TotpEntry"],
+        );
         // secret_edit Show/Hide and OK: live sequence tests in secret_edit.rs.
+    }
+
+    #[test]
+    fn a_field_read_while_typing_waits_for_a_whole_emoji_and_never_drops_a_failure_silently() {
+        // No window: an error, never an empty value (logged at WARN).
+        assert!(read_typing(nwg::ControlHandle::NoHandle, "test").is_none());
+        let w = window();
+        let (plain, _, _) = inputs(&w);
+        // Half of an emoji typed as two WM_CHAR: nothing yet, quietly.
+        set_units(hwnd(plain.handle), &[0x61, 0xD83D]);
+        assert!(read_typing(plain.handle, "test").is_none());
+        assert_eq!(read_units(hwnd(plain.handle)).expect("kept").as_slice(), &[0x61, 0xD83D], "nothing cleared while typing");
+        // The second half arrives: the whole text.
+        set_units(hwnd(plain.handle), &[0x61, 0xD83D, 0xDE00]);
+        assert_eq!(read_typing(plain.handle, "test").expect("valid").as_str(), "a\u{1F600}");
+    }
+
+    #[test]
+    fn typing_handlers_use_the_typing_reader_not_a_bare_let_ok() {
+        // `let Ok(..) = read(..) else` drops NoWindow and ReadFailed silently.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui");
+        for (file, field) in [
+            ("dialogs/create_password.rs", "read_typing(txt_password.handle"),
+            ("dialogs/ssh_keygen.rs", "read_typing(txt_pass.handle"),
+            ("dialogs/totp_setup.rs", "read_typing(txt_secret.handle"),
+        ] {
+            let src = crate::read_source(root.join(file));
+            assert!(src.contains(field), "{file}: {field} missing");
+            assert!(
+                !src.contains("let Ok(pw) = crate::ui::field_text::read(") && !src.contains("let Ok(typed) = crate::ui::field_text::read("),
+                "{file}: a bare let Ok read is back"
+            );
+        }
     }
 
     #[test]

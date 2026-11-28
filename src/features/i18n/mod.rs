@@ -569,6 +569,7 @@ fn build_en() -> Dict {
     m.insert("vault.category", "Category:");
     m.insert("vault.value", "Value:");
     m.insert("vault.show", "Show");
+    m.insert("vault.hide", "Hide");
     m.insert("vault.name.empty", "Name cannot be empty");
     m.insert("vault.btn.add", "Add");
     m.insert("vault.btn.edit", "Edit");
@@ -1304,6 +1305,7 @@ fn build_fr() -> Dict {
     m.insert("vault.category", "Cat\u{00e9}gorie :");
     m.insert("vault.value", "Valeur :");
     m.insert("vault.show", "Afficher");
+    m.insert("vault.hide", "Masquer");
     m.insert("vault.name.empty", "Le nom ne peut pas \u{00ea}tre vide");
     m.insert("vault.btn.add", "Ajout.");
     m.insert("vault.btn.edit", "Modif.");
@@ -2032,6 +2034,7 @@ fn build_es() -> Dict {
     m.insert("vault.category", "Categor\u{00ed}a:");
     m.insert("vault.value", "Valor:");
     m.insert("vault.show", "Mostrar");
+    m.insert("vault.hide", "Ocultar");
     m.insert("vault.name.empty", "El nombre no puede estar vac\u{00ed}o");
     m.insert("vault.btn.add", "A\u{00f1}adir");
     m.insert("vault.btn.edit", "Editar");
@@ -2761,6 +2764,7 @@ fn build_de() -> Dict {
     m.insert("vault.category", "Kategorie:");
     m.insert("vault.value", "Wert:");
     m.insert("vault.show", "Anzeigen");
+    m.insert("vault.hide", "Ausblenden");
     m.insert("vault.name.empty", "Name darf nicht leer sein");
     m.insert("vault.btn.add", "Neu");
     m.insert("vault.btn.edit", "Bearb.");
