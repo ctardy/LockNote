@@ -434,7 +434,7 @@ impl SshAgentDialog {
             nwg::Event::OnButtonClick if handle == btn_load.handle => {
                 // Refused before any decrypt; the dialog stays open.
                 let Some(pass) = crate::ui::field_text::read_masked(txt_pass.handle, "ssh.agent.passphrase", |m| {
-                    nwg::modal_error_message(window_handle, &t("editor.text.title"), m);
+                    nwg::modal_error_message(window_handle, &t("ssh.agent.title"), m);
                 }) else {
                     return;
                 };

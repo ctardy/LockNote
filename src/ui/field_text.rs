@@ -79,6 +79,15 @@ impl FieldTextError {
         }
     }
 
+    /// The message for a hidden field that is kept on a refusal (a stored
+    /// secret the user may not be able to type again): Show selects it.
+    pub fn hidden_message(&self) -> String {
+        match self {
+            FieldTextError::InvalidUtf16 { .. } => t("field.text.invalid.hidden"),
+            FieldTextError::NoWindow | FieldTextError::ReadFailed { .. } => t("field.text.unreadable"),
+        }
+    }
+
     /// The message for a field read as it is typed (nothing is selected
     /// nor cleared: that would break an emoji typed as two characters).
     pub fn typing_message(&self) -> String {
@@ -88,7 +97,7 @@ impl FieldTextError {
         }
     }
 
-    fn kind(&self) -> &'static str {
+    pub fn kind(&self) -> &'static str {
         match self {
             FieldTextError::NoWindow => "no_window",
             FieldTextError::ReadFailed { .. } => "read_failed",
@@ -128,6 +137,27 @@ pub fn read(handle: nwg::ControlHandle) -> Result<Zeroizing<String>, FieldTextEr
     decode_exact(&read_units(hwnd(handle))?)
 }
 
+/// The field's raw UTF-16 units, undecoded, in a buffer wiped on drop:
+/// for moving a value that may hold a lone surrogate into another field
+/// without losing it (`write_units`). Never shown nor stored as such.
+pub fn read_raw(handle: nwg::ControlHandle) -> Result<Zeroizing<Vec<u16>>, FieldTextError> {
+    Ok(read_units(hwnd(handle))?)
+}
+
+/// Replace the field's text with `units`, as they are (a lone surrogate
+/// included), through a null-terminated buffer wiped on drop.
+pub fn write_units(handle: nwg::ControlHandle, units: &[u16]) -> Result<(), FieldTextError> {
+    let h = hwnd(handle);
+    if h.is_invalid() {
+        return Err(FieldTextError::NoWindow);
+    }
+    let mut z = Zeroizing::new(Vec::with_capacity(units.len() + 1));
+    z.extend_from_slice(units);
+    z.push(0);
+    set_text_units(h, &z);
+    Ok(())
+}
+
 /// The field's text for filtering what is shown: each lone surrogate is
 /// U+FFFD. Never stored, never compared with a secret.
 pub fn read_display(handle: nwg::ControlHandle) -> Result<Zeroizing<String>, FieldTextError> {
@@ -165,6 +195,41 @@ pub fn read_masked(handle: nwg::ControlHandle, field: &str, tell: impl FnOnce(&s
     }
 }
 
+/// Read a hidden field that must be kept on a refusal (a stored secret the
+/// user may not be able to type again). On a refusal: log it (no content),
+/// leave the field as it is, focus it, pass the message to `tell` (Show
+/// reveals the invalid character selected), return `None`: the caller
+/// stops there and copies or saves nothing.
+pub fn read_kept(handle: nwg::ControlHandle, field: &str, tell: impl FnOnce(&str)) -> Option<Zeroizing<String>> {
+    match read(handle) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            eprintln!("WARN field: hidden field refused, kept field={} reason={}", field, e.kind());
+            let h = hwnd(handle);
+            if !h.is_invalid() {
+                focus(h);
+            }
+            tell(&e.hidden_message());
+            None
+        }
+    }
+}
+
+/// Select the first lone surrogate of a visible field, focus it and pass
+/// its message to `tell`. `false` when the field holds none.
+pub fn select_invalid(handle: nwg::ControlHandle, tell: impl FnOnce(&str)) -> bool {
+    match read(handle) {
+        Err(e @ FieldTextError::InvalidUtf16 { unit, .. }) => {
+            let h = hwnd(handle);
+            select_unit(h, unit);
+            focus(h);
+            tell(&e.visible_message());
+            true
+        }
+        _ => false,
+    }
+}
+
 /// Read a visible field strictly. On a refusal: log it (no content), keep
 /// the text (it may be long), select the first invalid character so Delete
 /// removes it, focus the field, pass the message to `tell`, return `None`.
@@ -187,11 +252,16 @@ pub fn read_visible(handle: nwg::ControlHandle, field: &str, tell: impl FnOnce(&
 }
 
 fn set_empty(h: HWND) {
+    set_text_units(h, &[0u16]);
+}
+
+/// WM_SETTEXT with `z`, which must end with a 0 unit.
+fn set_text_units(h: HWND, z: &[u16]) {
     use windows::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_SETTEXT};
-    let empty = [0u16];
+    debug_assert_eq!(z.last(), Some(&0));
     // SAFETY: a null-terminated buffer that outlives the synchronous call.
     unsafe {
-        SendMessageW(h, WM_SETTEXT, None, Some(LPARAM(empty.as_ptr() as isize)));
+        SendMessageW(h, WM_SETTEXT, None, Some(LPARAM(z.as_ptr() as isize)));
     }
 }
 
@@ -246,13 +316,14 @@ mod tests {
             crate::features::i18n::set_language(lang);
             let e = FieldTextError::InvalidUtf16 { unit: 7, count: 3 };
             let r = FieldTextError::ReadFailed { expected: 4, copied: 0 };
-            for m in [e.masked_message(), e.visible_message(), e.typing_message(), r.masked_message(), r.visible_message()] {
+            for m in [e.masked_message(), e.visible_message(), e.typing_message(), e.hidden_message(), r.masked_message(), r.visible_message(), r.hidden_message()] {
                 assert!(!m.starts_with("field."), "{lang:?}: untranslated {m}");
                 assert!(!m.chars().any(|c| c.is_ascii_digit()), "{lang:?}: {m}");
                 assert!(!m.contains('{'), "{lang:?}: {m}");
             }
             assert_ne!(e.masked_message(), e.visible_message());
             assert_ne!(e.typing_message(), e.visible_message());
+            assert_ne!(e.hidden_message(), e.masked_message(), "a kept field is not said to be cleared");
         }
     }
 
@@ -347,35 +418,149 @@ mod tests {
         }
     }
 
+    /// `src` with every `#[cfg(test)]` item (a `mod`, `fn`, `use`, ...)
+    /// blanked out, line breaks kept so line numbers stay true. Production
+    /// code after a test item is still scanned. String, char and comment
+    /// braces are skipped.
+    fn production_code(src: &str) -> String {
+        let b = src.as_bytes();
+        let mut out = b.to_vec();
+        let mut from = 0;
+        while let Some(off) = src[from..].find("#[cfg(test)]") {
+            let start = from + off;
+            let mut i = start + "#[cfg(test)]".len();
+            let mut depth = 0usize;
+            let end = loop {
+                assert!(i < b.len(), "unterminated #[cfg(test)] item at byte {start}");
+                match b[i] {
+                    b'/' if b.get(i + 1) == Some(&b'/') => {
+                        while i < b.len() && b[i] != b'\n' {
+                            i += 1;
+                        }
+                        continue;
+                    }
+                    b'"' => {
+                        // A raw string r#"..."# or a plain one.
+                        let raw = i > 0 && (b[i - 1] == b'#' || b[i - 1] == b'r');
+                        i += 1;
+                        while i < b.len() && b[i] != b'"' {
+                            if b[i] == b'\\' && !raw {
+                                i += 1;
+                            }
+                            i += 1;
+                        }
+                    }
+                    b'\'' if matches!(b.get(i + 1), Some(b'{') | Some(b'}') | Some(b'"')) && b.get(i + 2) == Some(&b'\'') => i += 2,
+                    b';' if depth == 0 => break i,
+                    b'{' => depth += 1,
+                    b'}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break i;
+                        }
+                    }
+                    _ => {}
+                }
+                i += 1;
+            };
+            for c in &mut out[start..=end] {
+                if *c != b'\n' {
+                    *c = b' ';
+                }
+            }
+            from = end + 1;
+        }
+        String::from_utf8(out).expect("only ASCII bytes were replaced")
+    }
+
+    #[test]
+    fn production_code_blanks_test_items_only() {
+        let src = "fn a() {}\n#[cfg(test)]\nmod t { fn x() { let s = \"}\"; let c = '{'; } // }\n}\nfn b() { f.text() }\n#[cfg(test)]\nuse x::y;\nfn c() {}\n";
+        let code = production_code(src);
+        assert_eq!(code.lines().count(), src.lines().count());
+        assert!(code.contains("fn a() {}") && code.contains("fn b() { f.text() }") && code.contains("fn c() {}"));
+        assert!(!code.contains("mod t") && !code.contains("use x::y"));
+    }
+
+    /// The `.rs` files of src/ui, relative path with `/`, and their text.
+    fn ui_sources() -> Vec<(String, String)> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui");
+        let mut files = Vec::new();
+        sources(&root, &mut files);
+        assert!(files.len() > 60, "the ui sources were not found");
+        files
+            .iter()
+            .map(|f| {
+                let rel = f.strip_prefix(&root).expect("under src/ui").to_string_lossy().replace('\\', "/");
+                (rel, crate::read_source(f))
+            })
+            .collect()
+    }
+
     #[test]
     fn no_production_code_reads_a_field_through_nwg_text() {
         // nwg's text() turns a half emoji into "Decoding error" (and a failed
         // read into ""), which then became a password, a secret or a name.
         // Every field is read here. The only `.text()` left are the strict
-        // RichEdit readers of the editor, which return a Result.
-        const STRICT_EDITOR_READERS: [&str; 3] = ["steps.text()", "s.text()", "target.text()"];
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("ui");
-        let mut files = Vec::new();
-        sources(&root, &mut files);
-        assert!(files.len() > 60, "the ui sources were not found");
+        // RichEdit readers of the editor (traits returning a Result), each
+        // allowed in its own file only.
+        const STRICT_EDITOR_READERS: [(&str, &str); 6] = [
+            ("dialogs/regex_search.rs", "target.text()"),
+            ("editor/content.rs", "steps.text()"),
+            ("editor/heading_flow.rs", "s.text()"),
+            ("editor/indent.rs", "steps.text()"),
+            ("editor/line_ops.rs", "s.text()"),
+            ("editor/lists.rs", "steps.text()"),
+        ];
         let mut found = Vec::new();
-        for file in &files {
-            let src = crate::read_source(file);
-            let code = src.split("#[cfg(test)]").next().expect("code part");
+        for (rel, src) in ui_sources() {
+            let code = production_code(&src);
             for (n, line) in code.lines().enumerate() {
                 let mut rest = line;
                 while let Some(i) = rest.find(".text()") {
                     let before = &rest[..i];
                     let receiver_start = before.rfind(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.')).map_or(0, |p| p + 1);
                     let call = &rest[receiver_start..i + ".text()".len()];
-                    if !STRICT_EDITOR_READERS.contains(&call) {
-                        found.push(format!("{}:{}: {}", file.display(), n + 1, line.trim()));
+                    if !STRICT_EDITOR_READERS.contains(&(rel.as_str(), call)) {
+                        found.push(format!("{}:{}: {}", rel, n + 1, line.trim()));
                     }
                     rest = &rest[i + ".text()".len()..];
                 }
             }
         }
         assert!(found.is_empty(), "fields read with nwg text():\n{}", found.join("\n"));
+    }
+
+    #[test]
+    fn no_production_code_reads_a_field_with_get_window_text_directly() {
+        // A direct GetWindowTextW is allowed only where it reads a caption
+        // or a title, never an input field (style.rs skips Edit controls).
+        const ALLOWED: [&str; 5] = [
+            "editor_text.rs",        // read_units: the strict reader itself
+            "dialogs/style.rs",      // window_text: labels, buttons, check boxes
+            "editor/events.rs",      // owner-drawn button caption
+            "lock_card.rs",          // owner-drawn button caption
+            "editor/modal_guard.rs", // dialog window title
+        ];
+        let mut found = Vec::new();
+        for (rel, src) in ui_sources() {
+            let code = production_code(&src);
+            for (n, line) in code.lines().enumerate() {
+                if line.contains("GetWindowTextW(") && !ALLOWED.contains(&rel.as_str()) {
+                    found.push(format!("{}:{}: {}", rel, n + 1, line.trim()));
+                }
+            }
+        }
+        assert!(found.is_empty(), "direct GetWindowTextW reads:\n{}", found.join("\n"));
+    }
+
+    #[test]
+    fn the_dialog_style_pass_never_reads_an_input_field() {
+        // It used to copy every child's text, a pre-filled vault secret
+        // included, into an unwiped String.
+        let src = crate::read_source(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui/dialogs/style.rs"));
+        let code = production_code(&src);
+        assert!(code.contains("text: if matches!(class, Class::Edit { .. }) { String::new() } else { window_text(h) },"));
     }
 
     /// The index of `needle` in `hay` after `from`, or a failure naming it.
@@ -420,7 +605,7 @@ mod tests {
         check("editor/helpers.rs", "pub(super) fn stego_password_dialog(", &["read_masked(txt_pw.handle", "read_masked(txt_confirm.handle", "*pw != *confirm"]);
         check("dialogs/confirm_password.rs", "if handle == btn_ok.handle {", &["read_masked(txt_password.handle", "constant_time_eq("]);
         check("dialogs/totp_verify.rs", "if handle == btn_verify.handle {", &["read_visible(txt_code.handle", "totp::verify(", "*att += 1"]);
-        check("dialogs/secret_edit.rs", "if handle == btn_toggle.handle {", &["read_value(showing", "*vis = !*vis"]);
+        // secret_edit Show/Hide and OK: live sequence tests in secret_edit.rs.
     }
 
     #[test]

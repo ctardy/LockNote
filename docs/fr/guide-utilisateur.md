@@ -328,7 +328,9 @@ la même façon : l'action s'arrête avec « Ce champ contenait un caractère
 invalide », rien n'est enregistré, comparé ni compté comme un mauvais mot
 de passe, et la fenêtre reste ouverte. Un champ de mot de passe est vidé :
 saisissez à nouveau le mot de passe. Dans un champ visible, le caractère
-est sélectionné : appuyez sur Suppr. Les champs de recherche l'affichent
+est sélectionné : appuyez sur Suppr. La valeur masquée d'un secret du
+coffre est conservée : cliquez sur Afficher, le caractère est sélectionné,
+appuyez sur Suppr, puis sur OK. Les champs de recherche l'affichent
 comme un signe de remplacement et continuent de fonctionner. Avant ce
 correctif, un mot de passe saisi avec la moitié d'un emoji était
 enregistré comme le texte `Decoding error` : si une note, une clé SSH, une

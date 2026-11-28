@@ -80,6 +80,7 @@ pub fn simple_input_dialog(
 
     let result: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
     let window_handle = window.handle;
+    let dialog_title = title.to_string();
     let result_clone = result.clone();
 
     let handler = nwg::full_bind_event_handler(&window_handle, move |evt, _evt_data, handle| {
@@ -89,7 +90,7 @@ pub fn simple_input_dialog(
                     // The name is stored: read strictly, the dialog stays
                     // open on a refusal.
                     let Some(name) = crate::ui::field_text::read_visible(txt.handle, "totp.name", |m| {
-                        nwg::modal_error_message(window_handle, &t("editor.text.title"), m);
+                        nwg::modal_error_message(window_handle, &dialog_title, m);
                     }) else {
                         return;
                     };

@@ -294,7 +294,8 @@ Find & Replace) refuse such a character the same way: the action stops
 with "This field held an invalid character", nothing is saved, compared
 or counted as a wrong password, and the dialog stays open. A password
 field is emptied: type the password again. In a visible field the
-character is selected: press Delete. Search fields show it as a
+character is selected: press Delete. The hidden value of a vault secret
+is kept: click Show, the character is selected, press Delete, then OK. Search fields show it as a
 replacement mark and keep working. Before this fix, a password typed with
 half of an emoji in it was saved as the text `Decoding error`: if a note,
 an SSH key, a steganography image or a backup was protected that way,

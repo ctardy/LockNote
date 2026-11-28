@@ -146,7 +146,11 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   held an invalid character (half of an emoji or symbol)...", the dialog
   stays open and nothing is saved, compared, decrypted or counted as an
   attempt. A password field is emptied (type it again); in a visible
-  field the character is selected, so Delete removes it. The message
+  field the character is selected, so Delete removes it. The hidden value
+  of a vault secret is never emptied (it may exist nowhere else): Copy
+  and OK are refused, and Show reveals the value with the character
+  selected. The dialog layout pass no longer copies the text of input
+  fields, such as a pre-filled vault secret, into memory. The message
   never shows the content nor where the character is. Search and filter
   fields (Search All, the vault and prompts searches, the command
   palette, Go to Heading, the live Find count) show such a character as

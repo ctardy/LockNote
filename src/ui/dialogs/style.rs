@@ -659,7 +659,9 @@ fn run_pass(hwnd: HWND, st: &Rc<RefCell<DialogState>>, pal: &'static ThemePalett
             hwnd: h,
             class,
             rect,
-            text: window_text(h),
+            // An input field is never read: it can hold a secret (a vault
+            // value is pre-filled), and its text is not used for the layout.
+            text: if matches!(class, Class::Edit { .. }) { String::new() } else { window_text(h) },
             role,
             segoe,
             prefix_off: style_of(h) & SS_NOPREFIX != 0,

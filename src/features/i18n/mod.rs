@@ -795,6 +795,7 @@ fn build_en() -> Dict {
     m.insert("field.text.invalid", "This field holds an invalid character (half of an emoji or symbol) that LockNote cannot store. Nothing was saved. The character is selected: delete it, then try again.");
     m.insert("field.text.unreadable", "LockNote could not read this field. Nothing was done: try again.");
     m.insert("field.text.invalid.typing", "This field holds an invalid character (half of an emoji or symbol) that LockNote cannot use: delete it.");
+    m.insert("field.text.invalid.hidden", "Invalid character in the value: nothing was saved. Click Show to see it selected.");
     m.insert("save.error.msg", "Failed to save: {}");
     m.insert("export.success.title", "Export");
     m.insert("export.success.msg", "Note exported to:\n{}");
@@ -1527,6 +1528,7 @@ fn build_fr() -> Dict {
     m.insert("field.text.invalid", "Ce champ contient un caract\u{00e8}re invalide (la moiti\u{00e9} d'un emoji ou d'un symbole) que LockNote ne peut pas enregistrer. Rien n'a \u{00e9}t\u{00e9} enregistr\u{00e9}. Le caract\u{00e8}re est s\u{00e9}lectionn\u{00e9} : supprimez-le, puis r\u{00e9}essayez.");
     m.insert("field.text.unreadable", "LockNote n'a pas pu lire ce champ. Rien n'a \u{00e9}t\u{00e9} fait : r\u{00e9}essayez.");
     m.insert("field.text.invalid.typing", "Ce champ contient un caract\u{00e8}re invalide (la moiti\u{00e9} d'un emoji ou d'un symbole) que LockNote ne peut pas utiliser : supprimez-le.");
+    m.insert("field.text.invalid.hidden", "Caract\u{00e8}re invalide dans la valeur : rien n'a \u{00e9}t\u{00e9} enregistr\u{00e9}. Cliquez sur Afficher pour le voir s\u{00e9}lectionn\u{00e9}.");
     m.insert("save.error.msg", "\u{00c9}chec de la sauvegarde : {}");
     m.insert("export.success.title", "Exportation");
     m.insert("export.success.msg", "Note export\u{00e9}e vers :\n{}");
@@ -2255,6 +2257,7 @@ fn build_es() -> Dict {
     m.insert("field.text.invalid", "Este campo contiene un car\u{00e1}cter no v\u{00e1}lido (la mitad de un emoji o s\u{00ed}mbolo) que LockNote no puede guardar. No se guard\u{00f3} nada. El car\u{00e1}cter est\u{00e1} seleccionado: elim\u{00ed}nelo y vuelva a intentarlo.");
     m.insert("field.text.unreadable", "LockNote no pudo leer este campo. No se hizo nada: vuelva a intentarlo.");
     m.insert("field.text.invalid.typing", "Este campo contiene un car\u{00e1}cter no v\u{00e1}lido (la mitad de un emoji o s\u{00ed}mbolo) que LockNote no puede usar: elim\u{00ed}nelo.");
+    m.insert("field.text.invalid.hidden", "Car\u{00e1}cter no v\u{00e1}lido en el valor: no se guard\u{00f3} nada. Pulse Mostrar para verlo seleccionado.");
     m.insert("save.error.msg", "Error al guardar: {}");
     m.insert("export.success.title", "Exportaci\u{00f3}n");
     m.insert("export.success.msg", "Nota exportada a:\n{}");
@@ -2983,6 +2986,7 @@ fn build_de() -> Dict {
     m.insert("field.text.invalid", "Dieses Feld enth\u{00e4}lt ein ung\u{00fc}ltiges Zeichen (die H\u{00e4}lfte eines Emojis oder Symbols), das LockNote nicht speichern kann. Es wurde nichts gespeichert. Das Zeichen ist markiert: L\u{00f6}schen Sie es und versuchen Sie es erneut.");
     m.insert("field.text.unreadable", "LockNote konnte dieses Feld nicht lesen. Es wurde nichts ausgef\u{00fc}hrt: Versuchen Sie es erneut.");
     m.insert("field.text.invalid.typing", "Dieses Feld enth\u{00e4}lt ein ung\u{00fc}ltiges Zeichen (die H\u{00e4}lfte eines Emojis oder Symbols), das LockNote nicht verwenden kann: L\u{00f6}schen Sie es.");
+    m.insert("field.text.invalid.hidden", "Ung\u{00fc}ltiges Zeichen im Wert: Es wurde nichts gespeichert. Klicken Sie auf Anzeigen, um es markiert zu sehen.");
     m.insert("save.error.msg", "Speichern fehlgeschlagen: {}");
     m.insert("export.success.title", "Export");
     m.insert("export.success.msg", "Notiz exportiert nach:\n{}");

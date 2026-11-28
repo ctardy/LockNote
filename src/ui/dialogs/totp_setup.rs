@@ -371,7 +371,7 @@ impl TotpSetupDialog {
                         }
                     } else if handle == btn_confirm.handle && add {
                         let Some(typed) = crate::ui::field_text::read_visible(txt_secret.handle, "totp.secret", |m| {
-                            nwg::modal_info_message(window_handle, &t("totp.add.title"), m);
+                            nwg::modal_error_message(window_handle, &t("totp.add.title"), m);
                         }) else {
                             return;
                         };

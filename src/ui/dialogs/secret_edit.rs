@@ -42,22 +42,91 @@ fn from_edit_newlines(text: &str) -> String {
     text.replace("\r\n", "\n")
 }
 
-/// The value from the view that is active, read strictly. Hidden: a masked
-/// field, emptied on a refusal (the bad character cannot be seen); shown:
-/// the bad character is selected. `None`: refused, the user was told in
-/// `lbl_error`, nothing is to be copied, switched or saved.
+/// Stored value units (`\n`) → multi-line edit control units (`\r\n`),
+/// without decoding them: a lone surrogate stays where it is.
+fn to_edit_newline_units(units: &[u16]) -> zeroize::Zeroizing<Vec<u16>> {
+    const CR: u16 = 0x0D;
+    const LF: u16 = 0x0A;
+    let lfs = units.iter().filter(|&&u| u == LF).count();
+    let mut out = zeroize::Zeroizing::new(Vec::with_capacity(units.len() + lfs));
+    for (i, &u) in units.iter().enumerate() {
+        if u == LF && (i == 0 || units[i - 1] != CR) {
+            out.push(CR);
+        }
+        out.push(u);
+    }
+    out
+}
+
+/// The value from the view that is active, read strictly. Hidden: the
+/// field is kept as it is on a refusal (it may hold a stored secret the
+/// user cannot type again; Show reveals the bad character selected);
+/// shown: the bad character is selected. `None`: refused, the user was
+/// told in `lbl_error`, nothing is to be copied, switched or saved.
 fn read_value(
     visible: bool,
     txt_value: &nwg::TextInput,
     txt_multi: &nwg::TextBox,
     lbl_error: &nwg::Label,
 ) -> Option<zeroize::Zeroizing<String>> {
-    use crate::ui::field_text::{read_masked, read_visible};
+    use crate::ui::field_text::{read_kept, read_visible};
     if visible {
         let text = read_visible(txt_multi.handle, "vault.value", |m| lbl_error.set_text(m))?;
         Some(zeroize::Zeroizing::new(from_edit_newlines(&text)))
     } else {
-        read_masked(txt_value.handle, "vault.value", |m| lbl_error.set_text(m))
+        read_kept(txt_value.handle, "vault.value", |m| lbl_error.set_text(m))
+    }
+}
+
+/// Show/Hide: carry the value over to the other view and switch to it.
+/// Hide reads the shown value strictly: a refusal selects the bad
+/// character and leaves the view, both fields and the button unchanged.
+/// Show moves the hidden value's units as they are: when they hold an
+/// invalid character, it is selected in the shown view so the user can
+/// delete it, and nothing of the value is lost.
+fn toggle_view(
+    visible: &mut bool,
+    txt_value: &nwg::TextInput,
+    txt_multi: &nwg::TextBox,
+    btn_toggle: &nwg::Button,
+    lbl_error: &nwg::Label,
+) {
+    use crate::ui::field_text::{decode_exact, read_raw, select_invalid, write_units, FieldTextError};
+    if *visible {
+        let Some(value) = read_value(true, txt_value, txt_multi, lbl_error) else {
+            return;
+        };
+        txt_value.set_text(&value);
+        txt_multi.set_text("");
+    } else {
+        let tell = |e: &FieldTextError| {
+            eprintln!("WARN vault: value not shown reason={}", e.kind());
+            lbl_error.set_text(&e.hidden_message());
+        };
+        let raw = match read_raw(txt_value.handle) {
+            Ok(raw) => raw,
+            Err(e) => return tell(&e),
+        };
+        let invalid = match decode_exact(&raw) {
+            Ok(_) => false,
+            Err(FieldTextError::InvalidUtf16 { .. }) => true,
+            Err(e) => return tell(&e),
+        };
+        if let Err(e) = write_units(txt_multi.handle, &to_edit_newline_units(&raw)) {
+            return tell(&e);
+        }
+        txt_value.set_text("");
+        if !invalid {
+            lbl_error.set_text("");
+        }
+    }
+    *visible = !*visible;
+    txt_value.set_visible(!*visible);
+    txt_multi.set_visible(*visible);
+    btn_toggle.set_text(if *visible { "Hide" } else { "Show" });
+    if *visible {
+        // After the switch, so the selection is in the field now shown.
+        select_invalid(txt_multi.handle, |m| lbl_error.set_text(m));
     }
 }
 
@@ -276,26 +345,10 @@ impl SecretEditDialog {
             match evt {
                 nwg::Event::OnButtonClick => {
                     if handle == btn_toggle.handle {
-                        // Read the active view before switching: a refusal
-                        // leaves the view, the fields and the button as they
-                        // were (the lossy value used to replace the secret).
-                        let showing = *is_visible_clone.borrow();
-                        let Some(value) = read_value(showing, &txt_value, &txt_multi, &lbl_error) else {
-                            return;
-                        };
+                        // A refusal never erases the value (the lossy value
+                        // used to replace the secret, then the emptied one).
                         let mut vis = is_visible_clone.borrow_mut();
-                        *vis = !*vis;
-                        // Carry the value over to the view that becomes active
-                        if *vis {
-                            txt_multi.set_text(&to_edit_newlines(&value));
-                            txt_value.set_text("");
-                        } else {
-                            txt_value.set_text(&value);
-                            txt_multi.set_text("");
-                        }
-                        txt_value.set_visible(!*vis);
-                        txt_multi.set_visible(*vis);
-                        btn_toggle.set_text(if *vis { "Hide" } else { "Show" });
+                        toggle_view(&mut *vis, &txt_value, &txt_multi, &btn_toggle, &lbl_error);
                     } else if handle == btn_copy.handle {
                         let showing = *is_visible_clone.borrow();
                         let Some(value) = read_value(showing, &txt_value, &txt_multi, &lbl_error) else {
@@ -425,4 +478,142 @@ mod tests {
         assert_eq!(a, b);
     }
 
+    // ── live EDIT controls (no RichEdit: no live_rich_edit guard needed) ──
+
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_SETTEXT};
+
+    struct Fields {
+        _window: nwg::Window,
+        value: nwg::TextInput,
+        multi: nwg::TextBox,
+        error: nwg::Label,
+    }
+
+    fn fields(existing: &str) -> Fields {
+        let _ = nwg::init();
+        let mut window = nwg::Window::default();
+        nwg::Window::builder()
+            .size((300, 200))
+            .position((-32000, -32000))
+            .flags(nwg::WindowFlags::WINDOW)
+            .build(&mut window)
+            .expect("window");
+        let mut value = Default::default();
+        nwg::TextInput::builder().text(existing).parent(&window).password(Some('*')).build(&mut value).expect("value");
+        let mut multi = Default::default();
+        nwg::TextBox::builder().parent(&window).build(&mut multi).expect("multi");
+        let mut error = Default::default();
+        nwg::Label::builder().text("").parent(&window).build(&mut error).expect("label");
+        Fields { _window: window, value, multi, error }
+    }
+
+    fn hwnd(handle: ControlHandle) -> windows::Win32::Foundation::HWND {
+        crate::ui::editor_text::hwnd_of(handle)
+    }
+
+    fn units_of(handle: ControlHandle) -> Vec<u16> {
+        crate::ui::editor_text::read_units(hwnd(handle)).expect("readable").to_vec()
+    }
+
+    fn set_units(handle: ControlHandle, u: &[u16]) {
+        let mut z = u.to_vec();
+        z.push(0);
+        unsafe {
+            SendMessageW(hwnd(handle), WM_SETTEXT, None, Some(LPARAM(z.as_ptr() as isize)));
+        }
+    }
+
+    /// The stored secret "Xk9#" with half an emoji pasted after it.
+    fn stored_plus_half_emoji() -> Vec<u16> {
+        let mut u: Vec<u16> = "Xk9#".encode_utf16().collect();
+        u.push(0xD83D);
+        u
+    }
+
+    #[test]
+    fn a_refused_hidden_value_keeps_the_stored_secret_and_never_reads_as_empty() {
+        // The secret may exist nowhere else: a refusal must not erase it,
+        // and OK pressed again must not read an emptied field as the value.
+        let f = fields("Xk9#");
+        let bad = stored_plus_half_emoji();
+        set_units(f.value.handle, &bad);
+        for attempt in 1..=2 {
+            assert!(read_value(false, &f.value, &f.multi, &f.error).is_none(), "attempt {attempt}: refused");
+            assert_eq!(units_of(f.value.handle), bad, "attempt {attempt}: the stored secret was erased");
+            assert!(!f.error.text().is_empty(), "attempt {attempt}: the user was told");
+        }
+    }
+
+    fn button(f: &Fields) -> nwg::Button {
+        let mut b = Default::default();
+        nwg::Button::builder().text("Show").parent(&f._window).build(&mut b).expect("button");
+        b
+    }
+
+    fn delete_selection(handle: ControlHandle) {
+        const EM_REPLACESEL: u32 = 0x00C2;
+        let empty = [0u16];
+        unsafe {
+            SendMessageW(hwnd(handle), EM_REPLACESEL, Some(WPARAM(1)), Some(LPARAM(empty.as_ptr() as isize)));
+        }
+    }
+
+    #[test]
+    fn show_reveals_a_refused_value_with_the_bad_character_selected_then_ok_saves_the_secret() {
+        let _lang = crate::features::i18n::test_support::lang_guard();
+        crate::features::i18n::set_language(crate::features::i18n::Language::English);
+        let f = fields("Xk9#");
+        let toggle = button(&f);
+        let bad = stored_plus_half_emoji();
+        set_units(f.value.handle, &bad);
+        let mut visible = false;
+        // OK refused, the field kept (as above); Show then reveals it.
+        assert!(read_value(visible, &f.value, &f.multi, &f.error).is_none());
+        toggle_view(&mut visible, &f.value, &f.multi, &toggle, &f.error);
+        assert!(visible, "Show switched the view");
+        assert_eq!(units_of(f.multi.handle), bad, "the value moved as it is, nothing lost");
+        assert_eq!(units_of(f.value.handle), Vec::<u16>::new(), "no second copy left in the hidden field");
+        assert_eq!(f.multi.selection(), 4..5, "the bad character is selected");
+        assert_eq!(f.error.text(), crate::ui::field_text::FieldTextError::InvalidUtf16 { unit: 0, count: 0 }.visible_message());
+        // OK on the shown view is still refused, and keeps the text.
+        assert!(read_value(visible, &f.value, &f.multi, &f.error).is_none());
+        assert_eq!(units_of(f.multi.handle), bad);
+        // Hide is refused too: view, fields and button unchanged.
+        toggle_view(&mut visible, &f.value, &f.multi, &toggle, &f.error);
+        assert!(visible);
+        assert_eq!(toggle.text(), "Hide");
+        assert_eq!(units_of(f.multi.handle), bad);
+        // Delete the selected character: OK reads the stored secret back.
+        delete_selection(f.multi.handle);
+        assert_eq!(read_value(visible, &f.value, &f.multi, &f.error).expect("valid").as_str(), "Xk9#");
+        toggle_view(&mut visible, &f.value, &f.multi, &toggle, &f.error);
+        assert!(!visible);
+        assert_eq!(read_value(visible, &f.value, &f.multi, &f.error).expect("valid").as_str(), "Xk9#");
+    }
+
+    #[test]
+    fn show_keeps_line_breaks_of_a_refused_value_and_selects_its_edit_position() {
+        let f = fields("");
+        let toggle = button(&f);
+        let mut u: Vec<u16> = "a\nb".encode_utf16().collect();
+        u.push(0xDC00);
+        set_units(f.value.handle, &u);
+        assert_eq!(units_of(f.value.handle), u, "a single-line EDIT keeps a line feed");
+        let mut visible = false;
+        toggle_view(&mut visible, &f.value, &f.multi, &toggle, &f.error);
+        let mut expected: Vec<u16> = "a\r\nb".encode_utf16().collect();
+        expected.push(0xDC00);
+        assert_eq!(units_of(f.multi.handle), expected);
+        assert_eq!(f.multi.selection(), 4..5);
+    }
+
+    #[test]
+    fn line_feeds_become_crlf_without_decoding_the_units() {
+        let u = |s: &str| s.encode_utf16().collect::<Vec<u16>>();
+        assert_eq!(to_edit_newline_units(&u("a\nb")).as_slice(), u("a\r\nb").as_slice());
+        assert_eq!(to_edit_newline_units(&u("a\r\nb\n")).as_slice(), u("a\r\nb\r\n").as_slice());
+        assert_eq!(to_edit_newline_units(&[0x0A, 0xD800]).as_slice(), &[0x0D, 0x0A, 0xD800]);
+        assert_eq!(to_edit_newline_units(&u("\u{1F600}")).as_slice(), u("\u{1F600}").as_slice());
+    }
 }
