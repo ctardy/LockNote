@@ -357,6 +357,10 @@ impl EditorForm {
         content: String,
         settings: crate::settings::Settings,
     ) {
+        // `run` lasts the whole session: the payload is wiped once loaded,
+        // the active tab's text once in the editor (issue #42).
+        let payload = Zeroizing::new(content);
+
         // Initialize i18n language BEFORE building UI so menus use the correct language
         {
             let i18n_lang = match settings.language {
@@ -371,9 +375,10 @@ impl EditorForm {
         let form = Self::build(exe_path, password, settings);
         // Split the payload into its blocks and restore the saved session
         // (single pipeline shared with the unlock paths, see load_payload).
-        let (content, cursor_line) = form.load_payload(&content, None);
-
+        let (content, cursor_line) = form.load_payload(&payload, None);
+        drop(payload);
         form.set_content(&content);
+        drop(content);
         form.update_status_bar();
         form.update_title();
 

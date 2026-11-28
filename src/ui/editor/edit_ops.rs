@@ -484,14 +484,15 @@ impl EditorForm {
     /// Load a decrypted payload (after decompression and `Settings::parse`)
     /// into every store and the tab bar. `in_memory` is the session
     /// captured at lock time; it wins over the one read from disk.
-    /// Returns the active tab's content (to put in the editor) and the caret
-    /// line to restore (`None` when there is no session at all).
+    /// Returns the active tab's content (to put in the editor; wrapped, wiped
+    /// when the caller drops it, issue #42) and the caret line to restore
+    /// (`None` when there is no session at all).
     /// Used by `run`, `restore_after_unlock` and `unlock_from_disk`.
     pub(super) fn load_payload(
         &self,
         note_text: &str,
         in_memory: Option<crate::features::session_state::SessionState>,
-    ) -> (String, Option<u32>) {
+    ) -> (zeroize::Zeroizing<String>, Option<u32>) {
         // Settings of this payload must already be in self.settings.
         let categories = self.vault_categories();
         let parsed = crate::features::payload::parse_payload(note_text, &categories);
@@ -513,7 +514,7 @@ impl EditorForm {
         }).collect();
         // tabs::parse always yields at least one tab, so `view.active` is a
         // valid index (build_view invariant).
-        let content = ui_tabs[view.active].content.clone();
+        let content = zeroize::Zeroizing::new(ui_tabs[view.active].content.clone());
         let tb = crate::ui::tab_bar::TabBar::with_tabs(ui_tabs);
         tb.set_active(view.active);
         *self.tab_bar.borrow_mut() = tb;

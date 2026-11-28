@@ -1814,4 +1814,28 @@ mod tests {
         assert!(parse.contains("prompts.push(PromptEntry { name, text: text.into_string(), category });"));
         assert!(!parse.contains(".join("));
     }
+
+    /// What `load_payload` hands back is wrapped, and `EditorForm::run`
+    /// (which lasts the whole session) wipes the payload once loaded and the
+    /// tab's text once in the editor. UI code: pinned in the source.
+    #[test]
+    fn issue42_the_editor_wipes_what_it_loads() {
+        let read = |p: &str| crate::read_source(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(p));
+        let edit_ops = read("src/ui/editor/edit_ops.rs");
+        assert!(edit_ops.contains("    ) -> (zeroize::Zeroizing<String>, Option<u32>) {\n"));
+        assert!(edit_ops.contains("        let content = zeroize::Zeroizing::new(ui_tabs[view.active].content.clone());\n"));
+        let editor = read("src/ui/editor/mod.rs");
+        let run = &editor[editor.find("    pub fn run(").unwrap()..];
+        let run = &run[..run.find("\n    }\n").unwrap()];
+        let first = run.find(") {\n").unwrap();
+        assert!(run[first..].trim_start_matches(") {\n").trim_start().starts_with("// `run` lasts the whole session"));
+        assert!(run.contains("        let payload = Zeroizing::new(content);\n"));
+        assert!(run.contains(
+            "        let (content, cursor_line) = form.load_payload(&payload, None);\n        drop(payload);\n        form.set_content(&content);\n        drop(content);\n"
+        ));
+        assert_eq!(run.matches("content").count(), 6, "another use of the payload or the tab text in run");
+        let lock_ops = read("src/ui/editor/lock_ops.rs");
+        assert_eq!(lock_ops.matches("self.load_payload(&note_text, self.locked_session_state.take());").count(), 2);
+        assert_eq!(lock_ops.matches("self.editor.set_text(&note_text);").count(), 2);
+    }
 }
