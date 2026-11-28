@@ -104,6 +104,7 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   is replaced, the TOTP setup and copy, each code refresh) are wiped too (#38).
 - **Secrets in memory when saving and unlocking**: the settings text (2FA and
   TOTP secrets) and the decrypted note no longer leave copies behind (#41).
+- **Note in memory**: building, compressing, encrypting, decrypting and reading back the note, a backup and the 2FA secret leave no plaintext copies behind (#42).
 
 ### Fixed
 - **A note holding half of an emoji was saved as "Decoding error"**: the
