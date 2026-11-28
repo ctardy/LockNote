@@ -1309,8 +1309,12 @@ pub(super) mod tests {
 
         /// Tab / Shift+Tab on a live RichEdit, as `EditorIndentSteps`.
         impl crate::ui::editor::indent::IndentSteps for Rich {
-            fn text(&self) -> String {
+            fn text(&self) -> Result<String, EditorTextError> {
                 LineEditSteps::text(self)
+            }
+            /// These live texts are valid UTF-16: a refusal is a test failure.
+            fn tell_unreadable(&mut self, e: &EditorTextError) {
+                panic!("live text refused as unreadable: {e:?}");
             }
             fn selection(&self) -> (u32, u32) {
                 LineEditSteps::selection(self)
@@ -1434,9 +1438,9 @@ pub(super) mod tests {
             let mut r = make("\t\u{c}\t");
             r.select(0, 3);
             assert!(crate::ui::editor::indent::run_indent(&mut r, crate::ui::editor::indent::IndentDir::Out));
-            assert_eq!(LineEditSteps::text(&r), "\u{c}");
+            assert_eq!(r.text(), "\u{c}");
             send(r.ed, 0x00C7, 0, 0); // EM_UNDO
-            assert_eq!(LineEditSteps::text(&r), "\t\u{c}\t");
+            assert_eq!(r.text(), "\t\u{c}\t");
         }
 
         #[test]
