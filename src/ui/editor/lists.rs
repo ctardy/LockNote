@@ -587,6 +587,17 @@ mod tests {
     }
 
     #[test]
+    fn seq_enter_and_ctrl_enter_on_the_line_shown_after_a_form_feed() {
+        // RichEdit shows "x\f1. a" as two lines: "x" | "1. a".
+        let mut f = Fake::new("x\u{c}1. a", 6, 6);
+        assert!(run_enter(&mut f));
+        assert_eq!(f.text, "x\u{c}1. a\r2. ");
+        let mut f = Fake::new("a\u{c}task", 2, 2);
+        run_toggle_checkbox(&mut f);
+        assert_eq!(f.text, "a\u{c}[ ] task");
+    }
+
+    #[test]
     fn seq_enter_after_emoji_uses_utf16_positions() {
         // 😀 = 2 code units: "😀\r" = 0..3, "[ ] " = 3..7
         let mut f = Fake::new("😀\r[ ] ", 7, 7);

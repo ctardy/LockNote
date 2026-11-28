@@ -5,15 +5,20 @@
 //
 // Positions are RichEdit character positions (UTF-16 code units, a line
 // break = 1, see helpers.rs). The text comes from WM_GETTEXT, so breaks are
-// "\r\n"; a lone "\r" or "\n" also ends a line. Every change is one
-// EM_REPLACESEL (undoable) over the touched lines: one undo step.
+// "\r\n" or a form feed U+000C, which RichEdit shows as a line break; a lone
+// "\r" or "\n" also ends a line (features::text_lines). Every change is one
+// EM_REPLACESEL (undoable) over the touched lines: one undo step. A command
+// that reorders or drops lines keeps each break in its place in the block,
+// so a form feed is never turned into a CRLF nor dropped by Trim.
 
 #[allow(unused_imports)]
 use super::*;
 use crate::features::line_ops::{self, LineOp};
+use crate::features::text_lines;
 
 /// A replacement of the RichEdit range `start..end` by `text`, then the
-/// selection `sel`.
+/// selection `sel`. An empty range with an empty text replaces nothing:
+/// only the selection is set (`run_line_edit`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct LineEdit {
     pub start: u32,
@@ -22,30 +27,33 @@ pub(super) struct LineEdit {
     pub sel: (u32, u32),
 }
 
-/// Byte range of every line of `text`, line break excluded. Breaks are
-/// "\r\n", "\r" or "\n". Always at least one (empty) line.
+/// Byte range of every line of `text`, line break excluded, as RichEdit
+/// shows the lines (features::text_lines: "\r\n", "\r", "\n" or a form
+/// feed). Always at least one (empty) line.
 pub(super) fn line_ranges(text: &str) -> Vec<(usize, usize)> {
-    let bytes = text.as_bytes();
-    let mut lines = Vec::new();
-    let mut start = 0;
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'\r' => {
-                lines.push((start, i));
-                i += if bytes.get(i + 1) == Some(&b'\n') { 2 } else { 1 };
-                start = i;
-            }
-            b'\n' => {
-                lines.push((start, i));
-                i += 1;
-                start = i;
-            }
-            _ => i += 1,
+    text_lines::line_ranges(text)
+}
+
+/// The text that puts back the break between lines `i` and `i + 1` in an
+/// EM_REPLACESEL: a form feed stays a form feed, any other break is the
+/// paragraph break "\n".
+fn break_after(text: &str, lines: &[(usize, usize)], i: usize) -> &'static str {
+    if text[lines[i].1..lines[i + 1].0] == *"\u{c}" { "\u{c}" } else { "\n" }
+}
+
+/// `parts` joined by the breaks that follow lines `first`, `first + 1`, ...
+/// of `text`, in that order: each break stays where it was in the block,
+/// whatever the lines now between them. `parts` holds at most as many
+/// lines as there are lines from `first` on.
+fn join_with_breaks<S: AsRef<str>>(text: &str, lines: &[(usize, usize)], first: usize, parts: &[S]) -> String {
+    let mut out = String::new();
+    for (k, part) in parts.iter().enumerate() {
+        if k > 0 {
+            out.push_str(break_after(text, lines, first + k - 1));
         }
+        out.push_str(part.as_ref());
     }
-    lines.push((start, bytes.len()));
-    lines
+    out
 }
 
 /// RichEdit position of byte offset `b` (a char boundary) of `text`, counted
@@ -109,15 +117,19 @@ pub(super) fn move_lines_edit(text: &str, sel: (u32, u32), up: bool) -> Option<L
         v.extend(block);
         (v, line(b))
     };
+    // Every break is one position ("\r\n" and a form feed alike).
     let shift = position_of(other, other.len()) + 1;
     // Both ends lie in the moved block: same shift, direction kept.
     let new_sel = if up { (sel.0 - shift, sel.1 - shift) } else { (sel.0 + shift, sel.1 + shift) };
-    Some(LineEdit {
-        start: position_of(text, lines[a].0),
-        end: position_of(text, lines[b].1),
-        text: order.join("\n"),
-        sel: new_sel,
-    })
+    let start = position_of(text, lines[a].0);
+    if order.iter().copied().eq((a..=b).map(line)) {
+        // Identical lines swapped: the text stays as it is, only the
+        // selection moves. Replacing it could even change it: EM_REPLACESEL
+        // turns a lone "\f" (two empty lines) into a CRLF.
+        return Some(LineEdit { start, end: start, text: String::new(), sel: new_sel });
+    }
+    let replacement = join_with_breaks(text, &lines, a, &order);
+    Some(LineEdit { start, end: position_of(text, lines[b].1), text: replacement, sel: new_sel })
 }
 
 /// Edit > Lines: apply `op` to the lines touched by the selection when it
@@ -148,7 +160,8 @@ pub(super) fn line_op_edit<K: Ord, E>(
         return Ok(None);
     }
     let start = position_of(text, lines[first].0);
-    let replacement = result.join("\n");
+    // `apply` never returns more lines than it was given.
+    let replacement = join_with_breaks(text, &lines, first, &result);
     let end_sel = start + utf16_len(&replacement) as u32;
     Ok(Some(LineEdit {
         start,
@@ -252,6 +265,11 @@ where
     let Some(edit) = compute(&text, sel).map_err(LineEditError::Compute)? else {
         return Ok(false);
     };
+    if edit.start == edit.end && edit.text.is_empty() {
+        // Nothing to replace (a move of identical lines): only the selection.
+        s.select(edit.sel.0, edit.sel.1);
+        return Ok(false);
+    }
     s.select(edit.start, edit.end);
     s.stop_group_typing();
     s.replace_selection(&edit.text);
@@ -697,8 +715,9 @@ pub(super) mod tests {
             let (s, e) = *self.sel.borrow();
             let (lo, hi) = (s.min(e), s.max(e));
             let (b0, b1) = utf16_range_to_byte_range(&current, lo as usize, hi as usize);
-            // RichEdit stores a "\n" as a paragraph break, read back as "\r\n".
-            let inserted = text.replace('\n', "\r\n");
+            // RichEdit stores a "\n" as a paragraph break, read back as "\r\n",
+            // and so a lone form feed (measured, see the live tests).
+            let inserted = if text == "\u{c}" { "\r\n".to_string() } else { text.replace('\n', "\r\n") };
             *self.text.borrow_mut() = format!("{}{}{}", &current[..b0], inserted, &current[b1..]);
             // As EM_REPLACESEL: the caret ends after the inserted text.
             let caret = build_utf16_offset_map(&current)[b0] as u32 + utf16_len(&inserted) as u32;
@@ -793,6 +812,95 @@ pub(super) mod tests {
         run_line_edit(&f, |t, s| line_op_edit(t, s, LineOp::RemoveDuplicates, ci)).unwrap();
         assert_eq!(*f.text.borrow(), "keep\r\na\r\nb\r\nlast");
         assert_eq!(*f.sel.borrow(), (5, 8));
+    }
+
+    // ── Form feed U+000C: RichEdit shows it as a line break (V2) ──
+
+    /// Shown as three lines a | b | c. RichEdit positions: a=0, FF=1, b=2,
+    /// CRLF=3, c=4.
+    const FF_TEXT: &str = "a\u{c}b\r\nc";
+
+    #[test]
+    fn line_ranges_split_on_a_form_feed_as_richedit() {
+        assert_eq!(line_ranges(FF_TEXT), vec![(0, 1), (2, 3), (5, 6)]);
+        assert_eq!(line_ranges("a\u{c}"), vec![(0, 1), (2, 2)]);
+        assert_eq!(line_ranges("a\u{c}\u{c}b"), vec![(0, 1), (2, 2), (3, 4)]);
+        // A form feed then CRLF: two breaks, not merged (EM_GETLINECOUNT = 3).
+        assert_eq!(line_ranges("a\u{c}\r\nb"), vec![(0, 1), (2, 2), (4, 5)]);
+        // NEL (U+0085) does not end a line in RichEdit.
+        assert_eq!(line_ranges("a\u{85}b"), vec![(0, 4)]);
+    }
+
+    #[test]
+    fn selection_ending_just_after_a_form_feed_leaves_that_line_out() {
+        let t = "aa\u{c}bb\u{c}cc";
+        let l = line_ranges(t);
+        assert_eq!(touched_lines(t, &l, (1, 6)), (0, 1));
+        assert_eq!(touched_lines(t, &l, (1, 7)), (0, 2));
+        assert_eq!(touched_lines(t, &l, (3, 3)), (1, 1));
+    }
+
+    #[test]
+    fn duplicate_and_delete_act_on_the_line_shown_after_a_form_feed() {
+        // Caret on "b": only "b" is copied / removed.
+        assert_eq!(after(duplicate_line_edit, FF_TEXT, (2, 2)), s("a\u{c}b\r\nb\r\nc", (5, 5)));
+        assert_eq!(after(delete_line_edit, FF_TEXT, (2, 2)), s("a\u{c}c", (2, 2)));
+        // Caret on "a": the line ends at the form feed.
+        assert_eq!(after(duplicate_line_edit, FF_TEXT, (0, 0)), s("a\r\na\u{c}b\r\nc", (3, 3)));
+        assert_eq!(after(delete_line_edit, FF_TEXT, (0, 0)), s("b\r\nc", (0, 0)));
+    }
+
+    #[test]
+    fn move_across_a_form_feed_keeps_each_break_in_place() {
+        // "b" over "a": the form feed stays between the first two lines.
+        let e = move_lines_edit(FF_TEXT, (2, 2), true).expect("moves");
+        assert_eq!((e.start, e.end, e.text.as_str(), e.sel), (0, 3, "b\u{c}a", (0, 0)));
+        let e = move_lines_edit(FF_TEXT, (0, 0), false).expect("moves");
+        assert_eq!((e.start, e.end, e.text.as_str(), e.sel), (0, 3, "b\u{c}a", (2, 2)));
+        // "b" under "c": the CRLF stays a paragraph break ("\n").
+        let e = move_lines_edit(FF_TEXT, (2, 2), false).expect("moves");
+        assert_eq!((e.start, e.end, e.text.as_str(), e.sel), (2, 5, "c\nb", (4, 4)));
+    }
+
+    #[test]
+    fn sequence_move_of_identical_lines_around_a_form_feed_changes_nothing() {
+        // Two empty lines split by a form feed: the swap gives the same
+        // text. EM_REPLACESEL would turn a lone "\f" into a CRLF (live test
+        // below), so the text is not replaced; only the caret moves.
+        let f = Fake::new("\u{c}", (0, 0));
+        assert_eq!(run_line_edit(&f, |t, s| Ok::<_, ()>(move_lines_edit(t, s, false))), Ok(false));
+        assert_eq!(*f.text.borrow(), "\u{c}");
+        assert_eq!(*f.sel.borrow(), (1, 1));
+        assert_eq!(*f.log.borrow(), vec!["select:1..1"]);
+    }
+
+    #[test]
+    fn trim_never_removes_a_form_feed() {
+        // The form feed is a break, not trailing white space of "a".
+        assert_eq!(line_op_edit("a\u{c}\r\nb", (0, 0), LineOp::TrimTrailing, ci), Ok(None));
+        assert_eq!(line_op_edit("a \u{c}b", (0, 0), LineOp::TrimTrailing, ci).map(|e| e.map(|e| e.text)), Ok(Some("a\u{c}b".into())));
+    }
+
+    #[test]
+    fn sort_and_dedup_keep_the_breaks_in_their_places() {
+        let e = line_op_edit(FF_TEXT, (0, 0), LineOp::SortDescending, ci).unwrap().expect("sorted");
+        assert_eq!((e.start, e.end, e.text.as_str(), e.sel), (0, 5, "c\u{c}b\na", (0, 5)));
+        // Fewer lines: the first breaks of the block are kept, in order.
+        let e = line_op_edit("a\u{c}a\r\nb", (0, 0), LineOp::RemoveDuplicates, ci).unwrap().expect("dedup");
+        assert_eq!(e.text, "a\u{c}b");
+    }
+
+    #[test]
+    fn sequence_line_commands_on_a_form_feed_text() {
+        let f = Fake::new(FF_TEXT, (2, 2));
+        assert_eq!(run_line_edit(&f, |t, s| Ok::<_, ()>(move_lines_edit(t, s, true))), Ok(true));
+        assert_eq!(*f.text.borrow(), "b\u{c}a\r\nc");
+        assert_eq!(*f.sel.borrow(), (0, 0));
+        assert_eq!(run_line_edit(&f, duplicate_line_edit), Ok(true));
+        assert_eq!(*f.text.borrow(), "b\r\nb\u{c}a\r\nc");
+        // Caret after the copy, on the form feed: the copy and its break go.
+        assert_eq!(run_line_edit(&f, delete_line_edit), Ok(true));
+        assert_eq!(*f.text.borrow(), "b\r\na\r\nc");
     }
 
     // ── Ctrl+D / Ctrl+Shift+K / F5: RichEdit positions, never byte offsets ──
@@ -1010,7 +1118,7 @@ pub(super) mod tests {
         // scroll lost).
         let ed = src("edit_ops.rs");
         let ed = &ed[..ed.find("#[cfg(test)]").expect("test module")];
-        for f in ["fn on_duplicate_line(", "fn on_delete_line(", "fn on_insert_timestamp(", "fn on_goto_line(", "fn apply_cursor_line("] {
+        for f in ["fn on_duplicate_line(", "fn on_delete_line(", "fn on_insert_timestamp(", "fn on_goto_line(", "fn apply_cursor_line(", "fn go_to_shown_line("] {
             let body = fn_body(ed, f);
             assert!(!body.contains("set_text("), "{f} rebuilds the text");
             assert!(!body.contains("text[") && !body.contains("&text[.."), "{f} slices the text");
@@ -1023,8 +1131,20 @@ pub(super) mod tests {
         assert!(f5.contains("self.send_editor_message(0x00B7, 0, 0)"));
         let goto = fn_body(ed, "fn on_goto_line(");
         assert!(goto.contains("current_line(&text, self.editor.selection().start)"));
-        assert!(goto.contains("self.apply_cursor_line(target_line - 1)"));
-        assert!(fn_body(ed, "fn apply_cursor_line(").contains("line_start_position(&text, line)"));
+        assert!(goto.contains("let max_lines = shown_line_count(&text);"));
+        // Ctrl+G counts the lines RichEdit shows (a form feed ends one); the
+        // session restore keeps the saved meaning: a count of LF (V2). Both
+        // read the display text: positions only.
+        assert!(goto.contains("self.go_to_shown_line(target_line - 1)"));
+        let shown = fn_body(ed, "fn go_to_shown_line(");
+        assert!(shown.contains("self.display_content()") && shown.contains("line_start_position(&text, line)"));
+        let restore = fn_body(ed, "fn apply_cursor_line(");
+        assert!(restore.contains("self.display_content()") && restore.contains("session_line_position(&text, line)"));
+        // Ctrl+. puts the bullet on the line shown, a form feed ending it.
+        let bullet = fn_body(ed, "fn on_toggle_bullet(");
+        assert!(bullet.contains("text_lines::line_start_at(&text, byte_caret)") && bullet.contains("text_lines::line_end_at(&text, byte_caret)"));
+        let heading = &ed[ed.find("impl super::heading_flow::HeadingSteps for FormHeadingSteps").expect("heading steps")..];
+        assert!(fn_body(heading, "fn move_caret(").contains("self.form.go_to_shown_line(line)"));
 
         // The shared handler: highlights reset (the copy may carry one),
         // gutter width laid out again (the line count changed), caret
@@ -1160,6 +1280,83 @@ pub(super) mod tests {
                 send(self.ed, 0x00C2, 1, wide.as_ptr() as isize); // EM_REPLACESEL, undoable
             }
             fn mark_modified(&self) {}
+        }
+
+        /// EM_GETLINECOUNT and the EM_LINEINDEX of every line, word wrap
+        /// off (EM_SETTARGETDEVICE 0, 1): hard lines only.
+        fn richedit_line_starts(r: &Rich) -> Vec<u32> {
+            send(r.ed, 0x0448, 0, 1); // EM_SETTARGETDEVICE: no word wrap
+            let n = send(r.ed, 0x00BA, 0, 0); // EM_GETLINECOUNT
+            (0..n).map(|i| send(r.ed, 0x00BB, i as usize, 0) as u32).collect() // EM_LINEINDEX
+        }
+
+        #[test]
+        fn live_line_ranges_match_richedit_lines() {
+            // The oracle of the shared line definition (V2): RichEdit ends a
+            // line at CRLF and at a form feed U+000C, which WM_GETTEXT keeps;
+            // VT, LS and PS come back as CRLF; NEL ends no line.
+            for set in [
+                "a\u{c}b", "a\u{c}", "a\u{c}\r\nb", "a\u{c}\u{c}b", "ab\u{c}cd\r\nef", "\u{c}\u{c}",
+                "a\u{b}b", "a\u{2028}b", "a\u{2029}b", "a\rb", "a\nb", "a\u{85}b", "x\u{1F600}\u{c}y\r\n\r\nz",
+            ] {
+                let r = make(set);
+                let text = r.text();
+                let starts: Vec<u32> = line_ranges(&text).iter().map(|&(s, _)| position_of(&text, s)).collect();
+                assert_eq!(starts, richedit_line_starts(&r), "{set:?} read back as {text:?}");
+                assert!(!text.contains(['\u{b}', '\u{2028}', '\u{2029}']), "{text:?}");
+            }
+        }
+
+        #[test]
+        fn live_rtf_line_and_page_come_back_as_crlf_and_form_feed() {
+            // A paste from a word processor: RTF \line (a soft break) is
+            // read as CRLF, \page as a form feed.
+            let r = make("");
+            let rtf = b"{\\rtf1 a\\line b\\page c\\par d}\0";
+            let st: [u32; 2] = [0, 0]; // SETTEXTEX: ST_DEFAULT, CP_ACP
+            send(r.ed, 0x0461, st.as_ptr() as usize, rtf.as_ptr() as isize); // EM_SETTEXTEX
+            let text = r.text();
+            assert_eq!(text, "a\r\nb\u{c}c\r\nd");
+            let starts: Vec<u32> = line_ranges(&text).iter().map(|&(s, _)| position_of(&text, s)).collect();
+            assert_eq!(starts, richedit_line_starts(&r));
+        }
+
+        #[test]
+        fn live_replace_selection_keeps_a_form_feed_unless_alone() {
+            // Why a move that changes nothing is not replaced: a lone "\f"
+            // becomes a CRLF, a longer string keeps it.
+            for (inserted, read) in [
+                ("\u{c}", "\r\n"), ("\u{c}\u{c}", "\u{c}\u{c}"), ("\u{c}b", "\u{c}b"), ("b\u{c}", "b\u{c}"), ("x\u{c}y\nz", "x\u{c}y\r\nz"),
+            ] {
+                let r = make("");
+                r.replace_selection(inserted);
+                assert_eq!(r.text(), read, "{inserted:?}");
+            }
+        }
+
+        #[test]
+        fn live_line_commands_on_a_form_feed_text() {
+            let r = make("a\u{c}b\r\nc");
+            r.select(2, 2);
+            assert_eq!(run_line_edit(&r, |t, s| Ok::<_, ()>(move_lines_edit(t, s, true))), Ok(true));
+            assert_eq!(r.text(), "b\u{c}a\r\nc");
+            assert_eq!(r.selection(), (0, 0));
+            assert_eq!(run_line_edit(&r, |t, s| Ok::<_, ()>(move_lines_edit(t, s, false))), Ok(true));
+            assert_eq!(r.text(), "a\u{c}b\r\nc");
+            assert_eq!(r.selection(), (2, 2));
+            assert_eq!(run_line_edit(&r, |t, s| line_op_edit(t, s, LineOp::SortDescending, ci)), Ok(true));
+            assert_eq!(r.text(), "c\u{c}b\r\na");
+            r.select(2, 2);
+            assert_eq!(run_line_edit(&r, duplicate_line_edit), Ok(true));
+            assert_eq!(r.text(), "c\u{c}b\r\nb\r\na");
+            assert_eq!(run_line_edit(&r, delete_line_edit), Ok(true));
+            assert_eq!(r.text(), "c\u{c}b\r\na");
+            // Two empty lines around a form feed: the text stays as it is.
+            let r = make("\u{c}");
+            r.select(0, 0);
+            assert_eq!(run_line_edit(&r, |t, s| Ok::<_, ()>(move_lines_edit(t, s, false))), Ok(false));
+            assert_eq!(r.text(), "\u{c}");
+            assert_eq!(r.selection(), (1, 1));
         }
 
         #[test]

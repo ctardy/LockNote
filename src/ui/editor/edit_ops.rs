@@ -345,8 +345,9 @@ impl EditorForm {
         let sel = self.editor.selection();
         let (byte_caret, _) = utf16_range_to_byte_range(&text, sel.start as usize, sel.start as usize);
 
-        let line_start = text[..byte_caret].rfind('\n').map(|p| p + 1).unwrap_or(0);
-        let line_end = text[byte_caret..].find('\n').map(|p| byte_caret + p).unwrap_or(text.len());
+        // The line as RichEdit shows it: a form feed ends it too.
+        let line_start = crate::features::text_lines::line_start_at(&text, byte_caret);
+        let line_end = crate::features::text_lines::line_end_at(&text, byte_caret);
         let line = &text[line_start..line_end];
 
         let u16_map = build_utf16_offset_map(&text);
@@ -430,8 +431,10 @@ impl EditorForm {
     // =====================================================================
 
     /// Snapshot the per-session state (active tab + caret line) to persist
-    /// in the payload on the next save.
-    /// The caret line is counted on the display text (positions only).
+    /// in the payload on the next save. The caret line is counted on '\n'
+    /// (what is saved, read back by `session_line_position`), not on the
+    /// lines RichEdit shows: a form feed is not counted. It is counted on
+    /// the display text (positions only).
     pub(super) fn capture_session_state(&self) -> Result<crate::features::session_state::SessionState, EditorTextError> {
         let active_tab = self.tab_bar.borrow().active_index();
 
@@ -494,9 +497,25 @@ impl EditorForm {
         (content, has_session.then_some(view.cursor_line))
     }
 
-    /// Move the caret to the first column of the given zero-based line and
-    /// scroll it into view. Out-of-range lines are clamped to the document.
+    /// Restore the caret line saved in the session (`capture_session_state`,
+    /// counted on '\n'): first column of that line, scrolled into view.
+    /// Out-of-range lines are clamped to the document.
     pub(super) fn apply_cursor_line(&self, line: u32) {
+        let text = match self.display_content() {
+            Ok(text) => text,
+            Err(e) => {
+                eprintln!("ERROR goto: caret not moved to session line={}, editor text unreadable err={:?}", line, e);
+                return;
+            }
+        };
+        let pos = session_line_position(&text, line);
+        self.move_caret_to(pos);
+    }
+
+    /// Ctrl+G and Go to Heading: the caret on the first column of the
+    /// zero-based `line` as RichEdit shows the lines (a form feed ends one),
+    /// scrolled into view. Out-of-range lines are clamped to the document.
+    pub(super) fn go_to_shown_line(&self, line: u32) {
         let text = match self.display_content() {
             Ok(text) => text,
             Err(e) => {
@@ -505,6 +524,10 @@ impl EditorForm {
             }
         };
         let pos = line_start_position(&text, line);
+        self.move_caret_to(pos);
+    }
+
+    fn move_caret_to(&self, pos: u32) {
         self.editor.set_selection(pos..pos);
         self.editor.set_focus();
         self.send_editor_message(0x00B7, 0, 0); // EM_SCROLLCARET
@@ -517,13 +540,13 @@ impl EditorForm {
             Ok(text) => text,
             Err(e) => return self.tell_unreadable("goto_line", &e),
         };
-        let max_lines = text.split('\n').count().max(1) as u32;
+        let max_lines = shown_line_count(&text);
         let current = current_line(&text, self.editor.selection().start);
 
         // The dialog guarantees 1 <= target <= max_lines; the text and the
-        // caret are read again by apply_cursor_line, after the dialog.
+        // caret are read again by go_to_shown_line, after the dialog.
         if let Some(target_line) = GoToLineDialog::show(current, max_lines) {
-            self.apply_cursor_line(target_line - 1);
+            self.go_to_shown_line(target_line - 1);
         }
     }
 
@@ -547,10 +570,27 @@ pub(super) fn current_line(text: &str, caret: u32) -> u32 {
     caret_status(text, p, p, p).line as u32
 }
 
+/// Ctrl+G: the lines RichEdit shows (features::text_lines), the empty one
+/// after a final break included, as the gutter numbers them.
+pub(super) fn shown_line_count(text: &str) -> u32 {
+    crate::features::text_lines::line_ranges(text).len() as u32
+}
+
 /// RichEdit position of the first column of the zero-based `line` of
-/// `text` (the `get_content` text, "\r\n" breaks). A line past the end
-/// gives the end of the text.
+/// `text` (the `get_content` text), lines as RichEdit shows them: "\r\n"
+/// and a form feed each end one. A line past the end gives the end of
+/// the text.
 pub(super) fn line_start_position(text: &str, line: u32) -> u32 {
+    let lines = crate::features::text_lines::line_ranges(text);
+    let byte_offset = lines.get(line as usize).map_or(text.len(), |&(start, _)| start);
+    build_utf16_offset_map(text)[byte_offset] as u32
+}
+
+/// RichEdit position of the first column of the zero-based session caret
+/// `line`, counted on '\n' as `capture_session_state` saved it (a form
+/// feed is not counted: the saved number keeps its meaning). A line past
+/// the end gives the end of the text.
+pub(super) fn session_line_position(text: &str, line: u32) -> u32 {
     // Each line counted with its "\r" and its "\n": a char boundary.
     let byte_offset: usize = text.split('\n').take(line as usize).map(|l| l.len() + 1).sum::<usize>().min(text.len());
     build_utf16_offset_map(text)[byte_offset] as u32
@@ -577,7 +617,7 @@ impl super::heading_flow::HeadingSteps for FormHeadingSteps<'_> {
         self.form.still_valid(epoch)
     }
     fn move_caret(&mut self, line: u32) {
-        self.form.apply_cursor_line(line);
+        self.form.go_to_shown_line(line);
     }
 }
 
@@ -644,5 +684,34 @@ mod tests {
         assert_eq!(line_start_position("", 0), 0);
         // Past the last line: the end of the text.
         assert_eq!(line_start_position("a\r\nb", 9), 3);
+    }
+
+    #[test]
+    fn goto_counts_a_form_feed_as_a_line_break_as_richedit() {
+        // Shown as a | b | c (positions a=0, FF=1, b=2, CRLF=3, c=4).
+        let t = "a\u{c}b\r\nc";
+        assert_eq!(current_line(t, 2), 2);
+        assert_eq!(current_line(t, 4), 3);
+        assert_eq!(line_start_position(t, 1), 2);
+        assert_eq!(line_start_position(t, 2), 4);
+        assert_eq!(line_start_position(t, 3), 5);
+        assert_eq!(shown_line_count(t), 3);
+        // As the gutter: the empty line after a final break counts.
+        assert_eq!(shown_line_count(""), 1);
+        assert_eq!(shown_line_count("a\r\n"), 2);
+        assert_eq!(shown_line_count("a\u{c}"), 2);
+    }
+
+    #[test]
+    fn session_caret_line_keeps_counting_on_line_feeds() {
+        // The saved caret line is a '\n' count (capture_session_state): on
+        // "a\fb\r\nc" the caret on "c" was saved as 1, and comes back on
+        // "c" (position 4), as before a form feed counted as a line.
+        let t = "a\u{c}b\r\nc";
+        assert_eq!(session_line_position(t, 1), 4);
+        assert_eq!(session_line_position(t, 0), 0);
+        assert_eq!(session_line_position("a\r\nb\r\nc", 2), 4);
+        assert_eq!(session_line_position("é\r\n😀\r\nz", 2), 5);
+        assert_eq!(session_line_position("a\r\nb", 9), 3);
     }
 }

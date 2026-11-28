@@ -288,15 +288,28 @@ pub(super) fn caret_status(text: &str, sel_min: usize, sel_max: usize, caret: us
     // Byte offsets on char boundaries (an offset past the end maps to the end).
     let (caret_b, _) = utf16_range_to_byte_range(text, caret, caret);
     let before = &text[..caret_b];
-    let line_start = before.rfind('\n').map_or(0, |p| p + 1);
+    // Lines as RichEdit shows them (features::text_lines): a form feed
+    // ends one, as "\r\n" does.
+    let line_start = crate::features::text_lines::line_start_at(text, caret_b);
     let (start_b, end_b) = utf16_range_to_byte_range(text, sel_min, sel_max);
     let selected = text
         .get(start_b..end_b)
         .map_or(0, |s| s.chars().count() - s.matches("\r\n").count());
     CaretStatus {
-        line: before.matches('\n').count() + 1,
+        line: crate::features::text_lines::break_count(before.as_bytes()) + 1,
         col: before[line_start..].chars().count() + 1,
         selected,
+    }
+}
+
+/// The line count of the status bar: the lines RichEdit shows (a form feed
+/// ends one, features::text_lines), a final break adding no line, as
+/// `str::lines` counted them. At least 1.
+pub(super) fn status_line_count(text: &str) -> usize {
+    let lines = crate::features::text_lines::line_ranges(text);
+    match lines.last() {
+        Some(&(start, end)) if start == end && lines.len() > 1 => lines.len() - 1,
+        _ => lines.len(),
     }
 }
 
@@ -456,7 +469,7 @@ impl EditorForm {
         match self.display_content() {
             Ok(text) => {
                 let char_count = text.chars().count();
-                let line_count = if text.is_empty() { 1 } else { text.lines().count().max(1) };
+                let line_count = status_line_count(&text);
                 let word_count = text.split_whitespace().count();
 
                 self.status_bar.set_text(0, &format!(" {}", count_text(word_count, "status.word", "status.words")));

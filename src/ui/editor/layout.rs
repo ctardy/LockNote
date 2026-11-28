@@ -52,11 +52,12 @@ impl EditorForm {
         }
 
         // Calculate gutter width based on paragraph count (real lines, not
-        // visual). Only "\n" is counted: the raw units are enough, a lone
-        // surrogate changes nothing. A failed read keeps one line's width
-        // and is logged: the controls are still laid out.
-        let total_paragraphs = match crate::ui::editor_text::read_units(crate::ui::editor_text::hwnd_of(self.editor.handle)) {
-            Ok(units) => units.iter().filter(|&&u| u == u16::from(b'\n')).count() + 1,
+        // visual), counted as RichEdit shows them: a form feed ends a line.
+        // Read as display text: a lone surrogate (one U+FFFD) changes no
+        // line. A failed read keeps one line's width and is logged: the
+        // controls are still laid out.
+        let total_paragraphs = match self.display_content() {
+            Ok(text) => super::edit_ops::shown_line_count(&text) as usize,
             Err(e) => {
                 eprintln!("ERROR layout: gutter sized for one line, editor text unreadable err={:?}", e);
                 1

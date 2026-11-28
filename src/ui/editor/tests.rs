@@ -921,6 +921,28 @@
     }
 
     #[test]
+    fn caret_status_counts_a_form_feed_as_a_line_break_as_richedit() {
+        // Shown as a | b | c (positions a=0, FF=1, b=2, CRLF=3, c=4).
+        let text = "a\u{c}b\r\nc";
+        assert_eq!(caret_status(text, 2, 2, 2), CaretStatus { line: 2, col: 1, selected: 0 });
+        assert_eq!(caret_status(text, 4, 4, 4), CaretStatus { line: 3, col: 1, selected: 0 });
+        // The form feed is one selected character, as a CRLF.
+        assert_eq!(caret_status(text, 0, 5, 5), CaretStatus { line: 3, col: 2, selected: 5 });
+    }
+
+    #[test]
+    fn status_line_count_counts_a_form_feed_and_no_final_empty_line() {
+        assert_eq!(status_line_count(""), 1);
+        assert_eq!(status_line_count("a"), 1);
+        assert_eq!(status_line_count("a\u{c}b\r\nc"), 3);
+        // A final break adds no line, as str::lines counted them.
+        assert_eq!(status_line_count("a\r\n"), 1);
+        assert_eq!(status_line_count("a\u{c}"), 1);
+        assert_eq!(status_line_count("a\r\n\r\n"), 2);
+        assert_eq!(status_line_count("\r\n"), 1);
+    }
+
+    #[test]
     fn caret_status_text_shows_the_selection_only_when_not_empty() {
         let _g = crate::features::i18n::test_support::lang_guard();
         crate::features::i18n::set_language(crate::features::i18n::Language::English);

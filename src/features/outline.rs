@@ -6,7 +6,9 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Heading {
     /// Zero-based line of the heading text (the line before the underline
-    /// for a setext heading), counted on '\n' like `apply_cursor_line`.
+    /// for a setext heading), counted as RichEdit shows the lines
+    /// (features::text_lines: a form feed ends one), like
+    /// `go_to_shown_line`.
     pub line: usize,
     /// 1 to 6 for "#" to "######"; 1 for a "===" underline, 2 for "---".
     pub level: u8,
@@ -63,7 +65,9 @@ fn setext_level(line: &str) -> Option<u8> {
 /// The headings of `text`, in order. Lines inside ``` fences are skipped;
 /// an unclosed fence runs to the end of the text.
 pub fn headings(text: &str) -> Vec<Heading> {
-    let lines: Vec<&str> = text.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect();
+    // Lines as RichEdit shows them (a form feed ends one), so the line
+    // number is the one Go to Heading moves to.
+    let lines: Vec<&str> = super::text_lines::line_ranges(text).into_iter().map(|(s, e)| &text[s..e]).collect();
     let mut out = Vec::new();
     let mut in_fence = false;
     let mut i = 0;
@@ -110,6 +114,12 @@ mod tests {
 
     fn h(line: usize, level: u8, title: &str) -> Heading {
         Heading { line, level, title: title.to_string() }
+    }
+
+    #[test]
+    fn a_form_feed_ends_a_line_as_richedit_shows_it() {
+        // Lines shown: "intro" | "# Title" | "text" | "Sub" | "---".
+        assert_eq!(headings("intro\u{c}# Title\r\ntext\u{c}Sub\r\n---"), vec![h(1, 1, "Title"), h(3, 2, "Sub")]);
     }
 
     #[test]

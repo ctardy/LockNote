@@ -115,15 +115,10 @@ fn utf16_units(text: &str, from: usize, to: usize) -> usize {
         .sum()
 }
 
-/// Line breaks (`\r\n`, `\r` or `\n`, one each) in `bytes`.
+/// Line breaks (`\r\n`, `\r`, `\n` or a form feed, one each) in `bytes`:
+/// the lines RichEdit shows (features::text_lines).
 fn line_breaks(bytes: &[u8]) -> usize {
-    let mut n = 0;
-    for (i, &b) in bytes.iter().enumerate() {
-        if b == b'\n' || (b == b'\r' && bytes.get(i + 1) != Some(&b'\n')) {
-            n += 1;
-        }
-    }
-    n
+    crate::features::text_lines::break_count(bytes)
 }
 
 /// The line holding `start..end` (byte offsets on char boundaries), cut to
@@ -131,7 +126,7 @@ fn line_breaks(bytes: &[u8]) -> usize {
 /// was cut. Reads at most `EXCERPT_BEFORE` chars before the match and
 /// `EXCERPT_CHARS` from there: a line may be megabytes long.
 fn excerpt(text: &str, start: usize, end: usize) -> String {
-    let is_break = |c: char| c == '\r' || c == '\n';
+    let is_break = crate::features::text_lines::is_break;
     // Back from the match: EXCERPT_BEFORE chars at most, not past the line
     // start. Cut when the line goes on before `from`.
     let (mut from, mut taken) = (start, 0);
@@ -319,6 +314,15 @@ mod tests {
         let r = search(&src, "key", true, MAX_RESULTS);
         assert_eq!(tab_hits(&r), vec![(0, 1, 4, 7), (0, 2, 12, 15), (0, 2, 16, 19), (2, 1, 0, 3)]);
         assert!(!r.more);
+    }
+
+    #[test]
+    fn a_form_feed_ends_a_line_as_richedit_shows_it() {
+        // Shown as "one" | "two key"; the excerpt stops at the form feed.
+        let src = sources(vec![tab("A", "one\u{c}two key\r\nthree")]);
+        let r = search(&src, "key", true, MAX_RESULTS);
+        assert_eq!(tab_hits(&r), vec![(0, 2, 8, 11)]);
+        assert_eq!(excerpt("one\u{c}two key\u{c}three", 8, 11), "two key");
     }
 
     #[test]

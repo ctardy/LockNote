@@ -6,6 +6,10 @@ pub mod markers;
 
 pub mod tabs;
 
+// Lines of a text as the editor shows them: the one line-break definition
+// shared by the line commands (V2: a form feed ends a line).
+pub mod text_lines;
+
 // Edit > Lines: sort, remove duplicates, join, trim (pure transforms).
 pub mod line_ops;
 

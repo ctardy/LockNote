@@ -55,34 +55,16 @@ pub(super) fn body_lines(page_height: i32, margin: i32, line_height: i32) -> usi
     if body <= 0 { 0 } else { (body / line_height) as usize }
 }
 
-/// The lines of `text`, split at CR LF, CR or LF (RichEdit uses CR). A final
-/// line break adds no empty line, as with `str::lines`.
+/// The lines of `text` as the editor shows them, split at CR LF, CR, LF or
+/// a form feed (features::text_lines; a form feed ends a line, it does not
+/// start a new page). A final line break adds no empty line, as with
+/// `str::lines`.
 pub(super) fn split_print_lines(text: &str) -> Vec<&str> {
-    // CR and LF are ASCII: a byte index next to them is a char boundary.
-    let b = text.as_bytes();
-    let mut lines = Vec::new();
-    let (mut start, mut i) = (0, 0);
-    while i < b.len() {
-        match b[i] {
-            b'\r' => {
-                lines.push(&text[start..i]);
-                if b.get(i + 1) == Some(&b'\n') {
-                    i += 1;
-                }
-                start = i + 1;
-            }
-            b'\n' => {
-                lines.push(&text[start..i]);
-                start = i + 1;
-            }
-            _ => {}
-        }
-        i += 1;
+    let mut ranges = crate::features::text_lines::line_ranges(text);
+    if ranges.last().is_some_and(|&(start, end)| start == end) {
+        ranges.pop();
     }
-    if start < text.len() {
-        lines.push(&text[start..]);
-    }
-    lines
+    ranges.into_iter().map(|(start, end)| &text[start..end]).collect()
 }
 
 /// The tab-separated runs of `s`, each with the x offset it starts at: a tab
@@ -556,7 +538,8 @@ mod tests {
         assert_eq!(split_print_lines("a\r\r\nb\r\n"), ["a", "", "b"]);
         assert_eq!(split_print_lines("\n"), [""]);
         assert!(split_print_lines("").is_empty());
-        assert_eq!(layout_pages("a\r\n\r\nb", 100, 5, &mono).unwrap(), vec![vec!["a", "", "b"]]);
+        // A form feed ends a line, as the editor shows it (V2).
+        assert_eq!(split_print_lines("a\u{c}b\r\nc\u{c}"), ["a", "b", "c"]);        assert_eq!(layout_pages("a\r\n\r\nb", 100, 5, &mono).unwrap(), vec![vec!["a", "", "b"]]);
     }
 
     #[test]

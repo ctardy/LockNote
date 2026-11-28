@@ -127,6 +127,17 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   the replacement mark U+FFFD and keep working. Going to a Search All
   result in another tab now also starts that tab with an empty undo
   history, as a tab click does.
+- **Line commands on a text holding a form feed**: the editor shows a form
+  feed (U+000C, a page break pasted from a word processor or found in an
+  imported file) as a line break, but the line commands did not. Ctrl+D
+  copied and Ctrl+Shift+K deleted both lines around it, Alt+Up/Down moved
+  them as one, Edit > Lines sorted them as one line and Trim Trailing
+  Whitespace removed the form feed, joining the two lines. Go to Line, the
+  caret position and line count of the status bar, Tab on several lines,
+  list continuation, Ctrl+., Go to Heading, Search All Tabs and Print also
+  disagreed with the line numbers shown. They now all count lines as the
+  editor shows them, and the commands that reorder lines keep each form
+  feed in its place. The caret line saved with the note keeps its meaning.
 - **Duplicate Line, Delete Line, Insert Timestamp and Go to Line with
   accents, emoji or several lines**: these commands counted positions in
   bytes, where the editor counts characters and a line break as one.

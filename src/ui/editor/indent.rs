@@ -37,19 +37,9 @@ pub(super) enum IndentAction {
 /// Most leading spaces one Shift+Tab removes from a line without a leading tab.
 const OUTDENT_SPACES: usize = 4;
 
-fn is_break(c: char) -> bool {
-    c == '\n' || c == '\r'
-}
-
-/// Byte offset of the start of the line holding byte `at`.
-pub(super) fn line_start_at(text: &str, at: usize) -> usize {
-    text[..at].rfind(is_break).map(|p| p + 1).unwrap_or(0)
-}
-
-/// Byte offset of the end of the line holding byte `at` (before its break).
-pub(super) fn line_end_at(text: &str, at: usize) -> usize {
-    text[at..].find(is_break).map(|p| at + p).unwrap_or(text.len())
-}
+// Lines as RichEdit shows them: "\r\n", "\r", "\n" or a form feed ends one.
+use crate::features::text_lines::is_break;
+pub(super) use crate::features::text_lines::{line_end_at, line_start_at};
 
 /// Bytes of indentation one outdent removes from `line`: one leading tab,
 /// or else up to `OUTDENT_SPACES` leading spaces. All ASCII, so the count is
@@ -322,6 +312,18 @@ mod tests {
     #[test]
     fn tab_on_empty_text_is_native() {
         assert_eq!(apply("", 0, 0, IndentDir::In), IndentAction::Native);
+    }
+
+    #[test]
+    fn tab_indents_both_lines_shown_around_a_form_feed() {
+        // RichEdit shows "a\fb" as two lines: Tab indents the block.
+        let t = "a\u{c}b";
+        let a = apply(t, 0, 3, IndentDir::In);
+        assert_eq!(a, IndentAction::Apply { replace: repl(0, 3, "\ta\u{c}\tb"), select: (0, 5) });
+        assert_eq!(line_start_at(t, 2), 2);
+        assert_eq!(line_end_at(t, 0), 1);
+        // A selection ending just after the form feed leaves "b" out.
+        assert_eq!(result_text(t, &apply(t, 0, 2, IndentDir::In)), "\ta\u{c}b");
     }
 
     #[test]
