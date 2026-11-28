@@ -106,7 +106,11 @@ impl GoToLineDialog {
             match evt {
                 nwg::Event::OnButtonClick => {
                     if handle == btn_ok.handle {
-                        let text = txt_line.text();
+                        let Some(text) =
+                            crate::ui::field_text::read_visible(txt_line.handle, "goto.line", |m| lbl_error.set_text(m))
+                        else {
+                            return;
+                        };
                         match text.trim().parse::<u32>() {
                             Ok(n) if n >= 1 && n <= max_lines => {
                                 *result_clone.borrow_mut() = Some(n);

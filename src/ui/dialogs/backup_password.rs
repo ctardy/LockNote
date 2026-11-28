@@ -113,7 +113,11 @@ impl BackupPasswordDialog {
             match evt {
                 nwg::Event::OnButtonClick => {
                     if handle == btn_ok.handle {
-                        let pw: Zeroizing<String> = Zeroizing::new(txt_password.text());
+                        let Some(pw) = crate::ui::field_text::read_masked(txt_password.handle, "backuppwd.password", |m| {
+                            lbl_error.set_text(m)
+                        }) else {
+                            return;
+                        };
                         txt_password.set_text("");
                         if pw.is_empty() {
                             // Stay open: closing here would look like a silent failure.

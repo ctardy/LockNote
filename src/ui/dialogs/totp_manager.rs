@@ -86,7 +86,14 @@ pub fn simple_input_dialog(
         match evt {
             nwg::Event::OnButtonClick => {
                 if handle == btn_ok.handle {
-                    *result_clone.borrow_mut() = Some(txt.text());
+                    // The name is stored: read strictly, the dialog stays
+                    // open on a refusal.
+                    let Some(name) = crate::ui::field_text::read_visible(txt.handle, "totp.name", |m| {
+                        nwg::modal_error_message(window_handle, &t("editor.text.title"), m);
+                    }) else {
+                        return;
+                    };
+                    *result_clone.borrow_mut() = Some(name.to_string());
                     nwg::stop_thread_dispatch();
                 } else if handle == btn_cancel.handle {
                     nwg::stop_thread_dispatch();

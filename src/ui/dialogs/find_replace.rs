@@ -404,8 +404,7 @@ impl FindReplaceDialog {
         let chk_case_for_re = chk_case_rc.clone();
         let chk_word_for_re = chk_word_rc.clone();
         let chk_regex_rc = Rc::new(chk_regex);
-        let txt_find_for_re = txt_find.clone();
-        let read_regex = move || -> Option<Result<regex::Regex, regex::Error>> {
+        let read_regex = move |term: &str| -> Option<Result<regex::Regex, regex::Error>> {
             if chk_regex_rc.check_state() != nwg::CheckBoxState::Checked {
                 return None;
             }
@@ -413,7 +412,7 @@ impl FindReplaceDialog {
                 match_case: chk_case_for_re.check_state() == nwg::CheckBoxState::Checked,
                 whole_word: chk_word_for_re.check_state() == nwg::CheckBoxState::Checked,
             };
-            let compiled = regex_search::compile(&txt_find_for_re.text(), opts);
+            let compiled = regex_search::compile(term, opts);
             if let Err(e) = &compiled {
                 // The pattern is note content: only the kind of error is logged.
                 let kind = if matches!(e, regex::Error::CompiledTooBig(_)) { "too big" } else { "syntax" };
@@ -454,14 +453,26 @@ impl FindReplaceDialog {
         let txt_find_recount = txt_find.clone();
         let read_regex_rc = read_regex.clone();
         let recount = move || {
-            let term = txt_find_recount.text();
+            // The live count only shows a number: the display text of the
+            // field (a half emoji while it is typed is U+FFFD, never a
+            // refusal). Every action below reads the term strictly.
+            let term = match crate::ui::field_text::read_display(txt_find_recount.handle) {
+                Ok(term) => term,
+                Err(e) => {
+                    eprintln!("WARN find_replace: count skipped, find field unreadable err={:?}", e);
+                    total_rc.set(0);
+                    current_rc.set(0);
+                    lbl_status_rc.set_text(&e.typing_message());
+                    return;
+                }
+            };
             if term.is_empty() {
                 total_rc.set(0);
                 current_rc.set(0);
                 lbl_status_rc.set_text("");
                 return;
             }
-            let tot = match read_regex_rc() {
+            let tot = match read_regex_rc(&term) {
                 None => count_matches(hwnd, &term, read_flags_rc()),
                 // A count to show: the display text (positions kept).
                 Some(Ok(re)) => match crate::ui::editor_text::read_display(hwnd) {
@@ -533,12 +544,28 @@ impl FindReplaceDialog {
         let lbl_status_invalid = lbl_status.clone();
         let show_invalid = move || lbl_status_invalid.set_text(&t("search.regex.invalid"));
 
+        // The term and the replacement of an action, read strictly: on a
+        // refusal the status line says why, the bad character is selected,
+        // nothing is searched nor replaced.
+        let (lbl_status_term, txt_find_term) = (lbl_status.clone(), txt_find.clone());
+        let read_term = move || {
+            crate::ui::field_text::read_visible(txt_find_term.handle, "find.term", |m| lbl_status_term.set_text(m))
+        };
+        let lbl_status_repl = lbl_status.clone();
+        let read_replacement = move |field: &nwg::TextInput| {
+            crate::ui::field_text::read_visible(field.handle, "find.replacement", |m| lbl_status_repl.set_text(m))
+        };
+
         let handler = nwg::full_bind_event_handler(&window_handle, move |evt, _data, handle| {
             match evt {
                 // Re-count on term change.
                 nwg::Event::OnTextInput => {
                     if handle == find_input_h {
-                        *last_term_cb.borrow_mut() = txt_find_cb.text();
+                        // Memory only (never stored nor replaced with).
+                        match crate::ui::field_text::read_display(txt_find_cb.handle) {
+                            Ok(term) => *last_term_cb.borrow_mut() = term.to_string(),
+                            Err(e) => eprintln!("WARN find_replace: find field unreadable err={:?}", e),
+                        }
                         recount_cb();
                     }
                 }
@@ -550,9 +577,9 @@ impl FindReplaceDialog {
                     }
 
                     if handle == next_h {
-                        let term = txt_find_cb.text();
+                        let Some(term) = read_term() else { return };
                         if term.is_empty() { return; }
-                        match read_regex_cb() {
+                        match read_regex_cb(&term) {
                             Some(Ok(re)) => return show_found(regex_search::find_next(&mut RichEditTarget(hwnd), &re)),
                             Some(Err(_)) => return show_invalid(),
                             None => {}
@@ -576,9 +603,9 @@ impl FindReplaceDialog {
                             }
                         }
                     } else if handle == prev_h {
-                        let term = txt_find_cb.text();
+                        let Some(term) = read_term() else { return };
                         if term.is_empty() { return; }
-                        match read_regex_cb() {
+                        match read_regex_cb(&term) {
                             Some(Ok(re)) => return show_found(regex_search::find_prev(&mut RichEditTarget(hwnd), &re)),
                             Some(Err(_)) => return show_invalid(),
                             None => {}
@@ -602,10 +629,13 @@ impl FindReplaceDialog {
                         }
                     } else if Some(handle) == replace_h {
                         if let Some(ref txt_replace) = txt_replace_cb {
-                            let term = txt_find_cb.text();
-                            let replacement = txt_replace.text();
+                            // Both strict: a half emoji in the term used to
+                            // replace the note's real "Decoding error", and
+                            // in the replacement to write that string.
+                            let Some(term) = read_term() else { return };
+                            let Some(replacement) = read_replacement(txt_replace) else { return };
                             if term.is_empty() { return; }
-                            match read_regex_cb() {
+                            match read_regex_cb(&term) {
                                 Some(Ok(re)) => {
                                     return show_found(regex_search::replace_one(&mut RichEditTarget(hwnd), &re, &replacement));
                                 }
@@ -628,10 +658,10 @@ impl FindReplaceDialog {
                         }
                     } else if Some(handle) == replace_all_h {
                         if let Some(ref txt_replace) = txt_replace_cb {
-                            let term = txt_find_cb.text();
-                            let replacement = txt_replace.text();
+                            let Some(term) = read_term() else { return };
+                            let Some(replacement) = read_replacement(txt_replace) else { return };
                             if term.is_empty() { return; }
-                            match read_regex_cb() {
+                            match read_regex_cb(&term) {
                                 Some(Ok(re)) => {
                                     total_cb.set(0);
                                     current_cb.set(0);
@@ -710,12 +740,12 @@ mod tests {
     fn every_action_checks_the_regex_mode_first() {
         let src = crate::read_source("src/ui/dialogs/find_replace.rs");
         let code = &src[..src.find("#[cfg(test)]").expect("test module")];
-        assert_eq!(code.matches("match read_regex_cb() {").count(), 4);
+        assert_eq!(code.matches("match read_regex_cb(&term) {").count(), 4);
         for flow in ["find_next(", "find_prev(", "replace_one(", "replace_all("] {
             assert!(code.contains(&format!("regex_search::{flow}")), "{flow} not wired");
         }
         let recount = &code[code.find("let recount = move ||").expect("recount")..];
-        assert!(recount.contains("match read_regex_rc() {"));
+        assert!(recount.contains("match read_regex_rc(&term) {"));
         assert!(code.contains("handle == chk_regex_h"), "toggling the box must recount");
     }
 }

@@ -424,7 +424,13 @@ impl EditorForm {
             eprintln!("INFO lock: curtain password refused during the backoff");
             return;
         }
-        let typed = Zeroizing::new(self.lock_input.text());
+        // A half emoji is refused before the comparison and not counted: a
+        // password set through LockNote is always valid text.
+        let Some(typed) = crate::ui::field_text::read_masked(self.lock_input.handle, "lock.curtain", |m| {
+            self.lock_status_msg.set(Tone::Error, m)
+        }) else {
+            return;
+        };
         self.lock_input.set_text("");
         let ok = curtain_password_ok(&typed, &self.password.borrow());
         if !ok {
@@ -577,7 +583,11 @@ impl EditorForm {
 
         // Wrap the typed password in Zeroizing so its buffer is wiped when
         // we drop it, whether decrypt succeeds or fails.
-        let pw: Zeroizing<String> = Zeroizing::new(self.lock_input.text());
+        let Some(pw) = crate::ui::field_text::read_masked(self.lock_input.handle, "lock.unlock", |m| {
+            self.lock_status_msg.set(Tone::Error, m)
+        }) else {
+            return;
+        };
         if pw.is_empty() {
             self.lock_status_msg.set(Tone::Error, &t("unlock.empty"));
             return;

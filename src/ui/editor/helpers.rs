@@ -475,7 +475,7 @@ pub(in crate::ui) fn case_insensitive_matches<'a>(text: &'a str, needle: &str) -
 /// When `extract` is false (hide/embed), shows two fields (password + confirm).
 /// When `extract` is true, shows a single password field.
 /// Returns `None` if cancelled.
-pub(super) fn stego_password_dialog(parent: &nwg::ControlHandle, extract: bool) -> Option<String> {
+pub(super) fn stego_password_dialog(parent: &nwg::ControlHandle, extract: bool) -> Option<zeroize::Zeroizing<String>> {
     use std::cell::RefCell;
     use std::rc::Rc;
 
@@ -607,7 +607,7 @@ pub(super) fn stego_password_dialog(parent: &nwg::ControlHandle, extract: bool) 
 
     crate::ui::dialogs::bind_enter_to_button(window.handle, btn_ok.handle);
 
-    let result: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+    let result: Rc<RefCell<Option<zeroize::Zeroizing<String>>>> = Rc::new(RefCell::new(None));
     let result_clone = result.clone();
     let window_handle = window.handle;
     let is_extract = extract;
@@ -616,14 +616,21 @@ pub(super) fn stego_password_dialog(parent: &nwg::ControlHandle, extract: bool) 
         match evt {
             nwg::Event::OnButtonClick => {
                 if handle == btn_ok.handle {
-                    let pw = txt_pw.text();
+                    // Read strictly: two half emojis read as the same
+                    // "Decoding error" and the image was hidden with it.
+                    let tell = |m: &str| lbl_error.set_text(m);
+                    let Some(pw) = crate::ui::field_text::read_masked(txt_pw.handle, "stego.password", tell) else {
+                        return;
+                    };
                     if pw.is_empty() {
                         lbl_error.set_text(&t("stego.pw.empty"));
                         return;
                     }
                     if !is_extract {
-                        let confirm = txt_confirm.text();
-                        if pw != confirm {
+                        let Some(confirm) = crate::ui::field_text::read_masked(txt_confirm.handle, "stego.confirm", tell) else {
+                            return;
+                        };
+                        if *pw != *confirm {
                             lbl_error.set_text(&t("stego.pw.mismatch"));
                             txt_confirm.set_text("");
                             return;

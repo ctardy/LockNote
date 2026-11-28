@@ -203,14 +203,20 @@ impl SshKeygenDialog {
                 nwg::Event::OnComboxBoxSelection if handle == cmb_type.handle => {
                     if let Some(kind) = cmb_type.selection().and_then(|i| KeyType::ALL.get(i).copied()) {
                         // Follow the type only while the name is still the proposed one.
-                        if txt_name.text() == default_entry_name(last_kind.get()) {
+                        // A name that cannot be read strictly is not the
+                        // proposed one: it is left as the user typed it.
+                        if crate::ui::field_text::read(txt_name.handle).is_ok_and(|n| n.as_str() == default_entry_name(last_kind.get())) {
                             txt_name.set_text(default_entry_name(kind));
                         }
                         last_kind.set(kind);
                     }
                 }
                 nwg::Event::OnTextInput if handle == txt_pass.handle => {
-                    let pw = Zeroizing::new(txt_pass.text());
+                    // Half of a typed emoji: keep the last label until the
+                    // text is whole again (Generate refuses it, not this).
+                    let Ok(pw) = crate::ui::field_text::read(txt_pass.handle) else {
+                        return;
+                    };
                     lbl_strength.set_text(&if pw.is_empty() {
                         String::new()
                     } else {
@@ -221,12 +227,23 @@ impl SshKeygenDialog {
                     let Some(kind) = cmb_type.selection().and_then(|i| KeyType::ALL.get(i).copied()) else {
                         return;
                     };
-                    let pass = Zeroizing::new(txt_pass.text());
-                    if *pass != *Zeroizing::new(txt_confirm.text()) {
+                    // Both read strictly before the comparison: two half
+                    // emojis read as the same "Decoding error" and the key
+                    // was encrypted with it.
+                    let tell = |m: &str| lbl_status.set_text(m);
+                    let Some(pass) = crate::ui::field_text::read_masked(txt_pass.handle, "ssh.gen.passphrase", tell) else {
+                        return;
+                    };
+                    let Some(confirm) = crate::ui::field_text::read_masked(txt_confirm.handle, "ssh.gen.confirm", tell) else {
+                        return;
+                    };
+                    if *pass != *confirm {
                         lbl_status.set_text(&t("ssh.gen.mismatch"));
                         return;
                     }
-                    let comment = txt_comment.text();
+                    let Some(comment) = crate::ui::field_text::read_visible(txt_comment.handle, "ssh.gen.comment", tell) else {
+                        return;
+                    };
                     if comment.chars().any(char::is_control) {
                         lbl_status.set_text(&ssh_error_message(&SshKeyError::InvalidComment));
                         return;
@@ -334,7 +351,10 @@ impl SshKeygenDialog {
                 nwg::Event::OnButtonClick if handle == btn_save.handle => {
                     let guard = key_c.borrow();
                     let Some(k) = guard.as_ref() else { return };
-                    match ssh_keys::vault_entries(&txt_name.text(), k, &existing) {
+                    let Some(name) = crate::ui::field_text::read_visible(txt_name.handle, "ssh.gen.name", |m| lbl_msg.set_text(m)) else {
+                        return;
+                    };
+                    match ssh_keys::vault_entries(&name, k, &existing) {
                         Ok(entries) => {
                             *result_c.borrow_mut() = Some(entries);
                             clear_secrets();
@@ -412,8 +432,14 @@ impl SshAgentDialog {
         let window_handle = window.handle;
         let handler = nwg::full_bind_event_handler(&window_handle, move |evt, _data, handle| match evt {
             nwg::Event::OnButtonClick if handle == btn_load.handle => {
+                // Refused before any decrypt; the dialog stays open.
+                let Some(pass) = crate::ui::field_text::read_masked(txt_pass.handle, "ssh.agent.passphrase", |m| {
+                    nwg::modal_error_message(window_handle, &t("editor.text.title"), m);
+                }) else {
+                    return;
+                };
                 if let Some(i) = cmb_key.selection() {
-                    *result_c.borrow_mut() = Some((i, Zeroizing::new(txt_pass.text())));
+                    *result_c.borrow_mut() = Some((i, pass));
                 }
                 txt_pass.set_text("");
                 nwg::stop_thread_dispatch();

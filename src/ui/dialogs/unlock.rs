@@ -267,7 +267,14 @@ impl UnlockDialog {
                         // whether decryption succeeds or fails. On success we move the
                         // wrapper out to the caller — no plain String clone — so the
                         // caller keeps the zeroize-on-drop guarantee end-to-end.
-                        let pw: Zeroizing<String> = Zeroizing::new(txt_password.text());
+                        // Read strictly: a half emoji is refused before any
+                        // decrypt and is not counted as an attempt (a valid
+                        // password is never one, so this gives no oracle).
+                        let Some(pw) = crate::ui::field_text::read_masked(txt_password.handle, "unlock.password", |m| {
+                            status.set(Tone::Error, m)
+                        }) else {
+                            return;
+                        };
                         status.set(Tone::Neutral, &t("unlock.decrypting"));
 
                         match crate::crypto::decrypt(&data, pw.as_str()) {

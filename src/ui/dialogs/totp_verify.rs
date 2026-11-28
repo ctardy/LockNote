@@ -221,7 +221,13 @@ impl TotpVerifyDialog {
                 }
                 nwg::Event::OnButtonClick => {
                     if handle == btn_verify.handle {
-                        let code = txt_code.text();
+                        // Refused before the check and not counted as an
+                        // attempt: a half emoji is never a code.
+                        let Some(code) =
+                            crate::ui::field_text::read_visible(txt_code.handle, "2fa.code", |m| lbl_status.set_text(m))
+                        else {
+                            return;
+                        };
                         let code_trimmed = code.trim();
 
                         if code_trimmed.len() != 6 {

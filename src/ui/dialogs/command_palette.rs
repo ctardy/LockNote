@@ -291,7 +291,12 @@ impl CommandPaletteDialog {
         let handler = nwg::full_bind_event_handler(&window_handle, move |evt, _evt_data, handle| {
             match evt {
                 nwg::Event::OnTextInput if handle == filter_handle => {
-                    refill(&txt_filter.text());
+                    // A filter only: the display text (a half emoji is
+                    // U+FFFD), never stored.
+                    match crate::ui::field_text::read_display(txt_filter.handle) {
+                        Ok(filter) => refill(&filter),
+                        Err(e) => eprintln!("WARN palette: filter unreadable, list unchanged err={:?}", e),
+                    }
                 }
                 nwg::Event::OnWindowClose => {
                     nwg::stop_thread_dispatch();

@@ -73,7 +73,18 @@ impl EditorForm {
     /// shows an explicit message, never a silently empty list.
     pub(super) fn refresh_prompts_list(&self, select: Option<usize>) {
         let prompts = self.prompts_panel.get_prompts();
-        let query = self.prompts_search.text();
+        // A filter only: the display text (a half emoji is U+FFFD).
+        let query = match crate::ui::field_text::read_display(self.prompts_search.handle) {
+            Ok(query) => query,
+            Err(e) => {
+                eprintln!("WARN prompts: list not built, search field unreadable err={:?}", e);
+                self.prompts_list.set_collection(Vec::new());
+                self.prompts_panel.set_rows(Vec::new());
+                self.prompts_status.set_text(&e.typing_message());
+                self.on_prompts_selection_changed();
+                return;
+            }
+        };
         match panel::visible_rows(&prompts, &query, &panel::contains_user_locale, &panel::compare_user_locale) {
             Ok(rows) => {
                 let labels: Vec<String> = rows.iter().map(|&i| panel::list_label(&prompts[i])).collect();

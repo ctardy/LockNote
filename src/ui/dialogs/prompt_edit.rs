@@ -242,7 +242,14 @@ impl PromptEditDialog {
             }
             nwg::Event::OnButtonClick => {
                 if handle == btn_ok.handle {
-                    match entry_from_fields(&txt_name.text(), &txt_category.text(), &txt_text.text(), original_text.as_deref()) {
+                    // Each field read strictly: a half emoji used to save
+                    // the prompt as "Decoding error". Nothing saved on a refusal.
+                    use crate::ui::field_text::read_visible;
+                    let tell = |m: &str| lbl_error.set_text(m);
+                    let Some(name) = read_visible(txt_name.handle, "prompt.name", tell) else { return };
+                    let Some(category) = read_visible(txt_category.handle, "prompt.category", tell) else { return };
+                    let Some(text) = read_visible(txt_text.handle, "prompt.text", tell) else { return };
+                    match entry_from_fields(&name, &category, &text, original_text.as_deref()) {
                         Ok(entry) => {
                             *result_clone.borrow_mut() = Some(entry);
                             txt_text.set_text("");

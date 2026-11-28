@@ -144,9 +144,13 @@ impl EditorForm {
         // notifications are synchronous, no borrow may be held (F30).
         let secrets = self.vault_panel.get_secrets();
         let categories = self.vault_categories();
-        let query = self.vault_search.text();
-        let groups = vp::tree_groups(&secrets, &categories, vp::compare_names_user_locale)
-            .and_then(|g| vp::filter_groups(g, &secrets, &query, &vp::contains_name_user_locale));
+        // A filter only: the display text (a half emoji is U+FFFD).
+        let groups = match crate::ui::field_text::read_display(self.vault_search.handle) {
+            Ok(query) => vp::tree_groups(&secrets, &categories, vp::compare_names_user_locale)
+                .and_then(|g| vp::filter_groups(g, &secrets, &query, &vp::contains_name_user_locale))
+                .map_err(|e| format!("{:?}", e)),
+            Err(e) => Err(format!("search field unreadable {:?}", e)),
+        };
 
         let Some(hwnd) = (match self.vault_tree.handle {
             nwg::ControlHandle::Hwnd(h) => Some(windows::Win32::Foundation::HWND(h as *mut _)),
@@ -190,7 +194,7 @@ impl EditorForm {
             }
             Err(e) => {
                 // Never an empty tree without explanation (F33).
-                eprintln!("vault: tree build failed err={:?}", e);
+                eprintln!("vault: tree build failed err={}", e);
                 self.vault_tree.insert_item_with_param(
                     &t("vault.tree.error"),
                     None,
@@ -211,11 +215,14 @@ impl EditorForm {
     pub(super) fn show_vault_secret(&self, index: usize) {
         use crate::ui::vault_panel as vp;
         if let Some(entry) = self.vault_panel.get_secret(index) {
-            match vp::search_hides(&entry.name, &self.vault_search.text(), &vp::contains_name_user_locale) {
-                Ok(true) => self.clear_vault_search(),
-                Ok(false) => {}
-                // The rebuild below meets the same failure and shows it.
-                Err(e) => eprintln!("vault: search check failed err={:?}", e),
+            // The rebuild below meets the same failures and shows them.
+            match crate::ui::field_text::read_display(self.vault_search.handle) {
+                Ok(query) => match vp::search_hides(&entry.name, &query, &vp::contains_name_user_locale) {
+                    Ok(true) => self.clear_vault_search(),
+                    Ok(false) => {}
+                    Err(e) => eprintln!("vault: search check failed err={:?}", e),
+                },
+                Err(e) => eprintln!("vault: search field unreadable err={:?}", e),
             }
         }
         self.refresh_vault_tree(Some(index));

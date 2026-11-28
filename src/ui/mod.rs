@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 pub mod editor;
 pub mod editor_text;
+pub mod field_text;
 pub mod dialogs;
 pub mod dark_chrome;
 pub mod lock_card;

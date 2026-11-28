@@ -146,7 +146,11 @@ impl GoToHeadingDialog {
             };
             match evt {
                 nwg::Event::OnTextInput if handle == txt_filter.handle => {
-                    refill(&list_box, &lbl_hint, &txt_filter.text());
+                    // A filter only: the display text, never stored.
+                    match crate::ui::field_text::read_display(txt_filter.handle) {
+                        Ok(filter) => refill(&list_box, &lbl_hint, &filter),
+                        Err(e) => eprintln!("WARN goto_heading: filter unreadable, list unchanged err={:?}", e),
+                    }
                 }
                 nwg::Event::OnListBoxDoubleClick if handle == list_box.handle => {
                     choose(&list_box);

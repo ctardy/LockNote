@@ -176,7 +176,16 @@ impl SearchAllDialog {
         // Search the copy again and rebuild the list.
         let hits_r = hits.clone();
         let refresh = move |txt_query: &nwg::TextInput, chk_case: &nwg::CheckBox, list: &nwg::ListBox<String>, lbl_status: &nwg::Label| {
-            let query = txt_query.text();
+            // A search only: the display text (a half emoji is U+FFFD),
+            // never stored.
+            let query = match crate::ui::field_text::read_display(txt_query.handle) {
+                Ok(query) => query,
+                Err(e) => {
+                    eprintln!("WARN search_all: query unreadable, results unchanged err={:?}", e);
+                    lbl_status.set_text(&e.typing_message());
+                    return;
+                }
+            };
             let match_case = chk_case.check_state() == nwg::CheckBoxState::Checked;
             let results = search_all::search(&sources, &query, match_case, search_all::MAX_RESULTS);
             let lines = list_lines(&results, &t("searchall.vault"), &t("searchall.prompt"), &t("searchall.more"));

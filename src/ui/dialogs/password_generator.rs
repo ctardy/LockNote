@@ -77,31 +77,38 @@ struct Form {
 }
 
 impl Form {
-    fn options(&self) -> Result<Options, PassgenError> {
+    /// The options of the form. The length and symbol fields are read
+    /// strictly: a half emoji used to read as "Decoding error" and be
+    /// reported as a wrong length or symbol.
+    fn options(&self) -> Result<Options, String> {
+        use crate::ui::field_text::read;
+        let length = read(self.txt_length.handle).map_err(|e| e.typing_message())?;
+        let symbols = read(self.txt_symbols.handle).map_err(|e| e.typing_message())?;
         Options::from_form(
-            &self.txt_length.text(),
+            &length,
             is_checked(&self.chk_upper),
             is_checked(&self.chk_lower),
             is_checked(&self.chk_digits),
             is_checked(&self.chk_symbols),
             is_checked(&self.chk_ambiguous),
-            &self.txt_symbols.text(),
+            &symbols,
         )
+        .map_err(|e| error_text(&e))
     }
 
     /// Draw a new password from the window's options. On success `last`
     /// becomes these options; otherwise the field is emptied and the reason
     /// is shown (never a password that does not match what is displayed).
     fn regenerate(&self, last: &RefCell<Options>) {
-        match self.options().and_then(|o| passgen::generate(&o).map(|p| (o, p))) {
+        match self.options().and_then(|o| passgen::generate(&o).map(|p| (o, p)).map_err(|e| error_text(&e))) {
             Ok((options, password)) => {
                 self.txt_password.set_text(&password);
                 self.lbl_error.set_text("");
                 *last.borrow_mut() = options;
             }
-            Err(e) => {
+            Err(message) => {
                 self.txt_password.set_text("");
-                self.lbl_error.set_text(&error_text(&e));
+                self.lbl_error.set_text(&message);
             }
         }
         self.btn_copy.set_text(&t("vault.btn.copy"));
@@ -358,7 +365,11 @@ impl PasswordGeneratorDialog {
                     *revealed.borrow_mut() = now;
                     form.set_revealed(now);
                 } else if handle == form.btn_copy.handle {
-                    let value: Zeroizing<String> = Zeroizing::new(form.txt_password.text());
+                    let Some(value) = crate::ui::field_text::read_masked(form.txt_password.handle, "passgen.password", |m| {
+                        form.lbl_error.set_text(m)
+                    }) else {
+                        return;
+                    };
                     if value.is_empty() {
                         return;
                     }
@@ -376,7 +387,11 @@ impl PasswordGeneratorDialog {
                         }
                     }
                 } else if for_field && handle == btn_use.handle {
-                    let value: Zeroizing<String> = Zeroizing::new(form.txt_password.text());
+                    let Some(value) = crate::ui::field_text::read_masked(form.txt_password.handle, "passgen.password", |m| {
+                        form.lbl_error.set_text(m)
+                    }) else {
+                        return;
+                    };
                     if value.is_empty() {
                         return;
                     }

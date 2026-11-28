@@ -307,8 +307,16 @@ impl CreatePasswordDialog {
                         // on drop no matter which branch we take; the final password is
                         // moved out (not cloned) into the result, preserving the
                         // zeroize-on-drop guarantee all the way to the caller.
-                        let pw: Zeroizing<String> = Zeroizing::new(txt_password.text());
-                        let confirm: Zeroizing<String> = Zeroizing::new(txt_confirm.text());
+                        // Both read strictly before any check: a half emoji
+                        // in both fields made them equal ("Decoding error",
+                        // 14 characters) and the note was encrypted with it.
+                        let tell = |m: &str| lbl_error.set_text(m);
+                        let Some(pw) = crate::ui::field_text::read_masked(txt_password.handle, "createpwd.password", tell) else {
+                            return;
+                        };
+                        let Some(confirm) = crate::ui::field_text::read_masked(txt_confirm.handle, "createpwd.confirm", tell) else {
+                            return;
+                        };
 
                         if (pw.len() as u32) < min_length {
                             lbl_error.set_text(
@@ -348,7 +356,12 @@ impl CreatePasswordDialog {
                 }
                 nwg::Event::OnTextInput => {
                     if handle == txt_password.handle {
-                        let pw: Zeroizing<String> = Zeroizing::new(txt_password.text());
+                        // Between the two WM_CHAR of an emoji the field holds
+                        // half of it: the meter keeps its last score until
+                        // the text is whole again (nothing is refused here).
+                        let Ok(pw) = crate::ui::field_text::read(txt_password.handle) else {
+                            return;
+                        };
                         let score = password_score(&pw);
                         let pct = strength_percent(score);
                         let label = strength_label(score);

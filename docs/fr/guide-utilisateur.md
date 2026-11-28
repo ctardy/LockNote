@@ -322,6 +322,19 @@ LockNote le sélectionne : appuyez sur Suppr, puis réessayez. Un
 enregistrement refusé (Ctrl+S, enregistrement automatique) donne sa ligne
 sans le sélectionner.
 
+Les champs de saisie (mots de passe, secrets du coffre, prompts, noms
+d'onglet et de clé, Rechercher et remplacer) refusent un tel caractère de
+la même façon : l'action s'arrête avec « Ce champ contenait un caractère
+invalide », rien n'est enregistré, comparé ni compté comme un mauvais mot
+de passe, et la fenêtre reste ouverte. Un champ de mot de passe est vidé :
+saisissez à nouveau le mot de passe. Dans un champ visible, le caractère
+est sélectionné : appuyez sur Suppr. Les champs de recherche l'affichent
+comme un signe de remplacement et continuent de fonctionner. Avant ce
+correctif, un mot de passe saisi avec la moitié d'un emoji était
+enregistré comme le texte `Decoding error` : si une note, une clé SSH, une
+image de stéganographie ou une sauvegarde a été protégée ainsi, tapez
+`Decoding error` pour l'ouvrir, puis changez son mot de passe.
+
 ## 7. Onglets
 
 **Ce que ça fait.** Un fichier LockNote contient jusqu'à 20 onglets, chacun avec

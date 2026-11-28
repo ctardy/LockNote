@@ -202,12 +202,14 @@ impl EditorForm {
         let current = self.prompts_panel.get(index);
         if sa::same_entry(current.as_ref().map(|p| (p.name.as_str(), p.category.as_str())), name, category) {
             if let Some(entry) = current.as_ref() {
-                let query = self.prompts_search.text();
-                match sa::prompt_search_hides(entry, &query, &crate::ui::prompts_panel::contains_user_locale) {
-                    Ok(true) => self.prompts_search.set_text(""),
-                    Ok(false) => {}
-                    // The rebuild below meets the same failure and shows it.
-                    Err(e) => eprintln!("WARN search_all: prompts search check failed err={}", e.0),
+                // The rebuild below meets the same failures and shows them.
+                match crate::ui::field_text::read_display(self.prompts_search.handle) {
+                    Ok(query) => match sa::prompt_search_hides(entry, &query, &crate::ui::prompts_panel::contains_user_locale) {
+                        Ok(true) => self.prompts_search.set_text(""),
+                        Ok(false) => {}
+                        Err(e) => eprintln!("WARN search_all: prompts search check failed err={}", e.0),
+                    },
+                    Err(e) => eprintln!("WARN search_all: prompts search field unreadable err={:?}", e),
                 }
             }
             self.refresh_prompts_list(Some(index));

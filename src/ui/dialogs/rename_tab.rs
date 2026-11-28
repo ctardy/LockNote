@@ -104,7 +104,11 @@ impl RenameTabDialog {
             match evt {
                 nwg::Event::OnButtonClick => {
                     if handle == btn_ok.handle {
-                        let name = txt_name.text();
+                        let Some(name) =
+                            crate::ui::field_text::read_visible(txt_name.handle, "rename.name", |m| lbl_error.set_text(m))
+                        else {
+                            return;
+                        };
                         let trimmed = name.trim();
                         if trimmed.is_empty() {
                             lbl_error.set_text(&t("rename.empty"));
@@ -202,7 +206,11 @@ impl RenameTabDialog {
             match evt {
                 nwg::Event::OnButtonClick => {
                     if handle == btn_ok.handle {
-                        let name = txt_name.text();
+                        let Some(name) = crate::ui::field_text::read_visible(txt_name.handle, "rename.name", |m| {
+                            nwg::modal_error_message(window_handle, &t("editor.text.title"), m);
+                        }) else {
+                            return;
+                        };
                         *result_clone.borrow_mut() = Some(name.trim().to_string());
                         nwg::stop_thread_dispatch();
                     } else if handle == btn_cancel.handle {

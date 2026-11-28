@@ -128,6 +128,32 @@ Up to 1.2.27, entries note the edition they affect: `(Free + Pro)` or
   the replacement mark U+FFFD and keep working. Going to a Search All
   result in another tab now also starts that tab with an empty undo
   history, as a tab click does.
+- **A password or a secret holding half of an emoji was read as "Decoding
+  error"**: the input fields (single-line, password and multi-line) can
+  hold the same invalid character, for example pasted from a note, and
+  were read as the literal "Decoding error". A new password (first run,
+  Change Password), an SSH key passphrase or a steganography password
+  typed with such a character in both fields became that public
+  14-character string: the note, the key or the image was encrypted with
+  it. A vault secret (name and value), a prompt, a tab name, a TOTP key
+  name, the Find & Replace term and replacement and a generated password
+  copied or used were saved or written as that string; the Show/Hide
+  button of a secret replaced its value with it. An unlock, the lock
+  screen, a password confirmation, a backup import password, an SSH key
+  passphrase or a 2FA code was compared as that string ("wrong password",
+  and on the lock screen a wrong attempt with its delay). Now each of
+  these fields is read strictly: the action is refused with "This field
+  held an invalid character (half of an emoji or symbol)...", the dialog
+  stays open and nothing is saved, compared, decrypted or counted as an
+  attempt. A password field is emptied (type it again); in a visible
+  field the character is selected, so Delete removes it. The message
+  never shows the content nor where the character is. Search and filter
+  fields (Search All, the vault and prompts searches, the command
+  palette, Go to Heading, the live Find count) show such a character as
+  U+FFFD and keep working; they store nothing. If a note, an SSH key, a
+  steganography image or a backup was protected before this fix with a
+  password that held half of an emoji, its password is the literal text
+  `Decoding error`: type it to open it, then change the password.
 - **Line commands on a text holding a form feed**: the editor shows a form
   feed (U+000C, a page break pasted from a word processor or found in an
   imported file) as a line break, but the line commands did not. Ctrl+D

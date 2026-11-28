@@ -42,6 +42,25 @@ fn from_edit_newlines(text: &str) -> String {
     text.replace("\r\n", "\n")
 }
 
+/// The value from the view that is active, read strictly. Hidden: a masked
+/// field, emptied on a refusal (the bad character cannot be seen); shown:
+/// the bad character is selected. `None`: refused, the user was told in
+/// `lbl_error`, nothing is to be copied, switched or saved.
+fn read_value(
+    visible: bool,
+    txt_value: &nwg::TextInput,
+    txt_multi: &nwg::TextBox,
+    lbl_error: &nwg::Label,
+) -> Option<zeroize::Zeroizing<String>> {
+    use crate::ui::field_text::{read_masked, read_visible};
+    if visible {
+        let text = read_visible(txt_multi.handle, "vault.value", |m| lbl_error.set_text(m))?;
+        Some(zeroize::Zeroizing::new(from_edit_newlines(&text)))
+    } else {
+        read_masked(txt_value.handle, "vault.value", |m| lbl_error.set_text(m))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // SecretEditDialog
 // ---------------------------------------------------------------------------
@@ -257,30 +276,36 @@ impl SecretEditDialog {
             match evt {
                 nwg::Event::OnButtonClick => {
                     if handle == btn_toggle.handle {
+                        // Read the active view before switching: a refusal
+                        // leaves the view, the fields and the button as they
+                        // were (the lossy value used to replace the secret).
+                        let showing = *is_visible_clone.borrow();
+                        let Some(value) = read_value(showing, &txt_value, &txt_multi, &lbl_error) else {
+                            return;
+                        };
                         let mut vis = is_visible_clone.borrow_mut();
                         *vis = !*vis;
                         // Carry the value over to the view that becomes active
                         if *vis {
-                            txt_multi.set_text(&to_edit_newlines(&txt_value.text()));
+                            txt_multi.set_text(&to_edit_newlines(&value));
                             txt_value.set_text("");
                         } else {
-                            txt_value.set_text(&from_edit_newlines(&txt_multi.text()));
+                            txt_value.set_text(&value);
                             txt_multi.set_text("");
                         }
                         txt_value.set_visible(!*vis);
                         txt_multi.set_visible(*vis);
                         btn_toggle.set_text(if *vis { "Hide" } else { "Show" });
                     } else if handle == btn_copy.handle {
-                        let value = if *is_visible_clone.borrow() {
-                            from_edit_newlines(&txt_multi.text())
-                        } else {
-                            txt_value.text()
+                        let showing = *is_visible_clone.borrow();
+                        let Some(value) = read_value(showing, &txt_value, &txt_multi, &lbl_error) else {
+                            return;
                         };
-                        match clipboard_win::set_clipboard(clipboard_win::formats::Unicode, &value) {
+                        match clipboard_win::set_clipboard(clipboard_win::formats::Unicode, value.as_str()) {
                             Ok(()) => {
                                 // Keep it out of Win+V history / cloud clipboard
                                 crate::features::clipboard_guard::exclude_current_clipboard_entry_from_history();
-                                *copied_clone.borrow_mut() = Some(value);
+                                *copied_clone.borrow_mut() = Some(value.to_string());
                                 lbl_error.set_text("");
                                 btn_copy.set_text(&t("vault.btn.copied"));
                             }
@@ -310,7 +335,13 @@ impl SecretEditDialog {
                             }
                         }
                     } else if handle == btn_ok.handle {
-                        let name = txt_name.text();
+                        // The name is the lookup key, the value the secret:
+                        // both read strictly, nothing saved on a refusal.
+                        let Some(name) =
+                            crate::ui::field_text::read_visible(txt_name.handle, "vault.name", |m| lbl_error.set_text(m))
+                        else {
+                            return;
+                        };
                         let trimmed_name = name.trim();
                         if trimmed_name.is_empty() {
                             lbl_error.set_text(&t("vault.name.empty"));
@@ -321,16 +352,15 @@ impl SecretEditDialog {
                             lbl_error.set_text(&t("vault.category.none"));
                             return;
                         };
-                        let value = if *is_visible_clone.borrow() {
-                            from_edit_newlines(&txt_multi.text())
-                        } else {
-                            txt_value.text()
+                        let showing = *is_visible_clone.borrow();
+                        let Some(value) = read_value(showing, &txt_value, &txt_multi, &lbl_error) else {
+                            return;
                         };
 
                         *result_clone.borrow_mut() = Some(SecretEntry {
                             name: trimmed_name.to_string(),
                             category,
-                            value,
+                            value: value.to_string(),
                         });
 
                         // Security: clear value fields

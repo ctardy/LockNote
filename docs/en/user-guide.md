@@ -289,6 +289,17 @@ a refused tab switch, export, backup or command, LockNote selects it: press
 Delete, then try again. A refused save (Ctrl+S, autosave) gives its line
 without selecting it.
 
+The input fields (passwords, vault secrets, prompts, tab and key names,
+Find & Replace) refuse such a character the same way: the action stops
+with "This field held an invalid character", nothing is saved, compared
+or counted as a wrong password, and the dialog stays open. A password
+field is emptied: type the password again. In a visible field the
+character is selected: press Delete. Search fields show it as a
+replacement mark and keep working. Before this fix, a password typed with
+half of an emoji in it was saved as the text `Decoding error`: if a note,
+an SSH key, a steganography image or a backup was protected that way,
+type `Decoding error` to open it, then change its password.
+
 ## 7. Tabs
 
 **What it does.** One LockNote file holds up to 20 tabs, each with its own

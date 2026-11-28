@@ -292,7 +292,14 @@ impl TotpSetupDialog {
                 nwg::Event::OnTextInput if add && handle == txt_secret.handle => {
                     // The text typed, the secret and the link holding it are
                     // wiped on drop, at each keystroke (issue #35).
-                    let typed = zeroize::Zeroizing::new(txt_secret.text());
+                    // Half of a typed emoji (or any invalid text) is not a
+                    // valid secret: no link, as for any other invalid input.
+                    // Verify and Add tell why.
+                    let Ok(typed) = crate::ui::field_text::read(txt_secret.handle) else {
+                        txt_uri.set_text("");
+                        lbl_status.set_text("");
+                        return;
+                    };
                     match totp::parse_secret_input(&typed).map(zeroize::Zeroizing::new) {
                         Ok(s) => {
                             let uri = zeroize::Zeroizing::new(totp::build_uri(&name_owned, &s, Some("LockNote")));
@@ -312,14 +319,22 @@ impl TotpSetupDialog {
                         // Wiped on drop, moved (not copied) to the caller's
                         // clipboard guard; the one it replaces is wiped
                         // (issue #38).
-                        let secret_text = Zeroizing::new(txt_secret.text());
+                        let Some(secret_text) =
+                            crate::ui::field_text::read_visible(txt_secret.handle, "totp.secret", |m| lbl_status.set_text(m))
+                        else {
+                            return;
+                        };
                         let result = set_clipboard_text(&secret_text);
                         if result.is_ok() {
                             *copied_clone.borrow_mut() = Some(secret_text);
                         }
                         lbl_status.set_text(&crate::ui::copy_feedback(&result, &t("totp.secret.copied")));
                     } else if handle == btn_verify.handle {
-                        let code = txt_code.text();
+                        let Some(code) =
+                            crate::ui::field_text::read_visible(txt_code.handle, "totp.code", |m| lbl_status.set_text(m))
+                        else {
+                            return;
+                        };
                         let code_trimmed = code.trim();
 
                         let now = std::time::SystemTime::now()
@@ -331,7 +346,11 @@ impl TotpSetupDialog {
                         // the field holds now. Wiped on drop, like the text
                         // it comes from (issue #35).
                         let checked = if add {
-                            let typed = zeroize::Zeroizing::new(txt_secret.text());
+                            let Some(typed) = crate::ui::field_text::read_visible(txt_secret.handle, "totp.secret", |m| {
+                                lbl_status.set_text(m)
+                            }) else {
+                                return;
+                            };
                             match totp::parse_secret_input(&typed) {
                                 Ok(s) => zeroize::Zeroizing::new(s),
                                 Err(e) => {
@@ -351,7 +370,11 @@ impl TotpSetupDialog {
                             lbl_status.set_text(&t("2fa.setup.invalid"));
                         }
                     } else if handle == btn_confirm.handle && add {
-                        let typed = zeroize::Zeroizing::new(txt_secret.text());
+                        let Some(typed) = crate::ui::field_text::read_visible(txt_secret.handle, "totp.secret", |m| {
+                            nwg::modal_info_message(window_handle, &t("totp.add.title"), m);
+                        }) else {
+                            return;
+                        };
                         match totp::parse_secret_input(&typed) {
                             Ok(s) => {
                                 eprintln!("INFO totp: key added name_len={}", name_owned.len());

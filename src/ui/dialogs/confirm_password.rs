@@ -142,7 +142,11 @@ impl ConfirmPasswordDialog {
             match evt {
                 nwg::Event::OnButtonClick => {
                     if handle == btn_ok.handle {
-                        let pw: Zeroizing<String> = Zeroizing::new(txt_password.text());
+                        let Some(pw) = crate::ui::field_text::read_masked(txt_password.handle, "confirmpwd.password", |m| {
+                            lbl_error.set_text(m)
+                        }) else {
+                            return;
+                        };
                         if constant_time_eq(pw.as_bytes(), expected.as_bytes()) {
                             *result_clone.borrow_mut() = true;
                             txt_password.set_text("");
